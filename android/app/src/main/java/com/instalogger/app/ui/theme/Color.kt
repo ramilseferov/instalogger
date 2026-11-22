@@ -2,27 +2,53 @@ package com.instalogger.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+// Primary Accents
 val AccentBlue = Color(0xFF0C7FF2)
-val AccentBlueDark = Color(0xFF0A65C2)
+val AccentBlueDark = Color(0xFF0960B6)
 val AccentBlueLight = Color(0xFFE8F2FD)
+val AccentBlueSubtleLight = Color(0xFFEEF5FF)
+val AccentBlueSubtleDark = Color(0xFF14243C)
 
-val BackgroundLight = Color(0xFFF8F9FA)
+// Light Theme Ergonomic Surfaces & Tonal Containers
+val BackgroundLight = Color(0xFFF4F5F8)
 val SurfaceLight = Color(0xFFFFFFFF)
-val SurfaceVariantLight = Color(0xFFF1F3F5)
-val TextPrimaryLight = Color(0xFF1A1C1E)
-val TextSecondaryLight = Color(0xFF72777A)
-val BorderLight = Color(0xFFE5E7EB)
+val SurfaceVariantLight = Color(0xFFECEFF3)
+val SurfaceContainerLowestLight = Color(0xFFFFFFFF)
+val SurfaceContainerLowLight = Color(0xFFF9FAFC)
+val SurfaceContainerLight = Color(0xFFF0F2F6)
+val SurfaceContainerHighLight = Color(0xFFE6E9EF)
+val SurfaceContainerHighestLight = Color(0xFFDCE0E7)
+val TextPrimaryLight = Color(0xFF16181B)
+val TextSecondaryLight = Color(0xFF6B7280)
+val BorderLight = Color(0xFFE2E5E9)
+val HairlineBorderLight = Color(0x1F000000)
 
-val BackgroundDark = Color(0xFF121316)
-val SurfaceDark = Color(0xFF1E1F24)
-val SurfaceVariantDark = Color(0xFF2B2D33)
-val TextPrimaryDark = Color(0xFFF1F3F5)
-val TextSecondaryDark = Color(0xFF9AA0A6)
-val BorderDark = Color(0xFF2E3138)
+// Dark Theme Ergonomic Surfaces & Tonal Containers
+val BackgroundDark = Color(0xFF0D0E12)
+val SurfaceDark = Color(0xFF15171C)
+val SurfaceVariantDark = Color(0xFF22252C)
+val SurfaceContainerLowestDark = Color(0xFF0A0B0E)
+val SurfaceContainerLowDark = Color(0xFF111317)
+val SurfaceContainerDark = Color(0xFF191B21)
+val SurfaceContainerHighDark = Color(0xFF23262E)
+val SurfaceContainerHighestDark = Color(0xFF2D313B)
+val TextPrimaryDark = Color(0xFFF3F4F6)
+val TextSecondaryDark = Color(0xFF9CA3AF)
+val BorderDark = Color(0xFF272A32)
+val HairlineBorderDark = Color(0x29FFFFFF)
 
+// Status & Indicator Colors
 val StatusGreen = Color(0xFF10B981)
 val StatusGreenLight = Color(0xFFE6F4EA)
+val StatusGreenDark = Color(0xFF064E3B)
+val StatusGreenSubtleDark = Color(0xFF112920)
+
 val StatusAmber = Color(0xFFF59E0B)
 val StatusAmberLight = Color(0xFFFEF3C7)
+val StatusAmberDark = Color(0xFF78350F)
+val StatusAmberSubtleDark = Color(0xFF33200B)
+
 val StatusRed = Color(0xFFEF4444)
 val StatusRedLight = Color(0xFFFEE2E2)
+val StatusRedDark = Color(0xFF7F1D1D)
+val StatusRedSubtleDark = Color(0xFF351212)

@@ -1,15 +1,19 @@
 package com.instalogger.app.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.instalogger.app.R
+import com.instalogger.app.ui.animation.bouncyClickable
 
 @Composable
 fun AddTargetDialog(
@@ -19,20 +23,23 @@ fun AddTargetDialog(
     var username by remember { mutableStateOf("") }
     var turbo by remember { mutableStateOf(false) }
 
+    val dialogShape = RoundedCornerShape(28.dp)
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
                 text = stringResource(R.string.dialog_add_title),
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
         },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 OutlinedTextField(
@@ -42,11 +49,21 @@ fun AddTargetDialog(
                     placeholder = { Text(stringResource(R.string.dialog_username_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    )
                 )
 
+                val turboPodShape = RoundedCornerShape(16.dp)
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(turboPodShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, turboPodShape)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -54,11 +71,12 @@ fun AddTargetDialog(
                         Text(
                             text = stringResource(R.string.dialog_turbo_label),
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = stringResource(R.string.dialog_turbo_desc),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -78,7 +96,10 @@ fun AddTargetDialog(
                     }
                 },
                 enabled = username.isNotBlank(),
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.bouncyClickable(enabled = username.isNotBlank(), pressScale = 0.94f) {
+                    if (username.isNotBlank()) onConfirm(username.trim(), turbo)
+                }
             ) {
                 Text(stringResource(R.string.dialog_confirm))
             }
@@ -86,11 +107,13 @@ fun AddTargetDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(14.dp)
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.bouncyClickable(pressScale = 0.94f, onClick = onDismiss)
             ) {
                 Text(stringResource(R.string.dialog_cancel))
             }
         },
-        shape = RoundedCornerShape(26.dp)
+        shape = dialogShape,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     )
 }

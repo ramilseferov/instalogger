@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.data.local.*
+import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.util.ArchiveDirectoryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,6 +33,39 @@ class ProfileInspector(
         .build()
 
     private val gson = Gson()
+
+    private suspend fun dispatchAlert(
+        targetUsername: String,
+        eventType: String,
+        title: String,
+        message: String,
+        timestamp: Long
+    ) {
+        val app = context.applicationContext as? InstaLoggerApp
+        val settings = app?.settingsManager
+        var notifId = timestamp
+
+        if (settings == null || settings.inAppNotifications.value) {
+            notifId = database.notificationDao().insertNotification(
+                NotificationEntity(
+                    targetId = targetUsername,
+                    username = targetUsername,
+                    eventType = eventType,
+                    title = title,
+                    message = message,
+                    timestamp = timestamp
+                )
+            )
+        }
+
+        InstaLoggerForegroundService.instance?.showAlertNotification(
+            id = notifId,
+            title = title,
+            message = message,
+            eventType = eventType
+        )
+        onAlertNotification(title, message)
+    }
 
     suspend fun inspectTarget(username: String): Result<TargetEntity> = withContext(Dispatchers.IO) {
         val targetDao = database.targetDao()
@@ -123,17 +158,13 @@ class ProfileInspector(
                                 timestamp = now
                             )
                         )
-                        notificationDao.insertNotification(
-                            NotificationEntity(
-                                targetId = cleanUser,
-                                username = cleanUser,
-                                eventType = "avatar_change",
-                                title = title,
-                                message = desc,
-                                timestamp = now
-                            )
+                        dispatchAlert(
+                            targetUsername = cleanUser,
+                            eventType = "avatar_change",
+                            title = title,
+                            message = desc,
+                            timestamp = now
                         )
-                        onAlertNotification(title, desc)
                     }
                 }
             }
@@ -158,17 +189,13 @@ class ProfileInspector(
                     timestamp = now
                 )
             )
-            notificationDao.insertNotification(
-                NotificationEntity(
-                    targetId = cleanUser,
-                    username = cleanUser,
-                    eventType = "privacy_change",
-                    title = title,
-                    message = desc,
-                    timestamp = now
-                )
+            dispatchAlert(
+                targetUsername = cleanUser,
+                eventType = "privacy_change",
+                title = title,
+                message = desc,
+                timestamp = now
             )
-            onAlertNotification(title, desc)
         }
 
         // 3. Check post count change
@@ -185,17 +212,13 @@ class ProfileInspector(
                     timestamp = now
                 )
             )
-            notificationDao.insertNotification(
-                NotificationEntity(
-                    targetId = cleanUser,
-                    username = cleanUser,
-                    eventType = "post_count_change",
-                    title = title,
-                    message = desc,
-                    timestamp = now
-                )
+            dispatchAlert(
+                targetUsername = cleanUser,
+                eventType = "post_count_change",
+                title = title,
+                message = desc,
+                timestamp = now
             )
-            onAlertNotification(title, desc)
         }
 
         // 4. Check biography change

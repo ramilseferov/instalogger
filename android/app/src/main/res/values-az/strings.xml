@@ -135,4 +135,39 @@
     <string name="service_notification_title">InstaLogger Arxa Fona Nəzarət</string>
     <string name="service_notification_desc">Instagram profilləri anlıq olaraq izlənilir</string>
     <string name="alert_notification_channel">InstaLogger Bildirişləri</string>
+
+    <!-- Theme & Appearance -->
+    <string name="theme_section_title">Görünüş və Tema</string>
+    <string name="theme_section_desc">Tətbiqin rəng palitrası və görünüş rejimini seçin.</string>
+    <string name="theme_light">Açıq Rejim</string>
+    <string name="theme_light_desc">Parlaq və aydın interfeys</string>
+    <string name="theme_dark">Qaranlıq Rejim</string>
+    <string name="theme_dark_desc">Gözü yormayan dərin qara və tünd çalarlar</string>
+    <string name="theme_system">Sistem Uyğunluğu</string>
+    <string name="theme_system_desc">Cihazın sistem görünüşünə avtomatik uyğunlaşır</string>
+
+    <!-- Notification Settings -->
+    <string name="section_notifications">Bildirişlər və Xəbərdarlıqlar</string>
+    <string name="section_notifications_desc">Android kanalları, səs, titrəyiş və bildiriş kateqoriyaları.</string>
+    <string name="notif_status_bar_title">Telefon Bildirişləri</string>
+    <string name="notif_status_bar_desc">Telefonda başlıq və səsli bildirişlər göstərilsin</string>
+    <string name="notif_in_app_title">Tətbiqdaxili Bildirişlər</string>
+    <string name="notif_in_app_desc">Dəyişikliklər bildiriş mərkəzində toplansın</string>
+    <string name="notif_sound_title">Bildiriş Səsi</string>
+    <string name="notif_sound_desc">Yeni dəyişiklik aşkarlandıqda səs siqnalı verilsin</string>
+    <string name="notif_vibration_title">Titrəyiş</string>
+    <string name="notif_vibration_desc">Yeni siqnallarda vibrasiya zərbəsi</string>
+    <string name="notif_categories_title">Bildiriş Kanalları və Kateqoriyalar</string>
+    <string name="notif_categories_desc">Fərdi xəbərdarlıq növlərini tənzimləyin</string>
+    <string name="notif_cat_profile_title">Profil və Avatar Yeniləmələri</string>
+    <string name="notif_cat_profile_desc">Avatar, bio və ad dəyişiklikləri siqnalları</string>
+    <string name="notif_cat_privacy_title">Məxfilik və Hesab Statusu</string>
+    <string name="notif_cat_privacy_desc">Hesabın Gizli (Private) və ya Açıq (Public) edilməsi</string>
+    <string name="notif_cat_activity_title">Paylaşım və Aktivlik</string>
+    <string name="notif_cat_activity_desc">Post, izləyici və izlənilən sayı dalğalanmaları</string>
+    <string name="notif_cat_system_title">Sistem və Xidmət Siqnalları</string>
+    <string name="notif_cat_system_desc">Xidmət işə salınması, batareya və sessiya xəbərdarlıqları</string>
+    <string name="btn_open_system_notifs">Android Bildiriş Ayarlarını Aç</string>
+    <string name="btn_open_system_notifs_desc">Sistem səviyyəli kilid ekranı, prioritet və zəng səsi</string>
+    <string name="notif_settings_sheet_title">Bildiriş Tənzimləmələri</string>
 </resources>

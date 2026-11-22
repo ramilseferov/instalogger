@@ -1,7 +1,10 @@
 package com.instalogger.app.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -29,6 +33,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
+import com.instalogger.app.ui.animation.MotionSpecs
+import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
 import kotlinx.coroutines.launch
@@ -78,10 +84,21 @@ fun ProfileDetailScreen(
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                 onNavigationClick = onBack,
                 actions = {
-                    RotatingRefreshButton(
-                        isRefreshing = isRefreshing,
-                        onClick = { refreshTargetData() }
-                    )
+                    val refreshShape = RoundedCornerShape(12.dp)
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(38.dp)
+                            .clip(refreshShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, refreshShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        RotatingRefreshButton(
+                            isRefreshing = isRefreshing,
+                            onClick = { refreshTargetData() }
+                        )
+                    }
                 }
             )
         },
@@ -95,7 +112,7 @@ fun ProfileDetailScreen(
                 .padding(padding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Profile Header Card
+                // Profile Hero Card
                 target?.let { t ->
                     val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, t.username)
                     val localFile = t.localAvatarPath?.let { File(it) }
@@ -104,20 +121,22 @@ fun ProfileDetailScreen(
                         localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
                         else -> null
                     }
-                    val hasLocalPic = resolvedFile != null
 
-                    Card(
+                    val heroShape = RoundedCornerShape(26.dp)
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        shape = RoundedCornerShape(26.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .clip(heroShape)
+                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, heroShape),
+                        shape = heroShape,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        tonalElevation = 2.dp
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(20.dp)
+                                .padding(18.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -136,18 +155,21 @@ fun ProfileDetailScreen(
                                         model = topImageSource,
                                         contentDescription = t.username,
                                         modifier = Modifier
-                                            .size(64.dp)
+                                            .size(66.dp)
                                             .clip(CircleShape)
-                                            .border(2.dp, AccentBlue, CircleShape)
-                                            .clickable { previewImagePath = (topImageSource as? File)?.absolutePath ?: topImageSource.toString() },
+                                            .border(2.dp, AccentBlue.copy(alpha = 0.8f), CircleShape)
+                                            .bouncyClickable(pressScale = 0.92f) {
+                                                previewImagePath = (topImageSource as? File)?.absolutePath ?: topImageSource.toString()
+                                            },
                                         contentScale = ContentScale.Crop
                                     )
                                 } else {
                                     Box(
                                         modifier = Modifier
-                                            .size(64.dp)
+                                            .size(66.dp)
                                             .clip(CircleShape)
-                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -200,26 +222,30 @@ fun ProfileDetailScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
 
-                            val followersDisplay = "${t.followersCount}"
-                            val followingDisplay = "${t.followingCount}"
-                            val postsDisplay = "${t.mediaCount}"
-
+                            // Grouped stats pod
+                            val statsPodShape = RoundedCornerShape(16.dp)
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(statsPodShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, statsPodShape)
+                                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = followersDisplay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = "${t.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.followers), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = followingDisplay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = "${t.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = postsDisplay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = "${t.mediaCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.posts), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
@@ -227,24 +253,103 @@ fun ProfileDetailScreen(
                     }
                 }
 
-                // Tabs
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.background,
-                    contentColor = AccentBlue
+                // Ergonomic Sliding Pill Tab Row
+                val tabContainerShape = RoundedCornerShape(20.dp)
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(tabContainerShape)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, tabContainerShape),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = tabContainerShape
                 ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text(stringResource(R.string.tab_audit_logs, logs.size)) },
-                        icon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text(stringResource(R.string.tab_avatar_history, avatars.size)) },
-                        icon = { Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Audit Logs Tab
+                        val isTab0 = selectedTab == 0
+                        val pill0Shape = RoundedCornerShape(16.dp)
+                        val color0 by animateColorAsState(
+                            targetValue = if (isTab0) MaterialTheme.colorScheme.surface else Color.Transparent,
+                            animationSpec = tween(180),
+                            label = "tab0_bg"
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(pill0Shape)
+                                .background(color0)
+                                .then(
+                                    if (isTab0) Modifier.border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pill0Shape)
+                                    else Modifier
+                                )
+                                .bouncyClickable(pressScale = 0.94f) { selectedTab = 0 }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = if (isTab0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.tab_audit_logs, logs.size),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isTab0) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isTab0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Avatar History Tab
+                        val isTab1 = selectedTab == 1
+                        val pill1Shape = RoundedCornerShape(16.dp)
+                        val color1 by animateColorAsState(
+                            targetValue = if (isTab1) MaterialTheme.colorScheme.surface else Color.Transparent,
+                            animationSpec = tween(180),
+                            label = "tab1_bg"
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(pill1Shape)
+                                .background(color1)
+                                .then(
+                                    if (isTab1) Modifier.border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pill1Shape)
+                                    else Modifier
+                                )
+                                .bouncyClickable(pressScale = 0.94f) { selectedTab = 1 }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Image,
+                                    contentDescription = null,
+                                    tint = if (isTab1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.tab_avatar_history, avatars.size),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isTab1) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isTab1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
 
                 when (selectedTab) {
@@ -270,16 +375,24 @@ fun ProfileDetailScreen(
                             ) {
                                 items(logs, key = { it.id }) { log ->
                                     if (log.eventType == "avatar_change") {
-                                        AvatarComparisonCard(log = log)
+                                        AvatarComparisonCard(
+                                            log = log,
+                                            modifier = Modifier.animateItem()
+                                        )
                                     } else {
                                         val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
                                         val formattedTime = timeFormat.format(Date(log.timestamp))
 
-                                        Card(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(18.dp),
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                                        val itemShape = RoundedCornerShape(20.dp)
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(itemShape)
+                                                .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, itemShape)
+                                                .animateItem(),
+                                            shape = itemShape,
+                                            color = MaterialTheme.colorScheme.surfaceContainer,
+                                            tonalElevation = 1.dp
                                         ) {
                                             Column(modifier = Modifier.padding(16.dp)) {
                                                 Row(
@@ -348,13 +461,19 @@ fun ProfileDetailScreen(
                                     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
                                     val formattedDate = timeFormat.format(Date(avatar.archivedAt))
 
-                                    Card(
+                                    val itemShape = RoundedCornerShape(20.dp)
+                                    Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { previewImagePath = (imageModel as? File)?.absolutePath ?: avatar.localPath },
-                                        shape = RoundedCornerShape(20.dp),
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                                            .clip(itemShape)
+                                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, itemShape)
+                                            .bouncyClickable(pressScale = 0.97f) {
+                                                previewImagePath = (imageModel as? File)?.absolutePath ?: avatar.localPath
+                                            }
+                                            .animateItem(),
+                                        shape = itemShape,
+                                        color = MaterialTheme.colorScheme.surfaceContainer,
+                                        tonalElevation = 1.dp
                                     ) {
                                         Row(
                                             modifier = Modifier
@@ -369,7 +488,7 @@ fun ProfileDetailScreen(
                                                 modifier = Modifier
                                                     .size(64.dp)
                                                     .clip(RoundedCornerShape(16.dp))
-                                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp)),
+                                                    .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
                                                 contentScale = ContentScale.Crop
                                             )
                                             Column(modifier = Modifier.weight(1f)) {
@@ -406,12 +525,15 @@ fun ProfileDetailScreen(
     // Full screen image preview dialog
     if (previewImagePath != null) {
         Dialog(onDismissRequest = { previewImagePath = null }) {
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            val dialogShape = RoundedCornerShape(26.dp)
+            Surface(
+                shape = dialogShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 6.dp,
+                modifier = Modifier.border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, dialogShape)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     AsyncImage(
@@ -419,13 +541,14 @@ fun ProfileDetailScreen(
                         contentDescription = stringResource(R.string.preview_title),
                         modifier = Modifier
                             .size(280.dp)
-                            .clip(RoundedCornerShape(18.dp)),
+                            .clip(RoundedCornerShape(20.dp)),
                         contentScale = ContentScale.Crop
                     )
                     Spacer(modifier = Modifier.height(14.dp))
-                    TextButton(
+                    Button(
                         onClick = { previewImagePath = null },
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.bouncyClickable(onClick = { previewImagePath = null })
                     ) {
                         Text(stringResource(R.string.dialog_close))
                     }

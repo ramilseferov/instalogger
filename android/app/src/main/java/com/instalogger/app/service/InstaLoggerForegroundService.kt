@@ -11,6 +11,7 @@ import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.MainActivity
 import com.instalogger.app.R
 import com.instalogger.app.engine.ProfileInspector
+import com.instalogger.app.settings.NotificationCategory
 import kotlinx.coroutines.*
 
 class InstaLoggerForegroundService : Service() {
@@ -21,6 +22,7 @@ class InstaLoggerForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         startInForeground()
         startMonitoringLoop()
     }
@@ -91,7 +93,15 @@ class InstaLoggerForegroundService : Service() {
         }
     }
 
-    fun showAlertNotification(id: Long, title: String, message: String) {
+    fun showAlertNotification(id: Long, title: String, message: String, eventType: String? = null) {
+        val app = application as InstaLoggerApp
+        val settings = app.settingsManager
+
+        if (!settings.isNotificationAllowed(eventType)) return
+
+        val cat = NotificationCategory.fromEventType(eventType)
+        val channelId = cat.channelId
+
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val contentIntent = Intent(this, MainActivity::class.java).apply {
@@ -115,7 +125,7 @@ class InstaLoggerForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notification = NotificationCompat.Builder(this, InstaLoggerApp.CHANNEL_ALERTS_ID)
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(message)
@@ -128,9 +138,15 @@ class InstaLoggerForegroundService : Service() {
                 getString(R.string.action_mark_read),
                 pendingMarkRead
             )
-            .build()
 
-        notificationManager.notify(id.toInt(), notification)
+        if (!settings.soundEnabled.value) {
+            builder.setSilent(true)
+        }
+        if (!settings.vibrationEnabled.value) {
+            builder.setVibrate(longArrayOf(0L))
+        }
+
+        notificationManager.notify(id.toInt(), builder.build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -139,6 +155,7 @@ class InstaLoggerForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         isRunning = false
         serviceJob.cancel()
     }
@@ -147,6 +164,10 @@ class InstaLoggerForegroundService : Service() {
 
     companion object {
         const val NOTIFICATION_ID = 1001
+
+        @Volatile
+        var instance: InstaLoggerForegroundService? = null
+            private set
 
         fun start(context: Context) {
             val intent = Intent(context, InstaLoggerForegroundService::class.java)

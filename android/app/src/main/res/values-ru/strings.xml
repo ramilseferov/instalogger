@@ -135,4 +135,39 @@
     <string name="service_notification_title">Фоновый мониторинг InstaLogger</string>
     <string name="service_notification_desc">Профили Instagram непрерывно отслеживаются</string>
     <string name="alert_notification_channel">Оповещения InstaLogger</string>
+
+    <!-- Theme & Appearance -->
+    <string name="theme_section_title">Внешний вид и тема</string>
+    <string name="theme_section_desc">Настройка цветовой схемы и темы приложения.</string>
+    <string name="theme_light">Светлая тема</string>
+    <string name="theme_light_desc">Яркий и чистый интерфейс</string>
+    <string name="theme_dark">Темная тема</string>
+    <string name="theme_dark_desc">Глубокие темные оттенки для глаз</string>
+    <string name="theme_system">Как в системе</string>
+    <string name="theme_system_desc">Автоматически подстраивается под настройки устройства</string>
+
+    <!-- Notification Settings -->
+    <string name="section_notifications">Уведомления и оповещения</string>
+    <string name="section_notifications_desc">Настройка каналов, звука, вибрации и категорий событий.</string>
+    <string name="notif_status_bar_title">Системные уведомления</string>
+    <string name="notif_status_bar_desc">Показывать всплывающие баннеры в строке состояния</string>
+    <string name="notif_in_app_title">Внутренние уведомления</string>
+    <string name="notif_in_app_desc">Собирать события в центре уведомлений</string>
+    <string name="notif_sound_title">Звук уведомлений</string>
+    <string name="notif_sound_desc">Воспроизводить звук при обнаружении изменений</string>
+    <string name="notif_vibration_title">Вибрация</string>
+    <string name="notif_vibration_desc">Виброотклик при поступлении новых сигналов</string>
+    <string name="notif_categories_title">Каналы и категории</string>
+    <string name="notif_categories_desc">Настройка отдельных типов оповещений</string>
+    <string name="notif_cat_profile_title">Обновления профиля и аватара</string>
+    <string name="notif_cat_profile_desc">Оповещения об изменении аватара, био и имени</string>
+    <string name="notif_cat_privacy_title">Конфиденциальность и статус</string>
+    <string name="notif_cat_privacy_desc">Переключение аккаунта в приватный или публичный</string>
+    <string name="notif_cat_activity_title">Публикации и активность</string>
+    <string name="notif_cat_activity_desc">Колебания количества постов и подписчиков</string>
+    <string name="notif_cat_system_title">Служебные и системные сигналы</string>
+    <string name="notif_cat_system_desc">Состояние фоновой службы, батарея и сессия</string>
+    <string name="btn_open_system_notifs">Открыть системные настройки уведомлений</string>
+    <string name="btn_open_system_notifs_desc">Управление звуком, экраном блокировки и каналами ОС</string>
+    <string name="notif_settings_sheet_title">Настройки уведомлений</string>
 </resources>

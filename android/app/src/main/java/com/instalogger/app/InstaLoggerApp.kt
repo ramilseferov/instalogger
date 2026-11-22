@@ -10,7 +10,8 @@ import com.instalogger.app.data.repository.NotificationRepository
 import com.instalogger.app.engine.InstagramEngine
 import com.instalogger.app.engine.ProfileInspector
 import com.instalogger.app.engine.SessionManager
-import com.instalogger.app.service.InstaLoggerForegroundService
+import com.instalogger.app.settings.AppSettingsManager
+import com.instalogger.app.settings.NotificationCategory
 
 class InstaLoggerApp : Application() {
 
@@ -29,9 +30,13 @@ class InstaLoggerApp : Application() {
     lateinit var notificationRepository: NotificationRepository
         private set
 
+    lateinit var settingsManager: AppSettingsManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
 
+        settingsManager = AppSettingsManager.getInstance(this)
         database = AppDatabase.getInstance(this)
         sessionManager = SessionManager(this)
         instagramEngine = InstagramEngine()
@@ -72,6 +77,19 @@ class InstaLoggerApp : Application() {
 
             notificationManager.createNotificationChannel(foregroundChannel)
             notificationManager.createNotificationChannel(alertsChannel)
+
+            NotificationCategory.entries.forEach { cat ->
+                val catChannel = NotificationChannel(
+                    cat.channelId,
+                    getString(cat.titleRes),
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = getString(cat.descRes)
+                    enableVibration(true)
+                    setShowBadge(true)
+                }
+                notificationManager.createNotificationChannel(catChannel)
+            }
         }
     }
 

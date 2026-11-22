@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.instalogger.app.R
 import com.instalogger.app.data.local.NotificationEntity
+import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.StatusRed
 import java.text.SimpleDateFormat
@@ -36,16 +37,19 @@ fun NotificationItem(
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(notification.timestamp))
 
-    Card(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .border(1.dp, MaterialTheme.colorScheme.outline, cardShape),
+            .border(
+                0.75.dp,
+                if (!notification.isRead) AccentBlue.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
+                cardShape
+            )
+            .bouncyClickable(pressScale = 0.98f, onClick = { if (!notification.isRead) onMarkRead() }),
         shape = cardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (notification.isRead) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        color = if (notification.isRead) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = if (notification.isRead) 1.dp else 3.dp
     ) {
         Row(
             modifier = Modifier
@@ -54,11 +58,20 @@ fun NotificationItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            val iconShape = RoundedCornerShape(14.dp)
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(if (notification.isRead) MaterialTheme.colorScheme.surfaceVariant else AccentBlue.copy(alpha = 0.15f)),
+                    .size(44.dp)
+                    .clip(iconShape)
+                    .background(
+                        if (notification.isRead) MaterialTheme.colorScheme.surfaceContainerHighest
+                        else AccentBlue.copy(alpha = 0.16f)
+                    )
+                    .border(
+                        0.5.dp,
+                        if (notification.isRead) MaterialTheme.colorScheme.outlineVariant else AccentBlue.copy(alpha = 0.3f),
+                        iconShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -70,21 +83,36 @@ fun NotificationItem(
             }
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = notification.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (notification.isRead) FontWeight.Medium else FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = notification.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (notification.isRead) FontWeight.SemiBold else FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (!notification.isRead) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(AccentBlue)
+                        )
+                    }
+                }
+
                 Text(
                     text = formattedTime,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Spacer(modifier = Modifier.height(3.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = notification.message,
@@ -93,29 +121,40 @@ fun NotificationItem(
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                val actionShape = RoundedCornerShape(10.dp)
                 if (!notification.isRead) {
-                    IconButton(
-                        onClick = onMarkRead,
-                        modifier = Modifier.size(34.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(actionShape)
+                            .background(AccentBlue.copy(alpha = 0.12f))
+                            .border(0.5.dp, AccentBlue.copy(alpha = 0.25f), actionShape)
+                            .bouncyClickable(pressScale = 0.88f, onClick = onMarkRead),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = stringResource(R.string.action_mark_read),
                             tint = AccentBlue,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                     }
                 }
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(34.dp)
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(actionShape)
+                        .background(StatusRed.copy(alpha = 0.1f))
+                        .border(0.5.dp, StatusRed.copy(alpha = 0.22f), actionShape)
+                        .bouncyClickable(pressScale = 0.88f, onClick = onDelete),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = stringResource(R.string.action_delete),
                         tint = StatusRed,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }

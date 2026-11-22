@@ -1,7 +1,7 @@
 package com.instalogger.app.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.instalogger.app.R
 import com.instalogger.app.data.local.TargetEntity
+import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.StatusRed
 import java.io.File
@@ -38,33 +39,31 @@ fun TargetCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(26.dp)
+    val cardShape = RoundedCornerShape(24.dp)
     val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
     val lastCheckStr = target.lastCheckedAt?.let {
         stringResource(R.string.last_checked_format, timeFormat.format(Date(it)))
     } ?: stringResource(R.string.never_checked)
 
-    Card(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .border(1.dp, MaterialTheme.colorScheme.outline, cardShape)
-            .clickable { onClick() },
+            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, cardShape)
+            .bouncyClickable(pressScale = 0.97f, onClick = onClick),
         shape = cardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 2.dp
     ) {
         Column(
             modifier = Modifier
-                .padding(20.dp)
                 .fillMaxWidth()
+                .padding(18.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // Profile Avatar Thumbnail
                 val context = androidx.compose.ui.platform.LocalContext.current
@@ -88,20 +87,12 @@ fun TargetCard(
                         model = coil.request.ImageRequest.Builder(context)
                             .data(imageSource)
                             .crossfade(true)
-                            .listener(
-                                onError = { _, result ->
-                                    android.util.Log.e("TargetCard", "Coil failed to load: $imageSource", result.throwable)
-                                },
-                                onSuccess = { _, _ ->
-                                    android.util.Log.i("TargetCard", "Coil successfully loaded: $imageSource")
-                                }
-                            )
                             .build(),
                         contentDescription = target.username,
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .border(1.5.dp, AccentBlue, CircleShape),
+                            .border(1.5.dp, AccentBlue.copy(alpha = 0.8f), CircleShape),
                         contentScale = ContentScale.Crop
                     )
                 } else {
@@ -109,7 +100,8 @@ fun TargetCard(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -121,9 +113,7 @@ fun TargetCard(
                     }
                 }
 
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "@${target.username}",
                         style = MaterialTheme.typography.titleMedium,
@@ -143,7 +133,7 @@ fun TargetCard(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -157,31 +147,28 @@ fun TargetCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Stats row (No overflow, equal distribution)
-            val followersVal = target.followersCount.toString()
-            val followingVal = target.followingCount.toString()
-            val postsVal = target.mediaCount.toString()
-
+            // Ergonomic Grouped Stats Container
+            val statsShape = RoundedCornerShape(16.dp)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .clip(statsShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, statsShape)
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                StatItem(label = stringResource(R.string.followers), value = followersVal, modifier = Modifier.weight(1f))
-                StatItem(label = stringResource(R.string.following), value = followingVal, modifier = Modifier.weight(1f))
-                StatItem(label = stringResource(R.string.posts), value = postsVal, modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.followers), value = target.followersCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.following), value = target.followingCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.posts), value = target.mediaCount.toString(), modifier = Modifier.weight(1f))
             }
 
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 12.dp),
-                thickness = 0.5.dp,
-                color = MaterialTheme.colorScheme.outline
-            )
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Bottom Action Row
+            // Bottom Action & Status Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -196,17 +183,38 @@ fun TargetCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Smooth rotating refresh button
-                    RotatingRefreshButton(
-                        isRefreshing = isChecking,
-                        onClick = onCheckNow,
-                        modifier = Modifier.size(36.dp)
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val actionButtonShape = RoundedCornerShape(12.dp)
 
-                    IconButton(
-                        onClick = { onToggleTurbo(!target.isTurbo) },
-                        modifier = Modifier.size(36.dp)
+                    // Refresh Button Pod
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(actionButtonShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, actionButtonShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        RotatingRefreshButton(
+                            isRefreshing = isChecking,
+                            onClick = onCheckNow,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+
+                    // Turbo Toggle Pod
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(actionButtonShape)
+                            .background(if (target.isTurbo) AccentBlue.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(
+                                0.5.dp,
+                                if (target.isTurbo) AccentBlue.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
+                                actionButtonShape
+                            )
+                            .bouncyClickable(pressScale = 0.88f) { onToggleTurbo(!target.isTurbo) },
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Bolt,
@@ -216,15 +224,21 @@ fun TargetCard(
                         )
                     }
 
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(36.dp)
+                    // Delete Pod
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(actionButtonShape)
+                            .background(StatusRed.copy(alpha = 0.1f))
+                            .border(0.5.dp, StatusRed.copy(alpha = 0.25f), actionButtonShape)
+                            .bouncyClickable(pressScale = 0.88f, onClick = onDelete),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = stringResource(R.string.action_delete),
                             tint = StatusRed,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                     }
                 }
@@ -235,7 +249,10 @@ fun TargetCard(
 
 @Composable
 private fun StatItem(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium,

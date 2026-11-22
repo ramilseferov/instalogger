@@ -1,8 +1,14 @@
 package com.instalogger.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -12,6 +18,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -21,10 +28,14 @@ import androidx.compose.ui.unit.dp
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.data.local.TargetEntity
+import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.AddTargetDialog
-import com.instalogger.app.ui.components.InstaLoggerTopBar
+import com.instalogger.app.ui.components.HeaderActionButton
+import com.instalogger.app.ui.components.ReachabilityHeader
 import com.instalogger.app.ui.components.RotatingRefreshButton
+import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.components.TargetCard
+import com.instalogger.app.ui.theme.AccentBlue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,19 +107,33 @@ fun DashboardScreen(
 
     Scaffold(
         topBar = {
-            InstaLoggerTopBar(
+            ReachabilityHeader(
                 title = stringResource(R.string.dashboard_title),
                 subtitle = stringResource(R.string.dashboard_subtitle),
+                badgeContent = {
+                    if (targets.isNotEmpty()) {
+                        val turboCount = targets.count { it.isTurbo }
+                        StatusBadge(
+                            text = "${targets.size} Aktív" + if (turboCount > 0) " • $turboCount Turbo" else "",
+                            containerColor = AccentBlue.copy(alpha = 0.14f),
+                            contentColor = AccentBlue,
+                            borderColor = AccentBlue.copy(alpha = 0.28f)
+                        )
+                    }
+                },
                 actions = {
-                    RotatingRefreshButton(
-                        isRefreshing = isGlobalRefreshing,
-                        onClick = { refreshAllTargets() }
-                    )
-                    IconButton(onClick = { showAddDialog = true }) {
+                    HeaderActionButton(onClick = { refreshAllTargets() }) {
+                        RotatingRefreshButton(
+                            isRefreshing = isGlobalRefreshing,
+                            onClick = { refreshAllTargets() }
+                        )
+                    }
+                    HeaderActionButton(onClick = { showAddDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = stringResource(R.string.btn_add_target),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -118,13 +143,15 @@ fun DashboardScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
-                shape = RoundedCornerShape(18.dp),
-                containerColor = MaterialTheme.colorScheme.primary
+                shape = RoundedCornerShape(20.dp),
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.bouncyClickable(pressScale = 0.92f, onClick = { showAddDialog = true })
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = stringResource(R.string.btn_add_target),
-                    tint = MaterialTheme.colorScheme.onPrimary
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
@@ -137,47 +164,84 @@ fun DashboardScreen(
                 .padding(padding)
         ) {
             if (targets.isEmpty()) {
-                Column(
+                val emptyShape = RoundedCornerShape(24.dp)
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Security,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = stringResource(R.string.dashboard_empty_title),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = stringResource(R.string.dashboard_empty_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { showAddDialog = true },
-                        shape = RoundedCornerShape(14.dp)
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(emptyShape)
+                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, emptyShape),
+                        shape = emptyShape,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        tonalElevation = 2.dp
                     ) {
-                        Text(stringResource(R.string.btn_add_target))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            val iconBgShape = CircleShape
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(iconBgShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, iconBgShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(36.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(18.dp))
+
+                            Text(
+                                text = stringResource(R.string.dashboard_empty_title),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = stringResource(R.string.dashboard_empty_desc),
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Spacer(modifier = Modifier.height(22.dp))
+
+                            Button(
+                                onClick = { showAddDialog = true },
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.bouncyClickable(pressScale = 0.94f, onClick = { showAddDialog = true })
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.btn_add_target))
+                            }
+                        }
                     }
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     items(targets, key = { it.username }) { target ->
@@ -205,7 +269,6 @@ fun DashboardScreen(
                                 }
                             },
                             onToggleTurbo = { newTurbo ->
-                                // Instant optimistic update
                                 targets = targets.map { if (it.username == target.username) it.copy(isTurbo = newTurbo) else it }
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
@@ -216,7 +279,8 @@ fun DashboardScreen(
                             },
                             onDelete = {
                                 targetToDelete = target
-                            }
+                            },
+                            modifier = Modifier.animateItem()
                         )
                     }
                 }
@@ -300,7 +364,8 @@ fun DashboardScreen(
                     Text(stringResource(R.string.dialog_cancel))
                 }
             },
-            shape = RoundedCornerShape(26.dp)
+            shape = RoundedCornerShape(26.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }
 }

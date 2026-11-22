@@ -135,4 +135,39 @@
     <string name="service_notification_title">InstaLogger Background Monitor</string>
     <string name="service_notification_desc">Instagram profiles are actively being monitored</string>
     <string name="alert_notification_channel">InstaLogger Alerts</string>
+
+    <!-- Theme & Appearance -->
+    <string name="theme_section_title">Appearance &amp; Theme</string>
+    <string name="theme_section_desc">Customize application color scheme and theme mode.</string>
+    <string name="theme_light">Light Mode</string>
+    <string name="theme_light_desc">Bright and clean interface</string>
+    <string name="theme_dark">Dark Mode</string>
+    <string name="theme_dark_desc">Deep dark slate contrast</string>
+    <string name="theme_system">System Default</string>
+    <string name="theme_system_desc">Follows device appearance</string>
+
+    <!-- Notification Settings -->
+    <string name="section_notifications">Notifications &amp; Alerts</string>
+    <string name="section_notifications_desc">Configure alert channels, sounds and system notifications.</string>
+    <string name="notif_status_bar_title">Phone Notifications</string>
+    <string name="notif_status_bar_desc">Show alert banners in Android status bar</string>
+    <string name="notif_in_app_title">In-App Notifications</string>
+    <string name="notif_in_app_desc">Collect events in notification center</string>
+    <string name="notif_sound_title">Sound Alerts</string>
+    <string name="notif_sound_desc">Play audio tone when changes are found</string>
+    <string name="notif_vibration_title">Vibration Feedback</string>
+    <string name="notif_vibration_desc">Haptic vibration pulse on new alerts</string>
+    <string name="notif_categories_title">Alert Categories</string>
+    <string name="notif_categories_desc">Fine-tune individual alert channels</string>
+    <string name="notif_cat_profile_title">Profile &amp; Avatar Changes</string>
+    <string name="notif_cat_profile_desc">Avatar, bio and full name update alerts</string>
+    <string name="notif_cat_privacy_title">Privacy &amp; Account Status</string>
+    <string name="notif_cat_privacy_desc">Private to Public account status switches</string>
+    <string name="notif_cat_activity_title">Posts &amp; Activity</string>
+    <string name="notif_cat_activity_desc">Post count and followers/following shifts</string>
+    <string name="notif_cat_system_title">Service &amp; System Alerts</string>
+    <string name="notif_cat_system_desc">Daemon health, battery and session warnings</string>
+    <string name="btn_open_system_notifs">Open Android Notification Settings</string>
+    <string name="btn_open_system_notifs_desc">Native OS sound, lock screen and channel controls</string>
+    <string name="notif_settings_sheet_title">Notification Settings</string>
 </resources>

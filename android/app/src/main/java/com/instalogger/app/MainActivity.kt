@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -32,6 +33,10 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.instalogger.app.service.BatteryHelper
 import com.instalogger.app.service.InstaLoggerForegroundService
+import com.instalogger.app.ui.animation.MotionSpecs
+import com.instalogger.app.ui.components.AnimatedBottomBar
+import com.instalogger.app.ui.components.LanguageBlurOverlay
+import com.instalogger.app.ui.components.languageTransitionBlur
 import com.instalogger.app.ui.screens.*
 import com.instalogger.app.ui.theme.InstaLoggerTheme
 import com.instalogger.app.util.LanguageManager
@@ -78,6 +83,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val currentLanguage by LanguageManager.currentLanguage.collectAsState()
+            val themeMode by app.settingsManager.themeMode.collectAsState()
             val localizedContext = remember(currentLanguage) {
                 LanguageManager.getLocalizedContext(this@MainActivity, currentLanguage)
             }
@@ -89,11 +95,21 @@ class MainActivity : ComponentActivity() {
                 LocalContext provides localizedContext,
                 LocalConfiguration provides localizedConfiguration
             ) {
-                InstaLoggerTheme {
+                InstaLoggerTheme(themeMode = themeMode) {
                     val navController = rememberNavController()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentDestination = navBackStackEntry?.destination
                     val currentRoute = currentDestination?.route
+
+                    val isLanguageTransitioning by LanguageManager.isTransitioning.collectAsState()
+
+                    // Transition safety watchdog: guaranteed release within 600ms
+                    LaunchedEffect(isLanguageTransitioning) {
+                        if (isLanguageTransitioning) {
+                            kotlinx.coroutines.delay(600)
+                            LanguageManager.resetTransition()
+                        }
+                    }
 
                     val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
 
@@ -113,85 +129,74 @@ class MainActivity : ComponentActivity() {
 
                     val showBottomBar = currentRoute in bottomNavItems.map { it.route }
 
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize(),
-                        bottomBar = {
-                            if (showBottomBar) {
-                                NavigationBar(
-                                    containerColor = MaterialTheme.colorScheme.surface,
-                                    tonalElevation = NavigationBarDefaults.Elevation
-                                ) {
-                                    bottomNavItems.forEach { screen ->
-                                        val isSelected = currentRoute == screen.route
-                                        val title = stringResource(screen.titleRes)
-                                        NavigationBarItem(
-                                            icon = {
-                                                if (screen == Screen.Notifications && unreadCount > 0) {
-                                                    BadgedBox(
-                                                        badge = {
-                                                            Badge {
-                                                                Text(text = if (unreadCount > 99) "99+" else unreadCount.toString())
-                                                            }
-                                                        }
-                                                    ) {
-                                                        Icon(screen.icon, contentDescription = title)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .languageTransitionBlur(isLanguageTransitioning)
+                    ) {
+                        Scaffold(
+                            modifier = Modifier.fillMaxSize(),
+                            bottomBar = {
+                                if (showBottomBar) {
+                                    AnimatedBottomBar(
+                                        items = bottomNavItems,
+                                        currentRoute = currentRoute,
+                                        unreadCount = unreadCount,
+                                        onItemSelected = { screen ->
+                                            if (currentRoute != screen.route) {
+                                                navController.navigate(screen.route) {
+                                                    popUpTo(navController.graph.findStartDestination().id) {
+                                                        saveState = true
                                                     }
-                                                } else {
-                                                    Icon(screen.icon, contentDescription = title)
-                                                }
-                                            },
-                                            label = { Text(title) },
-                                            selected = isSelected,
-                                            onClick = {
-                                                if (currentRoute != screen.route) {
-                                                    navController.navigate(screen.route) {
-                                                        popUpTo(navController.graph.findStartDestination().id) {
-                                                            saveState = true
-                                                        }
-                                                        launchSingleTop = true
-                                                        restoreState = true
-                                                    }
+                                                    launchSingleTop = true
+                                                    restoreState = true
                                                 }
                                             }
-                                        )
-                                    }
+                                        }
+                                    )
+                                }
+                            }
+                        ) { innerPadding ->
+                            NavHost(
+                                navController = navController,
+                                startDestination = Screen.Dashboard.route,
+                                modifier = Modifier.padding(innerPadding),
+                                enterTransition = { MotionSpecs.NavEnterTransition },
+                                exitTransition = { MotionSpecs.NavExitTransition },
+                                popEnterTransition = { MotionSpecs.NavPopEnterTransition },
+                                popExitTransition = { MotionSpecs.NavPopExitTransition }
+                            ) {
+                                composable(Screen.Dashboard.route) {
+                                    DashboardScreen(
+                                        onNavigateToDetail = { username ->
+                                            navController.navigate(Screen.TargetDetail.createRoute(username))
+                                        }
+                                    )
+                                }
+                                composable(Screen.Notifications.route) {
+                                    NotificationCenterScreen()
+                                }
+                                composable(Screen.Session.route) {
+                                    InstagramSessionScreen()
+                                }
+                                composable(Screen.Settings.route) {
+                                    SettingsScreen()
+                                }
+                                composable(
+                                    route = Screen.TargetDetail.route,
+                                    arguments = listOf(navArgument("username") { type = NavType.StringType })
+                                ) { backStackEntry ->
+                                    val username = backStackEntry.arguments?.getString("username") ?: ""
+                                    ProfileDetailScreen(
+                                        username = username,
+                                        onBack = { navController.popBackStack() }
+                                    )
                                 }
                             }
                         }
-                    ) { innerPadding ->
-                    NavHost(
-                        navController = navController,
-                        startDestination = Screen.Dashboard.route,
-                        modifier = Modifier.padding(innerPadding)
-                    ) {
-                        composable(Screen.Dashboard.route) {
-                            DashboardScreen(
-                                onNavigateToDetail = { username ->
-                                    navController.navigate(Screen.TargetDetail.createRoute(username))
-                                }
-                            )
-                        }
-                        composable(Screen.Notifications.route) {
-                            NotificationCenterScreen()
-                        }
-                        composable(Screen.Session.route) {
-                            InstagramSessionScreen()
-                        }
-                        composable(Screen.Settings.route) {
-                            SettingsScreen()
-                        }
-                        composable(
-                            route = Screen.TargetDetail.route,
-                            arguments = listOf(navArgument("username") { type = NavType.StringType })
-                        ) { backStackEntry ->
-                            val username = backStackEntry.arguments?.getString("username") ?: ""
-                            ProfileDetailScreen(
-                                username = username,
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
+
+                        LanguageBlurOverlay(isBlurActive = isLanguageTransitioning)
                     }
-                }
             }
         }
     }

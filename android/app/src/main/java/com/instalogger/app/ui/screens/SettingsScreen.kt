@@ -4,10 +4,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,7 +19,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -33,7 +37,13 @@ import com.instalogger.app.R
 import com.instalogger.app.data.local.ChangeLogEntity
 import com.instalogger.app.service.BatteryHelper
 import com.instalogger.app.service.InstaLoggerForegroundService
-import com.instalogger.app.ui.components.InstaLoggerTopBar
+import com.instalogger.app.settings.AppSettingsManager
+import com.instalogger.app.settings.ThemeMode
+import com.instalogger.app.ui.animation.MotionSpecs
+import com.instalogger.app.ui.animation.bouncyClickable
+import com.instalogger.app.ui.components.NotificationSettingsBottomSheet
+import com.instalogger.app.ui.components.ReachabilityHeader
+import com.instalogger.app.ui.components.SettingSwitchRow
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.theme.*
 import com.instalogger.app.util.ArchiveDirectoryManager
@@ -49,9 +59,17 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as InstaLoggerApp
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     val currentLanguage by LanguageManager.currentLanguage.collectAsState()
+    val currentThemeMode by app.settingsManager.themeMode.collectAsStateWithLifecycle()
+    val statusBarNotifs by app.settingsManager.statusBarNotifications.collectAsStateWithLifecycle()
+    val inAppNotifs by app.settingsManager.inAppNotifications.collectAsStateWithLifecycle()
+    val soundEnabled by app.settingsManager.soundEnabled.collectAsStateWithLifecycle()
+    val vibrationEnabled by app.settingsManager.vibrationEnabled.collectAsStateWithLifecycle()
+
+    var showNotifSettingsSheet by remember { mutableStateOf(false) }
     var isBatteryIgnored by remember { mutableStateOf(BatteryHelper.isBatteryOptimizationIgnored(context)) }
 
     var currentDisplayPath by remember { mutableStateOf(ArchiveDirectoryManager.getDisplayPath(context)) }
@@ -82,7 +100,7 @@ fun SettingsScreen() {
 
     Scaffold(
         topBar = {
-            InstaLoggerTopBar(
+            ReachabilityHeader(
                 title = stringResource(R.string.settings_title),
                 subtitle = stringResource(R.string.settings_subtitle)
             )
@@ -94,243 +112,334 @@ fun SettingsScreen() {
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(bottom = 72.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 1. Language Selection Card (SVG Flags, No Text Overflow)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            // 1. Language Selection Card
+            SettingsGroupCard(
+                icon = Icons.Default.Language,
+                title = stringResource(R.string.section_language),
+                description = stringResource(R.string.section_language_desc)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    LanguageFlagButton(
+                        code = "az",
+                        label = "AZ",
+                        flagResId = R.drawable.ic_flag_az,
+                        isSelected = currentLanguage == "az",
+                        onClick = {
+                            scope.launch { LanguageManager.changeLanguageWithAnimation(context, "az") }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    LanguageFlagButton(
+                        code = "en",
+                        label = "EN",
+                        flagResId = R.drawable.ic_flag_en,
+                        isSelected = currentLanguage == "en",
+                        onClick = {
+                            scope.launch { LanguageManager.changeLanguageWithAnimation(context, "en") }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    LanguageFlagButton(
+                        code = "ru",
+                        label = "RU",
+                        flagResId = R.drawable.ic_flag_ru,
+                        isSelected = currentLanguage == "ru",
+                        onClick = {
+                            scope.launch { LanguageManager.changeLanguageWithAnimation(context, "ru") }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // 2. Theme & Appearance Card (TourJet-style Theme Selection)
+            SettingsGroupCard(
+                icon = Icons.Default.Palette,
+                title = stringResource(R.string.theme_section_title),
+                description = stringResource(R.string.theme_section_desc)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ThemeOptionCard(
+                        title = stringResource(R.string.theme_light),
+                        description = stringResource(R.string.theme_light_desc),
+                        icon = Icons.Default.LightMode,
+                        isSelected = currentThemeMode == ThemeMode.LIGHT,
+                        iconTint = Color(0xFFF59E0B),
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            app.settingsManager.setThemeMode(ThemeMode.LIGHT)
+                        }
+                    )
+                    ThemeOptionCard(
+                        title = stringResource(R.string.theme_dark),
+                        description = stringResource(R.string.theme_dark_desc),
+                        icon = Icons.Default.DarkMode,
+                        isSelected = currentThemeMode == ThemeMode.DARK,
+                        iconTint = Color(0xFF818CF8),
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            app.settingsManager.setThemeMode(ThemeMode.DARK)
+                        }
+                    )
+                    ThemeOptionCard(
+                        title = stringResource(R.string.theme_system),
+                        description = stringResource(R.string.theme_system_desc),
+                        icon = Icons.Default.BrightnessAuto,
+                        isSelected = currentThemeMode == ThemeMode.SYSTEM,
+                        iconTint = AccentBlue,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            app.settingsManager.setThemeMode(ThemeMode.SYSTEM)
+                        }
+                    )
+                }
+            }
+
+            // 3. Notification Settings Card (TourJet-style Notifications Drawer)
+            SettingsGroupCard(
+                icon = Icons.Default.NotificationsActive,
+                title = stringResource(R.string.section_notifications),
+                description = stringResource(R.string.section_notifications_desc),
+                headerTrailing = {
+                    IconButton(
+                        onClick = { showNotifSettingsSheet = true },
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = stringResource(R.string.section_language),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = AccentBlue,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
+                }
+            ) {
+                SettingSwitchRow(
+                    title = stringResource(R.string.notif_status_bar_title),
+                    description = stringResource(R.string.notif_status_bar_desc),
+                    checked = statusBarNotifs,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setStatusBarNotifications(it)
+                    }
+                )
 
-                    Text(
-                        text = stringResource(R.string.section_language_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 10.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
 
-                    // 3 Language Buttons with 1:1 SVG Flags
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                SettingSwitchRow(
+                    title = stringResource(R.string.notif_in_app_title),
+                    description = stringResource(R.string.notif_in_app_desc),
+                    checked = inAppNotifs,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setInAppNotifications(it)
+                    }
+                )
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 10.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+
+                SettingSwitchRow(
+                    title = stringResource(R.string.notif_sound_title),
+                    description = stringResource(R.string.notif_sound_desc),
+                    checked = soundEnabled,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setSoundEnabled(it)
+                    }
+                )
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 10.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+
+                SettingSwitchRow(
+                    title = stringResource(R.string.notif_vibration_title),
+                    description = stringResource(R.string.notif_vibration_desc),
+                    checked = vibrationEnabled,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setVibrationEnabled(it)
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { showNotifSettingsSheet = true },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .bouncyClickable(pressScale = 0.95f) { showNotifSettingsSheet = true }
                     ) {
-                        LanguageFlagButton(
-                            code = "az",
-                            label = "AZ",
-                            flagResId = R.drawable.ic_flag_az,
-                            isSelected = currentLanguage == "az",
-                            onClick = { LanguageManager.setLanguage(context, "az") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        LanguageFlagButton(
-                            code = "en",
-                            label = "EN",
-                            flagResId = R.drawable.ic_flag_en,
-                            isSelected = currentLanguage == "en",
-                            onClick = { LanguageManager.setLanguage(context, "en") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        LanguageFlagButton(
-                            code = "ru",
-                            label = "RU",
-                            flagResId = R.drawable.ic_flag_ru,
-                            isSelected = currentLanguage == "ru",
-                            onClick = { LanguageManager.setLanguage(context, "ru") },
-                            modifier = Modifier.weight(1f)
-                        )
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.notif_categories_title))
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            AppSettingsManager.openSystemNotificationSettings(context)
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.bouncyClickable(pressScale = 0.95f) {
+                            AppSettingsManager.openSystemNotificationSettings(context)
+                        }
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.btn_open_system_notifs))
                     }
                 }
             }
 
             // 2. Native Android Archive Folder Picker Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            SettingsGroupCard(
+                icon = Icons.Default.Folder,
+                title = stringResource(R.string.archive_dir_title),
+                description = stringResource(R.string.archive_dir_desc)
             ) {
-                Column(
+                // Path display pill
+                val pathShape = RoundedCornerShape(14.dp)
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .clip(pathShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pathShape)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = stringResource(R.string.archive_dir_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
                     Text(
-                        text = stringResource(R.string.archive_dir_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = currentDisplayPath,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
+                }
 
-                    // Path display pill
-                    Box(
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { folderPicker.launch(null) },
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
-                            .padding(horizontal = 14.dp, vertical = 12.dp)
+                            .weight(1f)
+                            .bouncyClickable(pressScale = 0.94f) { folderPicker.launch(null) }
                     ) {
-                        Text(
-                            text = currentDisplayPath,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.btn_select_folder))
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    OutlinedButton(
+                        onClick = {
+                            ArchiveDirectoryManager.resetToDefault(context)
+                            currentDisplayPath = ArchiveDirectoryManager.getDisplayPath(context)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(pathSavedMsg)
+                            }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
+                            ArchiveDirectoryManager.resetToDefault(context)
+                            currentDisplayPath = ArchiveDirectoryManager.getDisplayPath(context)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(pathSavedMsg)
+                            }
+                        }
                     ) {
-                        Button(
-                            onClick = { folderPicker.launch(null) },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.btn_select_folder))
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                ArchiveDirectoryManager.resetToDefault(context)
-                                currentDisplayPath = ArchiveDirectoryManager.getDisplayPath(context)
-                                scope.launch {
-                                    snackbarHostState.showSnackbar(pathSavedMsg)
-                                }
-                            },
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.btn_reset_default))
-                        }
+                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.btn_reset_default))
                     }
                 }
             }
 
-            // 3. Audit & Inspection Logs Card (Moved from Notification Center)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            // 3. Audit & Inspection Logs Card
+            SettingsGroupCard(
+                icon = Icons.Default.History,
+                title = stringResource(R.string.section_audit_logs),
+                description = stringResource(R.string.section_audit_logs_desc),
+                headerTrailing = {
+                    Text(
+                        text = stringResource(R.string.logs_count_format, allLogs.size),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { showLogsExpanded = !showLogsExpanded },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .bouncyClickable(pressScale = 0.94f) { showLogsExpanded = !showLogsExpanded }
+                    ) {
+                        Icon(
+                            imageVector = if (showLogsExpanded) Icons.Default.ExpandLess else Icons.Default.Visibility,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(if (showLogsExpanded) stringResource(R.string.btn_hide_logs) else stringResource(R.string.btn_view_logs))
+                    }
+
+                    if (allLogs.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = { showClearLogsDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.bouncyClickable(pressScale = 0.94f) { showClearLogsDialog = true }
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_delete))
+                        }
+                    }
+                }
+
+                // Smooth Expandable Log Viewer Container
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .animateContentSize(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Text(
-                                text = stringResource(R.string.section_audit_logs),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Text(
-                            text = stringResource(R.string.logs_count_format, allLogs.size),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Text(
-                        text = stringResource(R.string.section_audit_logs_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = { showLogsExpanded = !showLogsExpanded },
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = if (showLogsExpanded) Icons.Default.ExpandLess else Icons.Default.Visibility,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (showLogsExpanded) stringResource(R.string.btn_hide_logs) else stringResource(R.string.btn_view_logs))
-                        }
-
-                        if (allLogs.isNotEmpty()) {
-                            OutlinedButton(
-                                onClick = { showClearLogsDialog = true },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.action_delete))
-                            }
-                        }
-                    }
-
-                    // Expanded Log Viewer Container
-                    AnimatedVisibility(visible = showLogsExpanded) {
+                    if (showLogsExpanded) {
+                        val logContainerShape = RoundedCornerShape(16.dp)
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                                .clip(logContainerShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, logContainerShape)
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -360,147 +469,86 @@ fun SettingsScreen() {
                 }
             }
 
-            // 4. Battery Optimization Card (No Overflows)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            // 4. Battery Optimization Card
+            SettingsGroupCard(
+                icon = Icons.Default.BatteryChargingFull,
+                title = stringResource(R.string.battery_opt_title),
+                description = stringResource(R.string.battery_opt_desc),
+                headerTrailing = {
+                    if (isBatteryIgnored) {
+                        StatusBadge(
+                            text = stringResource(R.string.badge_unrestricted),
+                            icon = Icons.Default.CheckCircle,
+                            containerColor = StatusGreenLight,
+                            contentColor = StatusGreen
+                        )
+                    } else {
+                        StatusBadge(
+                            text = stringResource(R.string.badge_restricted),
+                            icon = Icons.Default.Warning,
+                            containerColor = StatusAmberLight,
+                            contentColor = StatusAmber
+                        )
+                    }
+                }
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                Button(
+                    onClick = {
+                        BatteryHelper.requestIgnoreBatteryOptimization(context)
+                        isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
+                        BatteryHelper.requestIgnoreBatteryOptimization(context)
+                        isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
+                    }
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.BatteryChargingFull, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Text(
-                                text = stringResource(R.string.battery_opt_title),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        if (isBatteryIgnored) {
-                            StatusBadge(
-                                text = stringResource(R.string.badge_unrestricted),
-                                icon = Icons.Default.CheckCircle,
-                                containerColor = StatusGreenLight,
-                                contentColor = StatusGreen
-                            )
-                        } else {
-                            StatusBadge(
-                                text = stringResource(R.string.badge_restricted),
-                                icon = Icons.Default.Warning,
-                                containerColor = StatusAmberLight,
-                                contentColor = StatusAmber
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = stringResource(R.string.battery_opt_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Button(
-                        onClick = {
-                            BatteryHelper.requestIgnoreBatteryOptimization(context)
-                            isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
-                        },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(stringResource(R.string.btn_request_battery_opt))
-                    }
+                    Text(stringResource(R.string.btn_request_battery_opt))
                 }
             }
 
             // 5. Foreground Service Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            SettingsGroupCard(
+                icon = Icons.Default.Sync,
+                title = stringResource(R.string.service_card_title),
+                description = stringResource(R.string.service_card_desc)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.service_card_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = stringResource(R.string.service_card_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    OutlinedButton(
-                        onClick = {
-                            InstaLoggerForegroundService.start(context)
-                            scope.launch {
-                                snackbarHostState.showSnackbar(serviceRestartedMsg)
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.btn_restart_service))
+                OutlinedButton(
+                    onClick = {
+                        InstaLoggerForegroundService.start(context)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(serviceRestartedMsg)
+                        }
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
+                        InstaLoggerForegroundService.start(context)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(serviceRestartedMsg)
+                        }
                     }
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.btn_restart_service))
                 }
             }
 
             // 6. Danger Zone Card (Clear All Data)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            SettingsGroupCard(
+                icon = Icons.Default.Warning,
+                title = stringResource(R.string.danger_zone_title),
+                description = stringResource(R.string.danger_zone_desc)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                OutlinedButton(
+                    onClick = { showClearAllDialog = true },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed),
+                    modifier = Modifier.bouncyClickable(pressScale = 0.94f) { showClearAllDialog = true }
                 ) {
-                    Text(
-                        text = stringResource(R.string.danger_zone_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = stringResource(R.string.danger_zone_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    OutlinedButton(
-                        onClick = { showClearAllDialog = true },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed)
-                    ) {
-                        Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.btn_clear_all_data))
-                    }
+                    Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.btn_clear_all_data))
                 }
             }
         }
@@ -547,7 +595,8 @@ fun SettingsScreen() {
                     Text(stringResource(R.string.dialog_cancel))
                 }
             },
-            shape = RoundedCornerShape(26.dp)
+            shape = RoundedCornerShape(26.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }
 
@@ -596,8 +645,94 @@ fun SettingsScreen() {
                     Text(stringResource(R.string.dialog_cancel))
                 }
             },
-            shape = RoundedCornerShape(26.dp)
+            shape = RoundedCornerShape(26.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
+    }
+
+    if (showNotifSettingsSheet) {
+        NotificationSettingsBottomSheet(onDismissRequest = { showNotifSettingsSheet = false })
+    }
+}
+
+/**
+ * Modern squircle grouped container for settings sections.
+ */
+@Composable
+private fun SettingsGroupCard(
+    icon: ImageVector,
+    title: String,
+    description: String? = null,
+    headerTrailing: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cardShape = RoundedCornerShape(24.dp)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(cardShape)
+            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
+        shape = cardShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    val iconPodShape = RoundedCornerShape(12.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(iconPodShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, iconPodShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (headerTrailing != null) {
+                    headerTrailing()
+                }
+            }
+
+            if (!description.isNullOrBlank()) {
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            content()
+        }
     }
 }
 
@@ -611,15 +746,15 @@ private fun LanguageFlagButton(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(16.dp)
-    val borderColor = if (isSelected) AccentBlue else MaterialTheme.colorScheme.outline
-    val bgColor = if (isSelected) AccentBlue.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface
+    val borderColor = if (isSelected) AccentBlue else MaterialTheme.colorScheme.outlineVariant
+    val bgColor = if (isSelected) AccentBlue.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh
 
     Box(
         modifier = modifier
             .clip(shape)
             .background(bgColor)
-            .border(if (isSelected) 2.dp else 1.dp, borderColor, shape)
-            .clickable { onClick() }
+            .border(if (isSelected) 1.5.dp else 0.75.dp, borderColor, shape)
+            .bouncyClickable(pressScale = 0.92f, onClick = onClick)
             .padding(vertical = 12.dp, horizontal = 8.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -633,7 +768,7 @@ private fun LanguageFlagButton(
                 modifier = Modifier
                     .size(width = 28.dp, height = 21.dp)
                     .clip(RoundedCornerShape(3.dp))
-                    .border(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(3.dp))
             )
             Text(
                 text = label,
@@ -653,11 +788,13 @@ private fun SettingsLogItem(
     val timeFormat = SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(log.timestamp))
 
+    val itemShape = RoundedCornerShape(12.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(itemShape)
             .background(MaterialTheme.colorScheme.surface)
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, itemShape)
             .padding(10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -692,16 +829,100 @@ private fun SettingsLogItem(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        IconButton(
-            onClick = onDelete,
-            modifier = Modifier.size(24.dp)
+        val closeShape = RoundedCornerShape(8.dp)
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(closeShape)
+                .bouncyClickable(pressScale = 0.85f, onClick = onDelete),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(15.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun ThemeOptionCard(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    iconTint: Color,
+    onClick: () -> Unit
+) {
+    val borderColor = if (isSelected) AccentBlue else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    val cardBackground = if (isSelected) {
+        AccentBlue.copy(alpha = 0.12f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .bouncyClickable(pressScale = 0.96f, onClick = onClick)
+            .border(if (isSelected) 2.dp else 1.dp, borderColor, RoundedCornerShape(16.dp)),
+        colors = CardDefaults.cardColors(containerColor = cardBackground),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(iconTint.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = iconTint,
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Text(
+                        text = title,
+                        fontSize = 14.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = description,
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = AccentBlue,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }

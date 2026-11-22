@@ -2,6 +2,7 @@ package com.instalogger.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -9,6 +10,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,9 +34,9 @@ fun StatusBadge(
     borderColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(50)
+    val shape = RoundedCornerShape(12.dp)
     val borderModifier = if (borderColor != null) {
-        Modifier.border(1.dp, borderColor, shape)
+        Modifier.border(0.75.dp, borderColor, shape)
     } else Modifier
 
     Row(
@@ -42,42 +44,46 @@ fun StatusBadge(
             .then(borderModifier)
             .clip(shape)
             .background(containerColor)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(13.dp)
             )
         }
         Text(
             text = text,
             color = contentColor,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.2.sp
         )
     }
 }
 
 @Composable
 fun PrivacyBadge(isPrivate: Boolean) {
+    val isDark = isSystemInDarkTheme()
     if (isPrivate) {
         StatusBadge(
             text = stringResource(R.string.badge_private),
             icon = Icons.Default.Lock,
-            containerColor = StatusAmberLight,
-            contentColor = StatusAmber
+            containerColor = if (isDark) StatusAmberSubtleDark else StatusAmberLight,
+            contentColor = if (isDark) StatusAmber else StatusAmberDark,
+            borderColor = if (isDark) StatusAmber.copy(alpha = 0.3f) else StatusAmber.copy(alpha = 0.2f)
         )
     } else {
         StatusBadge(
             text = stringResource(R.string.badge_public),
             icon = Icons.Default.LockOpen,
-            containerColor = StatusGreenLight,
-            contentColor = StatusGreen
+            containerColor = if (isDark) StatusGreenSubtleDark else StatusGreenLight,
+            contentColor = if (isDark) StatusGreen else StatusGreenDark,
+            borderColor = if (isDark) StatusGreen.copy(alpha = 0.3f) else StatusGreen.copy(alpha = 0.2f)
         )
     }
 }
@@ -85,11 +91,13 @@ fun PrivacyBadge(isPrivate: Boolean) {
 @Composable
 fun TurboBadge(isTurbo: Boolean) {
     if (isTurbo) {
+        val isDark = isSystemInDarkTheme()
         StatusBadge(
             text = stringResource(R.string.badge_turbo),
             icon = Icons.Default.Bolt,
-            containerColor = AccentBlueLight,
-            contentColor = AccentBlue
+            containerColor = if (isDark) AccentBlueSubtleDark else AccentBlueSubtleLight,
+            contentColor = AccentBlue,
+            borderColor = AccentBlue.copy(alpha = 0.35f)
         )
     }
 }

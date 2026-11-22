@@ -1,12 +1,9 @@
 package com.instalogger.app.util
 
-import android.app.LocaleManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.content.res.Configuration
-import android.os.Build
-import android.os.LocaleList
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultRegistryOwner
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +31,11 @@ object LanguageManager {
     private val _currentLanguage = MutableStateFlow(DEFAULT_LANGUAGE)
     val currentLanguage: StateFlow<String> = _currentLanguage.asStateFlow()
 
+    private val _isTransitioning = MutableStateFlow(false)
+    val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
+
     fun init(context: Context) {
+        _isTransitioning.value = false
         val prefs = getPrefs(context)
         val savedLang = prefs.getString(KEY_LANGUAGE, null)
         val languageCode = if (!savedLang.isNullOrBlank() && SUPPORTED_LANGUAGES.any { it.code == savedLang }) {
@@ -52,26 +53,45 @@ object LanguageManager {
         if (SUPPORTED_LANGUAGES.none { it.code == languageCode }) return
 
         getPrefs(context).edit().putString(KEY_LANGUAGE, languageCode).apply()
-        _currentLanguage.value = languageCode
         applyLocale(context, languageCode)
+        _currentLanguage.value = languageCode
+    }
+
+    suspend fun changeLanguageWithAnimation(context: Context, languageCode: String) {
+        if (_currentLanguage.value == languageCode) return
+        if (SUPPORTED_LANGUAGES.none { it.code == languageCode }) return
+
+        try {
+            _isTransitioning.value = true
+            kotlinx.coroutines.delay(180) // Silky smooth blur & frosted veil flows in
+            setLanguage(context, languageCode)
+            kotlinx.coroutines.delay(200) // Recomposition settles cleanly under blur
+        } finally {
+            _isTransitioning.value = false
+        }
+    }
+
+    fun resetTransition() {
+        _isTransitioning.value = false
     }
 
     private fun applyLocale(context: Context, languageCode: String) {
-        val locale = Locale(languageCode)
-        Locale.setDefault(locale)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            try {
-                val localeManager = context.getSystemService(Context.LOCALE_SERVICE) as? LocaleManager
-                localeManager?.applicationLocales = LocaleList(locale)
-            } catch (e: Exception) {
-                // Ignore fallback
-            }
+        try {
+            val locale = Locale.forLanguageTag(languageCode)
+            Locale.setDefault(locale)
+            val config = context.resources.configuration
+            config.setLocale(locale)
+            config.setLayoutDirection(locale)
+            context.createConfigurationContext(config)
+            @Suppress("DEPRECATION")
+            context.resources.updateConfiguration(config, context.resources.displayMetrics)
+        } catch (_: Exception) {
+            // Graceful fallback
         }
     }
 
     fun getLocalizedContext(activity: ComponentActivity, languageCode: String): Context {
-        val locale = Locale(languageCode)
+        val locale = Locale.forLanguageTag(languageCode)
         Locale.setDefault(locale)
         val config = Configuration(activity.resources.configuration)
         config.setLocale(locale)
@@ -81,7 +101,7 @@ object LanguageManager {
     }
 
     fun getLocalizedConfiguration(baseConfig: Configuration, languageCode: String): Configuration {
-        val locale = Locale(languageCode)
+        val locale = Locale.forLanguageTag(languageCode)
         val config = Configuration(baseConfig)
         config.setLocale(locale)
         config.setLayoutDirection(locale)
