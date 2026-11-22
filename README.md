@@ -4,9 +4,10 @@
 > *Termux (Android, root tələb olunmur), Linux, Windows (PowerShell) və macOS üçün Rust və Python əsaslı açıq mənbəli sistem.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Linux%20%7C%20Windows%20%7C%20macOS-green.svg)](#)
+[![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Linux%20%7C%20Windows%20%7C%20macOS%20%7C%20Android-green.svg)](#)
 [![Backend](https://img.shields.io/badge/Backend-Rust%20%2B%20Axum%20%2B%20SQLite-orange.svg)](#)
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind-blue.svg)](#)
+[![Android](https://img.shields.io/badge/Android-Kotlin%20%2B%20Jetpack%20Compose-blue.svg)](#)
 
 ---
 
@@ -136,6 +137,26 @@ instalogger/
         ├── highlights/<Ad>/      # Hər kolleksiya üzrə qovluqlar
         └── profile/              # Tarixi profil şəkilləri və metadata
 ```
+
+---
+
+## 📱 Android Mobil Tətbiqi (Kotlin / Jetpack Compose)
+
+InstaLogger sistemi üçün rəsmi native Android tətbiqi `android/` qovluğunda yerləşir:
+
+- **Texnologiya:** Kotlin, Jetpack Compose, Material 3, Room SQLite, Retrofit/OkHttp, OkHttp WebSocket.
+- **Arxa Fon Xidməti (Foreground Service):** Cihaz bağlansa belə `InstaLoggerForegroundService` vasitəsilə profil dəyişiklikləri fasiləsiz yoxlanılır və bildiriş göndərilir.
+- **Batareya Optimizasiyası:** `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` inteqrasiyası ilə sistemin arxa fon proseslərini məhdudlaşdırmasının qarşısını alır.
+- **Aktiv Bildirişlər və Room Bazası:** Bildiriş panelində birbaşa 'Oxundu' (`ACTION_MARK_READ`) düyməsi təqdim edilir və bütün hadisələr yerli Room bazasında arxivlənir. Tətbiqdə tək-tək və ya toplu silmə dəstəklənir.
+- **Instagram Sessiyası:** Tətbiqdaxili təhlükəsiz WebView vasitəsilə rəsmi giriş və avtomatik cookie (`sessionid`) tutulması, habelə əl ilə cookie daxil etmə rejimi.
+- **Dizayn:** Rəsmi vektor ikonları, 24-28dp yuvarlaq künclər və veb panellə tam uyğunlaşdırılmış neytral sakit tonlar.
+
+### Android Tətbiqinin Build Edilməsi
+```bash
+cd android
+./gradlew assembleDebug
+```
+Hazır APK faylı `android/app/build/outputs/apk/debug/app-debug.apk` yolunda yaranacaq.
 
 ---
 

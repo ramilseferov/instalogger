@@ -1,0 +1,94 @@
+<resources>
+    <string name="app_name">InstaLogger</string>
+    <string name="nav_dashboard">Panel</string>
+    <string name="nav_notifications">Bildirişlər</string>
+    <string name="nav_session">Sessiya</string>
+    <string name="nav_settings">Tənzimləmələr</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">İzləmə Paneli</string>
+    <string name="dashboard_subtitle">Aktiv Instagram hədəfləri və audit vəziyyəti</string>
+    <string name="active_targets">Aktiv Hədəflər</string>
+    <string name="btn_add_target">Hədəf Əlavə Et</string>
+    <string name="btn_check_all">Hamısını Yoxla</string>
+    <string name="target_added_success">Hədəf uğurla əlavə edildi</string>
+    <string name="target_deleted_success">Hədəf uğurla silindi</string>
+    <string name="target_check_initiated">Yoxlanış başladıldı</string>
+    <string name="turbo_mode">Turbo Rejim</string>
+    <string name="turbo_enabled">Turbo rejim aktivdir</string>
+    <string name="turbo_disabled">Turbo rejim deaktivdir</string>
+    <string name="no_targets">Heç bir hədəf tapılmadı. Yeni hədəf əlavə edin.</string>
+    <string name="followers">İzləyici</string>
+    <string name="following">İzlənilən</string>
+    <string name="posts">Paylaşım</string>
+    <string name="is_private">Məxfi</string>
+    <string name="is_public">Açıq</string>
+    <string name="last_checked">Son yoxlanış: %1$s</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_add_target_title">Yeni Hədəf Əlavə Et</string>
+    <string name="dialog_username_hint">Instagram istifadəçi adı (məs: user)</string>
+    <string name="dialog_interval_hint">Yoxlama intervalı (saniyə)</string>
+    <string name="dialog_enable_turbo">Turbo yoxlama aktiv olsun</string>
+    <string name="dialog_cancel">Ləğv et</string>
+    <string name="dialog_confirm">Əlavə et</string>
+    <string name="dialog_delete_title">Hədəfi sil</string>
+    <string name="dialog_delete_message">Bu hədəfi və bütün qeydlərini silmək istədiyinizdən əminsiniz?</string>
+    <string name="dialog_delete_confirm">Sil</string>
+
+    <!-- Target Detail -->
+    <string name="target_detail_title">Hədəf Təfərrüatları</string>
+    <string name="section_timeline">Audit Xronologiyası</string>
+    <string name="section_avatars">Tarixi Profil Şəkilləri</string>
+    <string name="no_logs_found">Audit jurnalı hələ mövcud deyil.</string>
+    <string name="no_avatars_found">Tarixi profil şəkli arxivlənməyib.</string>
+    <string name="avatar_current">Hazırkı Avatar</string>
+    <string name="avatar_archived_at">Arxivlənmə tarixi: %1$s</string>
+
+    <!-- Notifications Center -->
+    <string name="notifications_title">Bildiriş Mərkəzi</string>
+    <string name="notifications_subtitle">Sistem və profil dəyişiklikləri qeydləri</string>
+    <string name="btn_mark_all_read">Hamısını Oxundu Et</string>
+    <string name="btn_clear_all">Hamısını Sil</string>
+    <string name="action_mark_read">Oxundu</string>
+    <string name="no_notifications">Yeni bildiriş yoxdur.</string>
+    <string name="notification_cleared">Bildirişlər təmizləndi</string>
+
+    <!-- Instagram Session -->
+    <string name="session_title">Instagram Sessiyası</string>
+    <string name="session_subtitle">Məxfi profilləri izləmək üçün daxil olun</string>
+    <string name="session_webview_tab">Tətbiqdaxili Giriş</string>
+    <string name="session_manual_tab">Əl ilə Cookie</string>
+    <string name="session_logged_in">Sessiya aktivdir</string>
+    <string name="session_not_logged_in">Sessiya bağlı deyil</string>
+    <string name="session_extract_success">Sessiya məlumatları uğurla saxlanıldı</string>
+    <string name="session_extract_failed">Sessiya cookie tapılmadı. Daxil olduğunuzdan əmin olun.</string>
+    <string name="session_cookie_hint">sessionid və ya tam cookie stringi daxil edin</string>
+    <string name="btn_save_cookie">Cookie Saxla</string>
+    <string name="btn_logout_session">Sessiyanı Sıfırla</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Tənzimləmələr</string>
+    <string name="settings_subtitle">Server və sistem konfiqurasiyası</string>
+    <string name="server_url">Daemon Server Ünvanı</string>
+    <string name="server_url_hint">http://127.0.0.1:3000</string>
+    <string name="btn_save_server">Yadda Saxla</string>
+    <string name="server_saved">Server ünvanı yeniləndi</string>
+    <string name="battery_optimization">Batareya Optimizasiyası</string>
+    <string name="battery_opt_desc">Arxa fonda dərhal yoxlama üçün batareya məhdudiyyətini ləğv edin.</string>
+    <string name="battery_opt_enabled">Məhdudiyyətsiz (Aktivdir)</string>
+    <string name="battery_opt_disabled">Məhdudlaşdırılmış (Tövsiyə olunur: Deaktiv edin)</string>
+    <string name="btn_request_battery_opt">İstisna Tələb Et</string>
+    <string name="service_status">Arxa Fon Xidməti</string>
+    <string name="service_running">Xidmət aktivdir</string>
+    <string name="service_stopped">Xidmət dayandırılıb</string>
+    <string name="btn_restart_service">Xidməti Yenidən Başlat</string>
+    <string name="btn_clear_local_db">Yerli Bildirişləri Təmizlə</string>
+    <string name="local_db_cleared">Baza məlumatları təmizləndi</string>
+
+    <!-- Foreground Service -->
+    <string name="service_notification_channel">InstaLogger Xidməti</string>
+    <string name="service_notification_title">InstaLogger Arxa Fona Nəzarət</string>
+    <string name="service_notification_desc">Instagram profilləri anlıq olaraq izlənilir</string>
+    <string name="alert_notification_channel">InstaLogger Bildirişləri</string>
+</resources>
