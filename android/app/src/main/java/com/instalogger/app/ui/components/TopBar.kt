@@ -3,7 +3,6 @@ package com.instalogger.app.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -13,6 +12,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.instalogger.app.ui.animation.bouncyClickable
+import com.instalogger.app.ui.theme.ShapeTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,23 +47,29 @@ fun InstaLoggerTopBar(
         },
         navigationIcon = {
             if (navigationIcon != null && onNavigationClick != null) {
-                val shape = RoundedCornerShape(12.dp)
+                val shape = ShapeTokens.SmallShape
                 Box(
                     modifier = Modifier
                         .padding(start = 12.dp, end = 4.dp)
-                        .size(38.dp)
-                        .clip(shape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-                        .bouncyClickable(onClick = onNavigationClick),
+                        .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
+                        .bouncyClickable(pressScale = 0.92f, onClick = onNavigationClick),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = navigationIcon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(shape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, shape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = navigationIcon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         },

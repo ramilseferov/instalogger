@@ -13,7 +13,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 
 /**
- * Standardized spring physics specifications and iOS-fluid screen transition curves.
+ * Screen transition specifications and spring physics curves.
  */
 object MotionSpecs {
     // Spring specifications
@@ -37,8 +37,8 @@ object MotionSpecs {
         stiffness = Spring.StiffnessLow
     )
 
-    // iOS Fluid Spring Physics (Stiffness 380f, Damping 0.88f)
-    private val IosFluidSpring = spring<androidx.compose.ui.unit.IntOffset>(
+    // Fluid Spring Physics
+    val FluidSpring = spring<androidx.compose.ui.unit.IntOffset>(
         dampingRatio = 0.88f,
         stiffness = 380f
     )
@@ -66,23 +66,23 @@ object MotionSpecs {
         animationSpec = spring(dampingRatio = 0.88f, stiffness = 380f)
     ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
 
-    // iOS Hierarchical Push & Pop Transitions (Detail Screen)
-    val IosPushEnter: EnterTransition = slideInHorizontally(
+    // Hierarchical Push & Pop Transitions (Detail Screen)
+    val PushEnter: EnterTransition = slideInHorizontally(
         initialOffsetX = { fullWidth -> fullWidth },
         animationSpec = spring(dampingRatio = 0.88f, stiffness = 380f)
     ) + fadeIn(animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing))
 
-    val IosPushExit: ExitTransition = slideOutHorizontally(
+    val PushExit: ExitTransition = slideOutHorizontally(
         targetOffsetX = { fullWidth -> -((fullWidth * 0.33f).toInt()) },
         animationSpec = spring(dampingRatio = 0.88f, stiffness = 380f)
     ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))
 
-    val IosPopEnter: EnterTransition = slideInHorizontally(
+    val PopEnter: EnterTransition = slideInHorizontally(
         initialOffsetX = { fullWidth -> -((fullWidth * 0.33f).toInt()) },
         animationSpec = spring(dampingRatio = 0.88f, stiffness = 380f)
     ) + fadeIn(animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing))
 
-    val IosPopExit: ExitTransition = slideOutHorizontally(
+    val PopExit: ExitTransition = slideOutHorizontally(
         targetOffsetX = { fullWidth -> fullWidth },
         animationSpec = spring(dampingRatio = 0.88f, stiffness = 380f)
     ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing))

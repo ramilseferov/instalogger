@@ -28,7 +28,7 @@ import com.instalogger.app.ui.animation.bouncyClickable
 import kotlin.math.roundToInt
 
 /**
- * Floating glassmorphic navigation bar with TourJet-grade sliding active pill indicator.
+ * Navigation dock with sliding active indicator.
  * Comfortably elevated above Android system navigation insets, preventing edge overflows.
  */
 @Composable

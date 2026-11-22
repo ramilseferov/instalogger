@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Lock
@@ -34,9 +33,9 @@ fun StatusBadge(
     borderColor: Color? = null,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = ShapeTokens.SmallShape
     val borderModifier = if (borderColor != null) {
-        Modifier.border(0.75.dp, borderColor, shape)
+        Modifier.border(ShapeTokens.BorderSubtle, borderColor, shape)
     } else Modifier
 
     Row(

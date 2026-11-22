@@ -34,7 +34,9 @@ import com.instalogger.app.R
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.HeaderActionButton
 import com.instalogger.app.ui.components.ReachabilityHeader
+import com.instalogger.app.ui.components.SlidingPillTabRow
 import com.instalogger.app.ui.components.StatusBadge
+import com.instalogger.app.ui.components.TabItem
 import com.instalogger.app.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -77,16 +79,16 @@ fun InstagramSessionScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(bottom = 72.dp)
+                .padding(bottom = 16.dp)
         ) {
             // Status Header Card
-            val statusCardShape = RoundedCornerShape(24.dp)
+            val statusCardShape = ShapeTokens.LargeShape
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 6.dp)
                     .clip(statusCardShape)
-                    .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, statusCardShape),
+                    .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, statusCardShape),
                 shape = statusCardShape,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 2.dp
@@ -133,96 +135,32 @@ fun InstagramSessionScreen() {
                 }
             }
 
-            // Sliding Pill Tab Selector
-            val tabContainerShape = RoundedCornerShape(20.dp)
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(tabContainerShape)
-                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, tabContainerShape),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = tabContainerShape
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // Tab 0: WebView Login
-                    val isTab0 = selectedTab == 0
-                    val pill0Shape = RoundedCornerShape(16.dp)
-                    val color0 by animateColorAsState(
-                        targetValue = if (isTab0) MaterialTheme.colorScheme.surface else Color.Transparent,
-                        animationSpec = tween(180),
-                        label = "session_tab0_bg"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(pill0Shape)
-                            .background(color0)
-                            .then(
-                                if (isTab0) Modifier.border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pill0Shape)
-                                else Modifier
-                            )
-                            .bouncyClickable(pressScale = 0.94f) { selectedTab = 0 }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.tab_webview_login),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isTab0) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isTab0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Tab 1: Manual Cookie
-                    val isTab1 = selectedTab == 1
-                    val pill1Shape = RoundedCornerShape(16.dp)
-                    val color1 by animateColorAsState(
-                        targetValue = if (isTab1) MaterialTheme.colorScheme.surface else Color.Transparent,
-                        animationSpec = tween(180),
-                        label = "session_tab1_bg"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(pill1Shape)
-                            .background(color1)
-                            .then(
-                                if (isTab1) Modifier.border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pill1Shape)
-                                else Modifier
-                            )
-                            .bouncyClickable(pressScale = 0.94f) { selectedTab = 1 }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.tab_manual_cookie),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isTab1) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isTab1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
+            // Standardized Sliding Pill Tab Selector
+            SlidingPillTabRow(
+                tabs = listOf(
+                    TabItem(title = stringResource(R.string.tab_webview_login)),
+                    TabItem(title = stringResource(R.string.tab_manual_cookie))
+                ),
+                selectedIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
 
             when (selectedTab) {
                 0 -> {
-                    val webViewShape = RoundedCornerShape(24.dp)
+                    val webViewShape = ShapeTokens.LargeShape
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 16.dp, vertical = 6.dp)
                             .clip(webViewShape)
-                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, webViewShape)
+                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, webViewShape)
                     ) {
+                        val isDark = isSystemInDarkTheme()
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
+                                    setBackgroundColor(if (isDark) 0xFF0D0E12.toInt() else 0xFFFFFFFF.toInt())
                                     settings.javaScriptEnabled = true
                                     settings.domStorageEnabled = true
                                     settings.userAgentString =
@@ -256,12 +194,12 @@ fun InstagramSessionScreen() {
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        val cookieCardShape = RoundedCornerShape(24.dp)
+                        val cookieCardShape = ShapeTokens.LargeShape
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(cookieCardShape)
-                                .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, cookieCardShape),
+                                .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, cookieCardShape),
                             shape = cookieCardShape,
                             color = MaterialTheme.colorScheme.surfaceContainer,
                             tonalElevation = 2.dp
@@ -287,7 +225,7 @@ fun InstagramSessionScreen() {
                                         .fillMaxWidth()
                                         .height(130.dp),
                                     maxLines = 6,
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = ShapeTokens.MediumShape,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                                         unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -309,7 +247,7 @@ fun InstagramSessionScreen() {
                                                 }
                                             }
                                         },
-                                        shape = RoundedCornerShape(14.dp),
+                                        shape = ShapeTokens.SmallShape,
                                         modifier = Modifier
                                             .weight(1f)
                                             .bouncyClickable(pressScale = 0.94f) {
@@ -337,7 +275,7 @@ fun InstagramSessionScreen() {
                                                     snackbarHostState.showSnackbar(clearedMsg)
                                                 }
                                             },
-                                            shape = RoundedCornerShape(14.dp),
+                                            shape = ShapeTokens.SmallShape,
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                                             modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
                                                 app.sessionManager.clearSession()

@@ -35,7 +35,9 @@ import com.instalogger.app.ui.components.ReachabilityHeader
 import com.instalogger.app.ui.components.RotatingRefreshButton
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.components.TargetCard
+import com.instalogger.app.ui.components.UnifiedEmptyState
 import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.ui.theme.ShapeTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -146,7 +148,7 @@ fun DashboardScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showAddDialog = true },
-                shape = RoundedCornerShape(20.dp),
+                shape = ShapeTokens.MediumShape,
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.bouncyClickable(pressScale = 0.92f, onClick = { showAddDialog = true })
@@ -167,84 +169,18 @@ fun DashboardScreen(
                 .padding(padding)
         ) {
             if (targets.isEmpty()) {
-                val emptyShape = RoundedCornerShape(24.dp)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(emptyShape)
-                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, emptyShape),
-                        shape = emptyShape,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        tonalElevation = 2.dp
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(28.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            val iconBgShape = CircleShape
-                            Box(
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(iconBgShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, iconBgShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Security,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(36.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            Text(
-                                text = stringResource(R.string.dashboard_empty_title),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = stringResource(R.string.dashboard_empty_desc),
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(22.dp))
-
-                            Button(
-                                onClick = { showAddDialog = true },
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.bouncyClickable(pressScale = 0.94f, onClick = { showAddDialog = true })
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.btn_add_target))
-                            }
-                        }
-                    }
-                }
+                UnifiedEmptyState(
+                    icon = Icons.Default.Security,
+                    title = stringResource(R.string.dashboard_empty_title),
+                    description = stringResource(R.string.dashboard_empty_desc),
+                    actionLabel = stringResource(R.string.btn_add_target),
+                    actionIcon = Icons.Default.Add,
+                    onActionClick = { showAddDialog = true }
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     items(targets, key = { it.username }) { target ->
@@ -366,7 +302,7 @@ fun DashboardScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = ShapeTokens.SmallShape
                 ) {
                     Text(stringResource(R.string.action_delete))
                 }
@@ -374,12 +310,12 @@ fun DashboardScreen(
             dismissButton = {
                 TextButton(
                     onClick = { targetToDelete = null },
-                    shape = RoundedCornerShape(14.dp)
+                    shape = ShapeTokens.SmallShape
                 ) {
                     Text(stringResource(R.string.dialog_cancel))
                 }
             },
-            shape = RoundedCornerShape(26.dp),
+            shape = ShapeTokens.LargeShape,
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }

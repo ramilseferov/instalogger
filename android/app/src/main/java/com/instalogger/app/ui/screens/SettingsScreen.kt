@@ -113,7 +113,7 @@ fun SettingsScreen() {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .padding(bottom = 72.dp),
+                .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 1. Language Selection Card
@@ -159,7 +159,7 @@ fun SettingsScreen() {
                 }
             }
 
-            // 2. Theme & Appearance Card (TourJet-style Theme Selection)
+            // 2. Theme & Appearance Card
             SettingsGroupCard(
                 icon = Icons.Default.Palette,
                 title = stringResource(R.string.theme_section_title),
@@ -208,7 +208,7 @@ fun SettingsScreen() {
                 }
             }
 
-            // 3. Notification Settings Card (TourJet-style Notifications Drawer)
+            // 3. Notification Settings Card
             SettingsGroupCard(
                 icon = Icons.Default.NotificationsActive,
                 title = stringResource(R.string.section_notifications),
@@ -706,12 +706,12 @@ private fun SettingsGroupCard(
     headerTrailing: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val cardShape = RoundedCornerShape(24.dp)
+    val cardShape = ShapeTokens.LargeShape
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
+            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, cardShape),
         shape = cardShape,
         color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 2.dp
@@ -732,13 +732,13 @@ private fun SettingsGroupCard(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.weight(1f, fill = false)
                 ) {
-                    val iconPodShape = RoundedCornerShape(12.dp)
+                    val iconPodShape = ShapeTokens.SmallShape
                     Box(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(iconPodShape)
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, iconPodShape),
+                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, iconPodShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -870,20 +870,27 @@ private fun SettingsLogItem(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        val closeShape = RoundedCornerShape(8.dp)
+        val closeShape = ShapeTokens.SmallShape
         Box(
             modifier = Modifier
-                .size(26.dp)
-                .clip(closeShape)
+                .sizeIn(minWidth = 40.dp, minHeight = 40.dp)
                 .bouncyClickable(pressScale = 0.85f, onClick = onDelete),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(15.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(closeShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
         }
     }
 }
@@ -944,13 +951,13 @@ private fun ThemeOptionCard(
                 Column {
                     Text(
                         text = title,
-                        fontSize = 14.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = description,
-                        fontSize = 11.5.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Image
@@ -20,13 +19,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.instalogger.app.R
 import com.instalogger.app.data.local.ChangeLogEntity
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
-import com.instalogger.app.ui.theme.AccentBlueLight
+import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.ui.theme.StatusGreen
 import java.io.File
 import java.text.SimpleDateFormat
@@ -37,7 +35,7 @@ fun AvatarComparisonCard(
     log: ChangeLogEntity,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(24.dp)
+    val cardShape = ShapeTokens.LargeShape
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(log.timestamp))
 
@@ -47,7 +45,7 @@ fun AvatarComparisonCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
+            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, cardShape),
         shape = cardShape,
         color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 2.dp
@@ -83,13 +81,13 @@ fun AvatarComparisonCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Visual Diff Row: Old vs New Avatar in Grouped Pod
-            val diffPodShape = RoundedCornerShape(18.dp)
+            val diffPodShape = ShapeTokens.MediumShape
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(diffPodShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, diffPodShape)
+                    .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, diffPodShape)
                     .padding(vertical = 14.dp, horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -123,7 +121,7 @@ fun AvatarComparisonCard(
                         .size(38.dp)
                         .clip(arrowPodShape)
                         .background(AccentBlue.copy(alpha = 0.14f))
-                        .border(0.5.dp, AccentBlue.copy(alpha = 0.3f), arrowPodShape),
+                        .border(ShapeTokens.BorderSubtle, AccentBlue.copy(alpha = 0.3f), arrowPodShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -159,39 +157,12 @@ fun AvatarComparisonCard(
         }
     }
 
-    // Full screen image preview dialog
-    if (previewImagePath != null) {
-        Dialog(onDismissRequest = { previewImagePath = null }) {
-            val dialogShape = RoundedCornerShape(26.dp)
-            Surface(
-                shape = dialogShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 6.dp,
-                modifier = Modifier.border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, dialogShape)
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    AsyncImage(
-                        model = File(previewImagePath!!),
-                        contentDescription = stringResource(R.string.preview_title),
-                        modifier = Modifier
-                            .size(280.dp)
-                            .clip(RoundedCornerShape(20.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Button(
-                        onClick = { previewImagePath = null },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.bouncyClickable(onClick = { previewImagePath = null })
-                    ) {
-                        Text(stringResource(R.string.dialog_close))
-                    }
-                }
-            }
-        }
+    // Standardized full screen image preview dialog
+    previewImagePath?.let { path ->
+        ImagePreviewDialog(
+            imagePath = path,
+            onDismiss = { previewImagePath = null }
+        )
     }
 }
 
@@ -208,7 +179,7 @@ private fun AvatarThumbnail(
         modifier = Modifier
             .size(68.dp)
             .clip(CircleShape)
-            .border(2.dp, borderColor, CircleShape)
+            .border(ShapeTokens.BorderActive, borderColor, CircleShape)
             .bouncyClickable(enabled = exists, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {

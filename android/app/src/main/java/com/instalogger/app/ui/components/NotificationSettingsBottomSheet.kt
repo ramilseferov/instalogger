@@ -10,7 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Tune
@@ -35,6 +35,7 @@ import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.ui.theme.ShapeTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,14 +63,14 @@ fun NotificationSettingsBottomSheet(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             )
         },
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        shape = ShapeTokens.LargeShape
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 36.dp),
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Header Row
@@ -133,11 +134,11 @@ fun NotificationSettingsBottomSheet(
             // 1. Master Preferences Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = ShapeTokens.LargeShape,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                border = BorderStroke(ShapeTokens.BorderStandard, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     // Status Bar Toggle
@@ -204,11 +205,11 @@ fun NotificationSettingsBottomSheet(
             // 2. Individual Categories Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = ShapeTokens.LargeShape,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                border = BorderStroke(ShapeTokens.BorderStandard, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -269,8 +270,7 @@ fun NotificationSettingsBottomSheet(
                                     Text(
                                         text = stringResource(cat.descRes),
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        lineHeight = 15.sp
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -294,11 +294,11 @@ fun NotificationSettingsBottomSheet(
             // 3. Android System Notification Settings Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = ShapeTokens.LargeShape,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                border = BorderStroke(ShapeTokens.BorderStandard, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -366,7 +366,7 @@ fun NotificationSettingsBottomSheet(
                                 modifier = Modifier.weight(1f).padding(end = 8.dp)
                             )
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = null,
                                 tint = AccentBlue,
                                 modifier = Modifier.size(14.dp)
@@ -402,8 +402,7 @@ fun SettingSwitchRow(
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 15.sp
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         Switch(

@@ -170,8 +170,8 @@ class MainActivity : ComponentActivity() {
                                     val toIdx = getTabRouteIndex(toRoute)
 
                                     when {
-                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPushEnter
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopEnter
+                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushEnter
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
                                         fromIdx != -1 && toIdx != -1 -> {
                                             if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
                                         }
@@ -185,8 +185,8 @@ class MainActivity : ComponentActivity() {
                                     val toIdx = getTabRouteIndex(toRoute)
 
                                     when {
-                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPushExit
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopExit
+                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushExit
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
                                         fromIdx != -1 && toIdx != -1 -> {
                                             if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
                                         }
@@ -200,7 +200,7 @@ class MainActivity : ComponentActivity() {
                                     val toIdx = getTabRouteIndex(toRoute)
 
                                     when {
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopEnter
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
                                         fromIdx != -1 && toIdx != -1 -> {
                                             if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
                                         }
@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
                                     val toIdx = getTabRouteIndex(toRoute)
 
                                     when {
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopExit
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
                                         fromIdx != -1 && toIdx != -1 -> {
                                             if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
                                         }

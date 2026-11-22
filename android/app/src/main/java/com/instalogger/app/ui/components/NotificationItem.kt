@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
@@ -22,6 +21,7 @@ import com.instalogger.app.R
 import com.instalogger.app.data.local.NotificationEntity
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.ui.theme.StatusRed
 import java.text.SimpleDateFormat
 import java.util.*
@@ -33,7 +33,7 @@ fun NotificationItem(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(22.dp)
+    val cardShape = ShapeTokens.LargeShape
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(notification.timestamp))
 
@@ -42,14 +42,14 @@ fun NotificationItem(
             .fillMaxWidth()
             .clip(cardShape)
             .border(
-                0.75.dp,
+                ShapeTokens.BorderSubtle,
                 if (!notification.isRead) AccentBlue.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
                 cardShape
             )
             .bouncyClickable(pressScale = 0.98f, onClick = { if (!notification.isRead) onMarkRead() }),
         shape = cardShape,
         color = if (notification.isRead) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = if (notification.isRead) 1.dp else 3.dp
+        tonalElevation = if (notification.isRead) 1.dp else 2.dp
     ) {
         Row(
             modifier = Modifier
@@ -58,7 +58,7 @@ fun NotificationItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            val iconShape = RoundedCornerShape(14.dp)
+            val iconShape = ShapeTokens.MediumShape
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -68,7 +68,7 @@ fun NotificationItem(
                         else AccentBlue.copy(alpha = 0.16f)
                     )
                     .border(
-                        0.5.dp,
+                        ShapeTokens.BorderSubtle,
                         if (notification.isRead) MaterialTheme.colorScheme.outlineVariant else AccentBlue.copy(alpha = 0.3f),
                         iconShape
                     ),
@@ -122,40 +122,52 @@ fun NotificationItem(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                val actionShape = RoundedCornerShape(10.dp)
+                val actionShape = ShapeTokens.SmallShape
                 if (!notification.isRead) {
                     Box(
                         modifier = Modifier
-                            .size(34.dp)
-                            .clip(actionShape)
-                            .background(AccentBlue.copy(alpha = 0.12f))
-                            .border(0.5.dp, AccentBlue.copy(alpha = 0.25f), actionShape)
+                            .sizeIn(minWidth = 40.dp, minHeight = 40.dp)
                             .bouncyClickable(pressScale = 0.88f, onClick = onMarkRead),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = stringResource(R.string.action_mark_read),
-                            tint = AccentBlue,
-                            modifier = Modifier.size(17.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(actionShape)
+                                .background(AccentBlue.copy(alpha = 0.12f))
+                                .border(ShapeTokens.BorderSubtle, AccentBlue.copy(alpha = 0.25f), actionShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = stringResource(R.string.action_mark_read),
+                                tint = AccentBlue,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
                     }
                 }
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .clip(actionShape)
-                        .background(StatusRed.copy(alpha = 0.1f))
-                        .border(0.5.dp, StatusRed.copy(alpha = 0.22f), actionShape)
+                        .sizeIn(minWidth = 40.dp, minHeight = 40.dp)
                         .bouncyClickable(pressScale = 0.88f, onClick = onDelete),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = stringResource(R.string.action_delete),
-                        tint = StatusRed,
-                        modifier = Modifier.size(17.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(actionShape)
+                            .background(StatusRed.copy(alpha = 0.1f))
+                            .border(ShapeTokens.BorderSubtle, StatusRed.copy(alpha = 0.22f), actionShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.action_delete),
+                            tint = StatusRed,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                 }
             }
         }

@@ -3,7 +3,6 @@ package com.instalogger.app.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,7 +12,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.instalogger.app.R
-import com.instalogger.app.ui.animation.bouncyClickable
+import com.instalogger.app.ui.theme.ShapeTokens
 
 @Composable
 fun AddTargetDialog(
@@ -23,7 +22,7 @@ fun AddTargetDialog(
     var username by remember { mutableStateOf("") }
     var turbo by remember { mutableStateOf(false) }
 
-    val dialogShape = RoundedCornerShape(28.dp)
+    val dialogShape = ShapeTokens.LargeShape
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -49,20 +48,20 @@ fun AddTargetDialog(
                     placeholder = { Text(stringResource(R.string.dialog_username_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = ShapeTokens.MediumShape,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
                     )
                 )
 
-                val turboPodShape = RoundedCornerShape(16.dp)
+                val turboPodShape = ShapeTokens.MediumShape
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(turboPodShape)
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, turboPodShape)
+                        .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, turboPodShape)
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -96,7 +95,7 @@ fun AddTargetDialog(
                     }
                 },
                 enabled = username.isNotBlank(),
-                shape = RoundedCornerShape(14.dp)
+                shape = ShapeTokens.SmallShape
             ) {
                 Text(stringResource(R.string.dialog_confirm))
             }
@@ -104,7 +103,7 @@ fun AddTargetDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(14.dp)
+                shape = ShapeTokens.SmallShape
             ) {
                 Text(stringResource(R.string.dialog_cancel))
             }

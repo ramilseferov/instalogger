@@ -15,7 +15,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
@@ -42,6 +41,8 @@ import com.instalogger.app.R
 import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.ui.theme.AccentBlueDark
+import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.ui.theme.StatusRed
 import java.io.File
 import java.text.SimpleDateFormat
@@ -57,7 +58,7 @@ fun TargetCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(24.dp)
+    val cardShape = ShapeTokens.LargeShape
     val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
     val lastCheckStr = target.lastCheckedAt?.let {
         stringResource(R.string.last_checked_format, timeFormat.format(Date(it)))
@@ -67,7 +68,7 @@ fun TargetCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, cardShape),
+            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, cardShape),
         shape = cardShape,
         color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 2.dp
@@ -116,7 +117,7 @@ fun TargetCard(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .border(1.5.dp, AccentBlue.copy(alpha = 0.8f), CircleShape),
+                            .border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape),
                         contentScale = ContentScale.Crop,
                         loading = {
                             Box(
@@ -181,13 +182,13 @@ fun TargetCard(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Ergonomic Grouped Stats Container
-                val statsShape = RoundedCornerShape(16.dp)
+                val statsShape = ShapeTokens.MediumShape
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(statsShape)
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, statsShape)
+                        .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, statsShape)
                         .padding(vertical = 10.dp, horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -215,23 +216,30 @@ fun TargetCard(
                     modifier = Modifier.weight(1f)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val actionButtonShape = RoundedCornerShape(12.dp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val actionButtonShape = ShapeTokens.SmallShape
 
-                    // Refresh Button Pod
+                    // Refresh Button Pod (with 44dp min touch bounds)
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(actionButtonShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, actionButtonShape),
+                            .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
+                            .bouncyClickable(pressScale = 0.90f, onClick = onCheckNow),
                         contentAlignment = Alignment.Center
                     ) {
-                        RotatingRefreshButton(
-                            isRefreshing = isChecking,
-                            onClick = onCheckNow,
-                            modifier = Modifier.size(38.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(actionButtonShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, actionButtonShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            RotatingRefreshButton(
+                                isRefreshing = isChecking,
+                                onClick = onCheckNow,
+                                modifier = Modifier.size(38.dp)
+                            )
+                        }
                     }
 
                     // Turbo Toggle Pod with high-response spring animation
@@ -253,7 +261,7 @@ fun TargetCard(
                     )
 
                     val turboIconTint by animateColorAsState(
-                        targetValue = if (isTurboActive) Color(0xFF38BDF8)
+                        targetValue = if (isTurboActive) AccentBlue
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                         animationSpec = tween(durationMillis = 200),
                         label = "turboIconTint"
@@ -270,49 +278,61 @@ fun TargetCard(
 
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(actionButtonShape)
-                            .background(turboBgColor)
-                            .border(
-                                width = if (isTurboActive) 1.2.dp else 0.5.dp,
-                                color = turboBorderColor,
-                                shape = actionButtonShape
-                            )
+                            .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
                             .bouncyClickable(pressScale = 0.90f) {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 onToggleTurbo(!isTurboActive)
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Bolt,
-                            contentDescription = stringResource(R.string.badge_turbo),
-                            tint = turboIconTint,
+                        Box(
                             modifier = Modifier
-                                .size(20.dp)
-                                .graphicsLayer {
-                                    scaleX = boltScale
-                                    scaleY = boltScale
-                                }
-                        )
+                                .size(38.dp)
+                                .clip(actionButtonShape)
+                                .background(turboBgColor)
+                                .border(
+                                    width = if (isTurboActive) ShapeTokens.BorderStandard else ShapeTokens.BorderSubtle,
+                                    color = turboBorderColor,
+                                    shape = actionButtonShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = stringResource(R.string.badge_turbo),
+                                tint = turboIconTint,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .graphicsLayer {
+                                        scaleX = boltScale
+                                        scaleY = boltScale
+                                    }
+                            )
+                        }
                     }
 
-                    // Delete Pod
+                    // Delete Pod (with 44dp min touch bounds)
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(actionButtonShape)
-                            .background(StatusRed.copy(alpha = 0.1f))
-                            .border(0.5.dp, StatusRed.copy(alpha = 0.25f), actionButtonShape)
+                            .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
                             .bouncyClickable(pressScale = 0.90f, onClick = onDelete),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = stringResource(R.string.action_delete),
-                            tint = StatusRed,
-                            modifier = Modifier.size(17.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(actionButtonShape)
+                                .background(StatusRed.copy(alpha = 0.1f))
+                                .border(ShapeTokens.BorderSubtle, StatusRed.copy(alpha = 0.25f), actionButtonShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = stringResource(R.string.action_delete),
+                                tint = StatusRed,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -326,7 +346,7 @@ private fun AvatarInitialsFallback(username: String, modifier: Modifier = Modifi
     val gradientBrush = Brush.linearGradient(
         colors = listOf(
             AccentBlue,
-            Color(0xFF8B5CF6)
+            AccentBlueDark
         )
     )
     Box(

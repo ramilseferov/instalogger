@@ -38,6 +38,7 @@ import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.ui.theme.ShapeTokens
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -123,13 +124,13 @@ fun ProfileDetailScreen(
                         else -> null
                     }
 
-                    val heroShape = RoundedCornerShape(26.dp)
+                    val heroShape = ShapeTokens.LargeShape
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                             .clip(heroShape)
-                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, heroShape),
+                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, heroShape),
                         shape = heroShape,
                         color = MaterialTheme.colorScheme.surfaceContainer,
                         tonalElevation = 2.dp
@@ -158,7 +159,7 @@ fun ProfileDetailScreen(
                                         modifier = Modifier
                                             .size(66.dp)
                                             .clip(CircleShape)
-                                            .border(2.dp, AccentBlue.copy(alpha = 0.8f), CircleShape)
+                                            .border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape)
                                             .bouncyClickable(pressScale = 0.92f) {
                                                 previewImagePath = (topImageSource as? File)?.absolutePath ?: topImageSource.toString()
                                             },
@@ -170,7 +171,7 @@ fun ProfileDetailScreen(
                                             .size(66.dp)
                                             .clip(CircleShape)
                                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
@@ -229,13 +230,13 @@ fun ProfileDetailScreen(
                             Spacer(modifier = Modifier.height(14.dp))
 
                             // Grouped stats pod
-                            val statsPodShape = RoundedCornerShape(16.dp)
+                            val statsPodShape = ShapeTokens.MediumShape
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(statsPodShape)
                                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, statsPodShape)
+                                    .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, statsPodShape)
                                     .padding(vertical = 10.dp, horizontal = 12.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
@@ -257,104 +258,22 @@ fun ProfileDetailScreen(
                     }
                 }
 
-                // Ergonomic Sliding Pill Tab Row
-                val tabContainerShape = RoundedCornerShape(20.dp)
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .clip(tabContainerShape)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, tabContainerShape),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = tabContainerShape
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Audit Logs Tab
-                        val isTab0 = selectedTab == 0
-                        val pill0Shape = RoundedCornerShape(16.dp)
-                        val color0 by animateColorAsState(
-                            targetValue = if (isTab0) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            animationSpec = tween(180),
-                            label = "tab0_bg"
+                // Standardized Sliding Pill Tab Row
+                SlidingPillTabRow(
+                    tabs = listOf(
+                        TabItem(
+                            title = stringResource(R.string.tab_audit_logs, logs.size),
+                            icon = Icons.Default.History
+                        ),
+                        TabItem(
+                            title = stringResource(R.string.tab_avatar_history, avatars.size),
+                            icon = Icons.Default.Image
                         )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(pill0Shape)
-                                .background(color0)
-                                .then(
-                                    if (isTab0) Modifier.border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pill0Shape)
-                                    else Modifier
-                                )
-                                .bouncyClickable(pressScale = 0.94f) { selectedTab = 0 }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.History,
-                                    contentDescription = null,
-                                    tint = if (isTab0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(17.dp)
-                                )
-                                Text(
-                                    text = stringResource(R.string.tab_audit_logs, logs.size),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isTab0) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isTab0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        // Avatar History Tab
-                        val isTab1 = selectedTab == 1
-                        val pill1Shape = RoundedCornerShape(16.dp)
-                        val color1 by animateColorAsState(
-                            targetValue = if (isTab1) MaterialTheme.colorScheme.surface else Color.Transparent,
-                            animationSpec = tween(180),
-                            label = "tab1_bg"
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(pill1Shape)
-                                .background(color1)
-                                .then(
-                                    if (isTab1) Modifier.border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pill1Shape)
-                                    else Modifier
-                                )
-                                .bouncyClickable(pressScale = 0.94f) { selectedTab = 1 }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Image,
-                                    contentDescription = null,
-                                    tint = if (isTab1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(17.dp)
-                                )
-                                Text(
-                                    text = stringResource(R.string.tab_avatar_history, avatars.size),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (isTab1) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isTab1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
+                    ),
+                    selectedIndex = selectedTab,
+                    onTabSelected = { selectedTab = it },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
 
                 when (selectedTab) {
                     0 -> {
@@ -526,38 +445,11 @@ fun ProfileDetailScreen(
         }
     }
 
-    // Full screen image preview dialog
-    if (previewImagePath != null) {
-        Dialog(onDismissRequest = { previewImagePath = null }) {
-            val dialogShape = RoundedCornerShape(26.dp)
-            Surface(
-                shape = dialogShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 6.dp,
-                modifier = Modifier.border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, dialogShape)
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    AsyncImage(
-                        model = File(previewImagePath!!),
-                        contentDescription = stringResource(R.string.preview_title),
-                        modifier = Modifier
-                            .size(280.dp)
-                            .clip(RoundedCornerShape(20.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Button(
-                        onClick = { previewImagePath = null },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.bouncyClickable(onClick = { previewImagePath = null })
-                    ) {
-                        Text(stringResource(R.string.dialog_close))
-                    }
-                }
-            }
-        }
+    // Standardized full screen image preview dialog
+    previewImagePath?.let { path ->
+        ImagePreviewDialog(
+            imagePath = path,
+            onDismiss = { previewImagePath = null }
+        )
     }
 }

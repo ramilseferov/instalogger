@@ -30,7 +30,9 @@ import com.instalogger.app.ui.components.NotificationItem
 import com.instalogger.app.ui.components.NotificationSettingsBottomSheet
 import com.instalogger.app.ui.components.ReachabilityHeader
 import com.instalogger.app.ui.components.StatusBadge
+import com.instalogger.app.ui.components.UnifiedEmptyState
 import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.ui.theme.ShapeTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -128,65 +130,15 @@ fun NotificationCenterScreen() {
                 .padding(padding)
         ) {
             if (notifications.isEmpty()) {
-                val emptyShape = RoundedCornerShape(24.dp)
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(emptyShape)
-                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, emptyShape),
-                        shape = emptyShape,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        tonalElevation = 2.dp
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(28.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            val iconShape = CircleShape
-                            Box(
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(iconShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, iconShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.NotificationsNone,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(36.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(18.dp))
-                            Text(
-                                text = stringResource(R.string.empty_notifications_title),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = stringResource(R.string.empty_notifications_desc),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
+                UnifiedEmptyState(
+                    icon = Icons.Default.NotificationsNone,
+                    title = stringResource(R.string.empty_notifications_title),
+                    description = stringResource(R.string.empty_notifications_desc)
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(notifications, key = { it.id }) { item ->

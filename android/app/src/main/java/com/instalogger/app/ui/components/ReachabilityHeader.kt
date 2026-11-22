@@ -4,7 +4,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,6 +16,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.instalogger.app.R
 import com.instalogger.app.ui.animation.bouncyClickable
+import com.instalogger.app.ui.theme.ShapeTokens
 
 /**
  * Ergonomic reachability header for top viewing area.
@@ -35,7 +35,7 @@ fun ReachabilityHeader(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
-            .padding(top = 18.dp, bottom = 12.dp)
+            .padding(top = 16.dp, bottom = 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -50,7 +50,7 @@ fun ReachabilityHeader(
 
             if (actions != null) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     content = actions
                 )
@@ -94,7 +94,7 @@ fun ReachabilityHeader(
 }
 
 /**
- * Modern squircle action button container with bouncy spring touch feedback.
+ * Modern squircle action button container with bouncy spring touch feedback and 48dp accessibility bounds.
  */
 @Composable
 fun HeaderActionButton(
@@ -102,15 +102,21 @@ fun HeaderActionButton(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = ShapeTokens.SmallShape
     Box(
         modifier = modifier
-            .size(40.dp)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, shape)
-            .bouncyClickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-        content = content
-    )
+            .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
+            .bouncyClickable(pressScale = 0.92f, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, shape),
+            contentAlignment = Alignment.Center,
+            content = content
+        )
+    }
 }
