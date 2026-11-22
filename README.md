@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="instalogger-icon.svg" width="120" height="120" alt="InstaLogger Logo" />
+</p>
+
 # InstaLogger
 
 > **Fasiləsiz Instagram Profil Monitorinqi və Avtomatik Rəqəmsal Arxivləşdirici**  

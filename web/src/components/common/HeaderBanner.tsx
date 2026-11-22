@@ -103,9 +103,16 @@ export const HeaderBanner: React.FC<HeaderBannerProps> = ({
         </div>
       </div>
 
-      <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight transition-colors">
-        {title || t.app_title}
-      </h1>
+      <div className="flex items-center gap-3">
+        <img
+          src="/instalogger-icon.svg"
+          alt="InstaLogger"
+          className="w-10 h-10 rounded-xl shadow-xs select-none object-contain"
+        />
+        <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight transition-colors">
+          {title || t.app_title}
+        </h1>
+      </div>
       <p className="mt-1 text-sm text-gray-500 font-normal leading-relaxed">
         {subtitle || t.app_subtitle}
       </p>

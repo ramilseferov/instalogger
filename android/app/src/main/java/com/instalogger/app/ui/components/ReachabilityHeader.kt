@@ -1,5 +1,6 @@
 package com.instalogger.app.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -10,9 +11,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.instalogger.app.R
 import com.instalogger.app.ui.animation.bouncyClickable
 
 /**
@@ -23,6 +26,7 @@ import com.instalogger.app.ui.animation.bouncyClickable
 fun ReachabilityHeader(
     title: String,
     subtitle: String? = null,
+    showLogo: Boolean = true,
     badgeContent: (@Composable () -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -55,14 +59,26 @@ fun ReachabilityHeader(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (showLogo) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_instalogger_logo),
+                    contentDescription = "InstaLogger Logo",
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
         if (!subtitle.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(4.dp))
