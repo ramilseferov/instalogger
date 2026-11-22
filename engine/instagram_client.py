@@ -124,3 +124,60 @@ class InstagramClient:
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def fetch_user_highlights(self, user_id: str) -> List[Dict[str, Any]]:
+        """Fetch all user highlight trays via Instagram GraphQL or web endpoint."""
+        url = f"https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables={json.dumps({'user_id': str(user_id), 'include_highlight_reels': True})}"
+        self.session.headers["Referer"] = "https://www.instagram.com/"
+        try:
+            resp = self.session.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                edges = data.get("data", {}).get("user", {}).get("edge_highlight_reels", {}).get("edges", [])
+                results = []
+                for edge in edges:
+                    node = edge.get("node", {})
+                    results.append({
+                        "id": str(node.get("id")),
+                        "title": node.get("title") or "Highlight",
+                        "cover_url": node.get("cover_media", {}).get("thumbnail_src") or "",
+                        "media_count": int(node.get("media_count") or 0)
+                    })
+                return results
+        except Exception as e:
+            logger.debug(f"Highlights query failed for user {user_id}: {e}")
+        return []
+
+    def fetch_highlight_stories(self, highlight_id: str) -> List[Dict[str, Any]]:
+        """Fetch all stories within a specific highlight tray."""
+        clean_id = highlight_id if highlight_id.startswith("highlight:") else f"highlight:{highlight_id}"
+        url = f"https://www.instagram.com/graphql/query/?query_hash=452461bc5c9e67e8280862c4335b390c&variables={json.dumps({'highlight_reel_ids': [clean_id]})}"
+        self.session.headers["Referer"] = "https://www.instagram.com/"
+        try:
+            resp = self.session.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                reels_media = data.get("data", {}).get("reels_media", [])
+                stories = []
+                for reel in reels_media:
+                    items = reel.get("items", [])
+                    for item in items:
+                        is_video = bool(item.get("is_video", False))
+                        cdn_url = ""
+                        if is_video:
+                            video_resources = item.get("video_resources", [])
+                            cdn_url = video_resources[0].get("src") if video_resources else (item.get("video_url") or "")
+                        if not cdn_url:
+                            cdn_url = item.get("display_url") or ""
+
+                        stories.append({
+                            "id": str(item.get("id")),
+                            "media_type": "video" if is_video else "image",
+                            "cdn_url": cdn_url,
+                            "taken_at": item.get("taken_at_timestamp") or int(time.time()),
+                            "dimensions": item.get("dimensions", {})
+                        })
+                return stories
+        except Exception as e:
+            logger.debug(f"Highlight stories query failed for {highlight_id}: {e}")
+        return []

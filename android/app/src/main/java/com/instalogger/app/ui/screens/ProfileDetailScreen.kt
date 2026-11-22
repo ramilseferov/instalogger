@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
@@ -34,6 +35,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
+import com.instalogger.app.data.local.HighlightEntity
+import com.instalogger.app.data.local.HighlightMediaEntity
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
@@ -58,10 +61,14 @@ fun ProfileDetailScreen(
     val target by app.database.targetDao().getTargetFlow(username).collectAsStateWithLifecycle(initialValue = null)
     val logs by app.database.changeLogDao().getLogsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val avatars by app.database.avatarHistoryDao().getAvatarsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val highlights by app.database.highlightDao().getHighlightsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val posts by app.database.postDao().getPostsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
 
     var isRefreshing by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
+    var activeHighlight by remember { mutableStateOf<HighlightEntity?>(null) }
+    var activeHighlightMedia by remember { mutableStateOf<List<HighlightMediaEntity>>(emptyList()) }
     val noneStr = stringResource(R.string.none_value)
 
     fun refreshTargetData() {
@@ -69,6 +76,7 @@ fun ProfileDetailScreen(
         scope.launch {
             isRefreshing = true
             val result = app.profileInspector.inspectTarget(username)
+            app.profileInspector.inspectHighlightsAndPosts(username)
             isRefreshing = false
             if (result.isSuccess) {
                 snackbarHostState.showSnackbar(context.getString(R.string.msg_target_checked, username))
@@ -258,12 +266,30 @@ fun ProfileDetailScreen(
                     }
                 }
 
+                // Instagram Highlights Horizontal Row
+                if (highlights.isNotEmpty()) {
+                    InstagramHighlightRow(
+                        highlights = highlights,
+                        onHighlightClick = { hl ->
+                            scope.launch {
+                                activeHighlightMedia = app.database.highlightDao().getMediaListForHighlight(hl.id)
+                                activeHighlight = hl
+                            }
+                        },
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
+
                 // Standardized Sliding Pill Tab Row
                 SlidingPillTabRow(
                     tabs = listOf(
                         TabItem(
                             title = stringResource(R.string.tab_audit_logs, logs.size),
                             icon = Icons.Default.History
+                        ),
+                        TabItem(
+                            title = stringResource(R.string.tab_posts, posts.size),
+                            icon = Icons.Default.GridOn
                         ),
                         TabItem(
                             title = stringResource(R.string.tab_avatar_history, avatars.size),
@@ -354,6 +380,15 @@ fun ProfileDetailScreen(
                         }
                     }
                     1 -> {
+                        InstagramPostGrid(
+                            posts = posts,
+                            onPostClick = { post ->
+                                val localFile = post.localPath?.let { File(it) }
+                                previewImagePath = if (localFile != null && localFile.exists()) localFile.absolutePath else post.displayUrl
+                            }
+                        )
+                    }
+                    2 -> {
                         if (avatars.isEmpty()) {
                             Box(
                                 modifier = Modifier
@@ -450,6 +485,15 @@ fun ProfileDetailScreen(
         ImagePreviewDialog(
             imagePath = path,
             onDismiss = { previewImagePath = null }
+        )
+    }
+
+    // Instagram Fullscreen Story Viewer
+    activeHighlight?.let { hl ->
+        InstagramStoryViewer(
+            highlight = hl,
+            mediaList = activeHighlightMedia,
+            onDismiss = { activeHighlight = null }
         )
     }
 }

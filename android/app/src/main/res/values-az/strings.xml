@@ -46,8 +46,11 @@
     <!-- Target Detail -->
     <string name="target_detail_title">Hədəf Təfərrüatları</string>
     <string name="tab_audit_logs">Audit Jurnalı (%1$d)</string>
+    <string name="tab_posts">Postlar (%1$d)</string>
     <string name="tab_avatar_history">Tarixi Avatarlar (%1$d)</string>
+    <string name="highlights_title">Önə Çıxarılanlar</string>
     <string name="empty_target_logs">Hələ ki profil dəyişikliyi aşkar edilməyib.</string>
+    <string name="empty_target_posts">Hələlik heç bir post arxivlənməyib.</string>
     <string name="empty_target_avatars">Tarixi profil şəkli arxivlənməyib.</string>
     <string name="avatar_size_format">Həcm: %1$d KB</string>
     <string name="avatar_archived_format">Arxivləndi: %1$s</string>

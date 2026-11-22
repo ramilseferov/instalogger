@@ -33,6 +33,33 @@ data class InstagramUserSummary(
     val isVerified: Boolean = false
 )
 
+data class InstagramHighlight(
+    val id: String,
+    val title: String,
+    val coverUrl: String?,
+    val mediaCount: Int = 0
+)
+
+data class InstagramHighlightItem(
+    val id: String,
+    val highlightId: String,
+    val mediaType: String, // "image" or "video"
+    val mediaUrl: String,
+    val takenAt: Long = 0L
+)
+
+data class InstagramPostItem(
+    val id: String,
+    val shortcode: String,
+    val mediaType: String, // "image" or "video"
+    val displayUrl: String,
+    val videoUrl: String? = null,
+    val caption: String = "",
+    val timestamp: Long = 0L,
+    val likeCount: Int = 0,
+    val commentCount: Int = 0
+)
+
 class InstagramEngine {
 
     private val client = OkHttpClient.Builder()
@@ -551,6 +578,266 @@ class InstagramEngine {
         } catch (e: Exception) {
             Log.w(TAG, "Error parsing users list: ${e.message}")
         }
+        return list
+    }
+
+    fun downloadMedia(url: String, destFile: File): Long {
+        destFile.parentFile?.mkdirs()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+            .build()
+
+        clientWithRedirects.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return 0L
+            val body = response.body ?: return 0L
+            val bytes = body.bytes()
+            FileOutputStream(destFile).use { it.write(bytes) }
+            return bytes.size.toLong()
+        }
+    }
+
+    fun fetchUserHighlights(userId: String, cookieString: String?): List<InstagramHighlight> {
+        if (userId.isBlank()) return emptyList()
+        val url = "https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables=%7B%22user_id%22%3A%22$userId%22%2C%22include_highlight_reels%22%3Atrue%7D"
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .header("X-IG-App-ID", APP_ID)
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+
+        if (!cookieString.isNullOrBlank()) {
+            requestBuilder.header("Cookie", cookieString)
+        }
+
+        val list = mutableListOf<InstagramHighlight>()
+        try {
+            clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: return emptyList()
+                    val root = gson.fromJson(body, JsonObject::class.java) ?: return emptyList()
+                    val edges = root.getAsJsonObject("data")
+                        ?.getAsJsonObject("user")
+                        ?.getAsJsonObject("edge_highlight_reels")
+                        ?.getAsJsonArray("edges") ?: return emptyList()
+
+                    for (edge in edges) {
+                        val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
+                        val id = node.get("id")?.asString ?: continue
+                        val title = node.get("title")?.asString ?: "Highlight"
+                        val coverUrl = node.getAsJsonObject("cover_media")?.get("thumbnail_src")?.asString
+                            ?: node.getAsJsonObject("cover_media_cropped_thumbnail")?.get("url")?.asString
+                        val count = node.get("media_count")?.asInt ?: 0
+                        list.add(
+                            InstagramHighlight(
+                                id = id,
+                                title = title,
+                                coverUrl = coverUrl,
+                                mediaCount = count
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Highlights query failed for user $userId: ${e.message}")
+        }
+        return list
+    }
+
+    fun fetchHighlightStories(highlightId: String, cookieString: String?): List<InstagramHighlightItem> {
+        val cleanId = if (highlightId.startsWith("highlight:")) highlightId else "highlight:$highlightId"
+        val encodedId = java.net.URLEncoder.encode("[\"$cleanId\"]", "UTF-8")
+        val url = "https://www.instagram.com/graphql/query/?query_hash=452461bc5c9e67e8280862c4335b390c&variables=%7B%22highlight_reel_ids%22%3A$encodedId%7D"
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .header("X-IG-App-ID", APP_ID)
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+
+        if (!cookieString.isNullOrBlank()) {
+            requestBuilder.header("Cookie", cookieString)
+        }
+
+        val list = mutableListOf<InstagramHighlightItem>()
+        try {
+            clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: return emptyList()
+                    val root = gson.fromJson(body, JsonObject::class.java) ?: return emptyList()
+                    val reelsMedia = root.getAsJsonObject("data")?.getAsJsonArray("reels_media") ?: return emptyList()
+                    for (reel in reelsMedia) {
+                        val items = reel.asJsonObject?.getAsJsonArray("items") ?: continue
+                        for (item in items) {
+                            val obj = item.asJsonObject ?: continue
+                            val id = obj.get("id")?.asString ?: continue
+                            val isVideo = obj.get("is_video")?.asBoolean ?: false
+                            var cdnUrl = ""
+                            if (isVideo) {
+                                val videoResources = obj.getAsJsonArray("video_resources")
+                                if (videoResources != null && videoResources.size() > 0) {
+                                    cdnUrl = videoResources[0].asJsonObject.get("src")?.asString ?: ""
+                                }
+                                if (cdnUrl.isBlank()) {
+                                    cdnUrl = obj.get("video_url")?.asString ?: ""
+                                }
+                            }
+                            if (cdnUrl.isBlank()) {
+                                cdnUrl = obj.get("display_url")?.asString ?: ""
+                            }
+                            val takenAt = obj.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
+                            list.add(
+                                InstagramHighlightItem(
+                                    id = id,
+                                    highlightId = highlightId,
+                                    mediaType = if (isVideo) "video" else "image",
+                                    mediaUrl = cdnUrl,
+                                    takenAt = takenAt * 1000L
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Highlight stories query failed for $highlightId: ${e.message}")
+        }
+        return list
+    }
+
+    fun fetchRecentPosts(userId: String?, username: String, cookieString: String?, limit: Int = 24): List<InstagramPostItem> {
+        val list = mutableListOf<InstagramPostItem>()
+
+        // 1. Try web profile info API first
+        try {
+            val url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=$username"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                .header("X-IG-App-ID", APP_ID)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Referer", "https://www.instagram.com/$username/")
+                .header("Accept", "*/*")
+
+            if (!cookieString.isNullOrBlank()) {
+                req.header("Cookie", cookieString)
+            }
+
+            clientWithRedirects.newCall(req.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        val root = gson.fromJson(body, JsonObject::class.java)
+                        val edges = root?.getAsJsonObject("data")
+                            ?.getAsJsonObject("user")
+                            ?.getAsJsonObject("edge_owner_to_timeline_media")
+                            ?.getAsJsonArray("edges")
+                        if (edges != null && edges.size() > 0) {
+                            for (edge in edges) {
+                                val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
+                                val id = node.get("id")?.asString ?: continue
+                                val shortcode = node.get("shortcode")?.asString ?: id
+                                val isVideo = node.get("is_video")?.asBoolean ?: false
+                                val displayUrl = node.get("display_url")?.asString ?: ""
+                                val videoUrl = if (isVideo) node.get("video_url")?.asString else null
+                                val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
+                                val caption = if (captionEdges != null && captionEdges.size() > 0) {
+                                    captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString ?: ""
+                                } else ""
+                                val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
+                                    ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
+                                val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
+                                val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
+
+                                list.add(
+                                    InstagramPostItem(
+                                        id = shortcode,
+                                        shortcode = shortcode,
+                                        mediaType = if (isVideo) "video" else "image",
+                                        displayUrl = displayUrl,
+                                        videoUrl = videoUrl,
+                                        caption = caption,
+                                        timestamp = timestamp * 1000L,
+                                        likeCount = likes,
+                                        commentCount = comments
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Web profile info posts query failed: ${e.message}")
+        }
+
+        if (list.isNotEmpty()) return list
+
+        // 2. Fallback to GraphQL query hash if user_id is provided
+        if (!userId.isNullOrBlank()) {
+            try {
+                val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=e7465275e4878740f5b475ab0877917b&variables=%7B%22id%22%3A%22$userId%22%2C%22first%22%3A$limit%7D"
+                val req = Request.Builder()
+                    .url(gqlUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .header("X-IG-App-ID", APP_ID)
+                    .header("Referer", "https://www.instagram.com/")
+                    .header("Accept", "*/*")
+
+                if (!cookieString.isNullOrBlank()) {
+                    req.header("Cookie", cookieString)
+                }
+
+                clientWithRedirects.newCall(req.build()).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: return emptyList()
+                        val root = gson.fromJson(body, JsonObject::class.java)
+                        val edges = root?.getAsJsonObject("data")
+                            ?.getAsJsonObject("user")
+                            ?.getAsJsonObject("edge_owner_to_timeline_media")
+                            ?.getAsJsonArray("edges")
+                        if (edges != null) {
+                            for (edge in edges) {
+                                val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
+                                val id = node.get("id")?.asString ?: continue
+                                val shortcode = node.get("shortcode")?.asString ?: id
+                                val isVideo = node.get("is_video")?.asBoolean ?: false
+                                val displayUrl = node.get("display_url")?.asString ?: ""
+                                val videoUrl = if (isVideo) node.get("video_url")?.asString else null
+                                val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
+                                val caption = if (captionEdges != null && captionEdges.size() > 0) {
+                                    captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString ?: ""
+                                } else ""
+                                val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt ?: 0
+                                val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
+                                val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
+
+                                list.add(
+                                    InstagramPostItem(
+                                        id = shortcode,
+                                        shortcode = shortcode,
+                                        mediaType = if (isVideo) "video" else "image",
+                                        displayUrl = displayUrl,
+                                        videoUrl = videoUrl,
+                                        caption = caption,
+                                        timestamp = timestamp * 1000L,
+                                        likeCount = likes,
+                                        commentCount = comments
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "GraphQL timeline posts query failed: ${e.message}")
+            }
+        }
+
         return list
     }
 

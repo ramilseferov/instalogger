@@ -46,8 +46,11 @@
     <!-- Target Detail -->
     <string name="target_detail_title">Target Details</string>
     <string name="tab_audit_logs">Audit Logs (%1$d)</string>
+    <string name="tab_posts">Posts (%1$d)</string>
     <string name="tab_avatar_history">Avatar History (%1$d)</string>
+    <string name="highlights_title">Highlights</string>
     <string name="empty_target_logs">No profile changes detected yet.</string>
+    <string name="empty_target_posts">No posts archived yet.</string>
     <string name="empty_target_avatars">No historical avatars archived.</string>
     <string name="avatar_size_format">Size: %1$d KB</string>
     <string name="avatar_archived_format">Archived: %1$s</string>

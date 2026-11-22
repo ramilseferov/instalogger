@@ -46,8 +46,11 @@
     <!-- Target Detail -->
     <string name="target_detail_title">Детали цели</string>
     <string name="tab_audit_logs">Журнал аудита (%1$d)</string>
+    <string name="tab_posts">Публикации (%1$d)</string>
     <string name="tab_avatar_history">История аватаров (%1$d)</string>
+    <string name="highlights_title">Актуальное</string>
     <string name="empty_target_logs">Изменения профиля пока не обнаружены.</string>
+    <string name="empty_target_posts">Публикации пока не заархивированы.</string>
     <string name="empty_target_avatars">Архивных аватаров пока нет.</string>
     <string name="avatar_size_format">Размер: %1$d КБ</string>
     <string name="avatar_archived_format">Архивировано: %1$s</string>

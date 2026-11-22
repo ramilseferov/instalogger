@@ -7,6 +7,8 @@ import { Button } from '../common/Button';
 import { TimelineView } from './TimelineView';
 import { MediaGallery } from './MediaGallery';
 import { AvatarHistoryModal } from './AvatarHistoryModal';
+import { HighlightCirclesRow } from './HighlightCirclesRow';
+import { InstagramStoryViewerModal } from './InstagramStoryViewerModal';
 import {
   ArrowLeft,
   RefreshCw,
@@ -34,6 +36,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [activeStoryGroup, setActiveStoryGroup] = useState<{ title: string; items: ArchivedMedia[] } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -164,6 +167,12 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
         </div>
       </Card>
 
+      {/* Instagram Style Highlights Circles Row */}
+      <HighlightCirclesRow
+        media={media}
+        onSelectHighlight={(title, items) => setActiveStoryGroup({ title, items })}
+      />
+
       {/* Tabs */}
       <div className="flex items-center bg-[#E5E8EC]/80 p-1 rounded-2xl">
         <button
@@ -204,6 +213,15 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
         targetId={target.id}
         username={target.username}
       />
+
+      {/* Instagram Story Viewer Modal */}
+      {activeStoryGroup && (
+        <InstagramStoryViewerModal
+          title={activeStoryGroup.title}
+          items={activeStoryGroup.items}
+          onClose={() => setActiveStoryGroup(null)}
+        />
+      )}
     </div>
   );
 };

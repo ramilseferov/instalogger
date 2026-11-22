@@ -195,6 +195,31 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
         item["relative_file_path"] = f"archives/{profile['id']}/{item['media_type']}s/{item['shortcode']}.{'mp4' if item['media_type'] == 'reel' else 'jpg'}"
         items.append(item)
 
+    # When profile is active/public, also extract all highlights
+    if not profile.get("is_private"):
+        try:
+            hl_trays = client.fetch_user_highlights(profile["id"])
+            for tray in hl_trays:
+                tray_title = sanitize_identifier(tray.get("title") or "Highlight")
+                stories = client.fetch_highlight_stories(tray["id"])
+                for story in stories:
+                    story_id = story.get("id") or str(int(time.time()))
+                    ext = "mp4" if story.get("media_type") == "video" else "jpg"
+                    items.append({
+                        "id": f"highlight_{story_id}",
+                        "shortcode": story_id,
+                        "media_type": "highlight",
+                        "highlight_title": tray.get("title") or "Highlight",
+                        "cdn_url": story.get("cdn_url") or "",
+                        "caption": f"Highlight: {tray.get('title')}",
+                        "posted_at": story.get("taken_at") or int(time.time()),
+                        "target_id": profile["id"],
+                        "relative_file_path": f"archives/{profile['id']}/highlights/{tray_title}/{story_id}.{ext}",
+                        "dimensions": story.get("dimensions", {})
+                    })
+        except Exception as e:
+            sys.stderr.write(f"Highlight blitz error: {e}\n")
+
     print(json.dumps({
         "status": "ok",
         "profile": profile,
