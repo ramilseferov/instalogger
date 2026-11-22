@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# InstaLogger CLI Controller
+
+set -e
+
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PID_FILE="$BASE_DIR/run/instalogger.pid"
+LOG_FILE="$BASE_DIR/logs/instalogger.log"
+HOME_BIN="$HOME/.instalogger/bin/instalogger_backend"
+PREFIX_BIN="$PREFIX/bin/instalogger_backend"
+BIN_RELEASE="$BASE_DIR/backend/target/release/instalogger_backend"
+BIN_DEBUG="$BASE_DIR/backend/target/debug/instalogger_backend"
+
+# Ensure runtime directories exist
+mkdir -p "$BASE_DIR/data" "$BASE_DIR/archives" "$BASE_DIR/sessions" "$BASE_DIR/logs" "$BASE_DIR/run" "$HOME/.instalogger/bin"
+
+usage() {
+    echo "Usage: ./instalogger {start|stop|restart|status|logs|--help}"
+    echo ""
+    echo "Commands:"
+    echo "  start     Start the Instalogger background daemon with CPU wake-lock"
+    echo "  stop      Stop the daemon gracefully and release wake-lock"
+    echo "  restart   Restart the daemon"
+    echo "  status    Check running state, PID, and health endpoint"
+    echo "  logs      Follow daemon stdout/stderr log output"
+    echo "  --help    Show this help message"
+    echo ""
+}
+
+find_binary() {
+    if [ -f "$HOME_BIN" ] && [ -x "$HOME_BIN" ]; then
+        echo "$HOME_BIN"
+    elif [ -f "$PREFIX_BIN" ] && [ -x "$PREFIX_BIN" ]; then
+        echo "$PREFIX_BIN"
+    elif [ -f "$BIN_RELEASE" ] && [ -x "$BIN_RELEASE" ]; then
+        echo "$BIN_RELEASE"
+    elif [ -f "$BIN_DEBUG" ] && [ -x "$BIN_DEBUG" ]; then
+        echo "$BIN_DEBUG"
+    else
+        echo ""
+    fi
+}
+
+start_daemon() {
+    echo "[*] Checking Instalogger daemon status..."
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "[!] Instalogger is already running (PID: $PID)."
+            exit 0
+        else
+            rm -f "$PID_FILE"
+        fi
+    fi
+
+    BIN=$(find_binary)
+    if [ -z "$BIN" ]; then
+        echo "[!] Binary not found. Building project first..."
+        if [ -f "$BASE_DIR/scripts/build.sh" ]; then
+            bash "$BASE_DIR/scripts/build.sh"
+            BIN=$(find_binary)
+        else
+            echo "[-] Error: Neither binary nor build script was found. Please compile the backend."
+            exit 1
+        fi
+    fi
+
+    # Termux wake-lock to prevent CPU sleep when phone screen is turned off
+    if command -v termux-wake-lock >/dev/null 2>&1; then
+        echo "[+] Enabling termux-wake-lock (preventing Android OS sleep)..."
+        termux-wake-lock || true
+    fi
+
+    echo "[+] Starting Instalogger daemon in background..."
+    cd "$BASE_DIR"
+    nohup "$BIN" > "$LOG_FILE" 2>&1 &
+    NEW_PID=$!
+    echo "$NEW_PID" > "$PID_FILE"
+    echo "[✓] Instalogger daemon started successfully (PID: $NEW_PID)."
+    echo "[*] Web dashboard: http://localhost:3000"
+    echo "[*] Logs: $LOG_FILE"
+}
+
+stop_daemon() {
+    echo "[*] Stopping Instalogger daemon..."
+    if [ ! -f "$PID_FILE" ]; then
+        echo "[-] Instalogger is not running (PID file not found)."
+    else
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            kill "$PID" 2>/dev/null || true
+            echo "[+] Sent termination signal to PID $PID. Waiting..."
+            for i in {1..10}; do
+                if ! kill -0 "$PID" 2>/dev/null; then
+                    break
+                fi
+                sleep 0.5
+            done
+            if kill -0 "$PID" 2>/dev/null; then
+                echo "[!] Process did not terminate; sending SIGKILL..."
+                kill -9 "$PID" 2>/dev/null || true
+            fi
+            echo "[✓] Daemon stopped."
+        else
+            echo "[-] Process $PID is not running."
+        fi
+        rm -f "$PID_FILE"
+    fi
+
+    # Release wake lock
+    if command -v termux-wake-unlock >/dev/null 2>&1; then
+        echo "[+] Releasing termux-wake-lock..."
+        termux-wake-unlock || true
+    fi
+}
+
+check_status() {
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "[✓] Instalogger is Running (PID: $PID)"
+            if command -v curl >/dev/null 2>&1; then
+                HEALTH=$(curl -s -m 2 http://127.0.0.1:3000/api/health 2>/dev/null || echo "API unreachable")
+                echo "[*] Health Check: $HEALTH"
+            fi
+            return 0
+        else
+            echo "[-] PID file exists ($PID), but process is DEAD."
+            return 1
+        fi
+    else
+        echo "[-] Instalogger is Stopped."
+        return 2
+    fi
+}
+
+show_logs() {
+    if [ -f "$LOG_FILE" ]; then
+        tail -n 50 -f "$LOG_FILE"
+    else
+        echo "[-] Log file not found at $LOG_FILE"
+    fi
+}
+
+case "$1" in
+    start)
+        start_daemon
+        ;;
+    stop)
+        stop_daemon
+        ;;
+    restart)
+        stop_daemon
+        sleep 1
+        start_daemon
+        ;;
+    status)
+        check_status
+        ;;
+    logs)
+        show_logs
+        ;;
+    --help|-h|"")
+        usage
+        ;;
+    *)
+        echo "[!] Unknown command: $1"
+        usage
+        exit 1
+        ;;
+esac

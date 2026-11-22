@@ -1,0 +1,32 @@
+[package]
+name = "instalogger_backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rusqlite = { version = "0.33", features = ["bundled", "chrono"] }
+tokio = { version = "1.40", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+thiserror = "2.0"
+axum = { version = "0.8", features = ["ws"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+reqwest = { version = "0.12", features = ["json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+futures = "0.3"
+
+[dev-dependencies]
+http-body-util = "0.1"
+
+[lib]
+name = "instalogger_backend"
+path = "src/lib.rs"
+
+[[bin]]
+name = "instalogger_backend"
+path = "src/main.rs"

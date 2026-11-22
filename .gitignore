@@ -1,0 +1,26 @@
+# Build and runtime artifacts
+target/
+backend/target/
+web/node_modules/
+web/dist/
+run/*.pid
+logs/*.log
+*.log
+
+# Sensitive user session data and local media
+sessions/*.json
+sessions/*.session
+archives/*
+!archives/.gitkeep
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+.superpowers/

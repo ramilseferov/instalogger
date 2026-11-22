@@ -1,0 +1,21 @@
+[server]
+host = "0.0.0.0"
+port = 3000
+
+[storage]
+root = "/storage/emulated/0/instalogger"
+db_path = "data/instalogger.db"
+archives_dir = "archives"
+sessions_dir = "sessions"
+logs_dir = "logs"
+
+[monitoring]
+default_interval_seconds = 300
+turbo_interval_seconds = 45
+jitter_range_seconds = 30
+auto_archive_on_public = true
+
+[notifications]
+enable_termux_api = true
+telegram_bot_token = ""
+telegram_chat_id = ""
