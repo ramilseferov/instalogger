@@ -67,20 +67,25 @@ fun TargetCard(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Profile Avatar Thumbnail
+                val context = androidx.compose.ui.platform.LocalContext.current
                 val localFile = target.localAvatarPath?.let { File(it) }
-                if (localFile != null && localFile.exists()) {
+                val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, target.username)
+                val resolvedAvatarFile = when {
+                    internalFile != null && internalFile.exists() && internalFile.length() > 0 -> internalFile
+                    localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
+                    else -> null
+                }
+
+                val imageSource: Any? = when {
+                    resolvedAvatarFile != null -> resolvedAvatarFile
+                    !target.avatarUrl.isNullOrBlank() -> target.avatarUrl
+                    !target.instagramId.isNullOrBlank() -> "http://127.0.0.1:3000/archives/${target.instagramId}/profile/avatar_current.jpg"
+                    else -> "http://127.0.0.1:3000/archives/${target.username}/profile/avatar_current.jpg"
+                }
+
+                if (imageSource != null) {
                     AsyncImage(
-                        model = localFile,
-                        contentDescription = target.username,
-                        modifier = Modifier
-                            .size(54.dp)
-                            .clip(CircleShape)
-                            .border(1.5.dp, AccentBlue, CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else if (!target.avatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = target.avatarUrl,
+                        model = imageSource,
                         contentDescription = target.username,
                         modifier = Modifier
                             .size(54.dp)
@@ -144,15 +149,19 @@ fun TargetCard(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Stats row (No overflow, equal distribution)
+            val followersVal = if (target.followersCount > 0) target.followersCount.toString() else if (target.isPrivate) "—" else "0"
+            val followingVal = if (target.followingCount > 0) target.followingCount.toString() else if (target.isPrivate) "—" else "0"
+            val postsVal = if (target.mediaCount > 0) target.mediaCount.toString() else "0"
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                StatItem(label = stringResource(R.string.followers), value = target.followersCount.toString(), modifier = Modifier.weight(1f))
-                StatItem(label = stringResource(R.string.following), value = target.followingCount.toString(), modifier = Modifier.weight(1f))
-                StatItem(label = stringResource(R.string.posts), value = target.mediaCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.followers), value = followersVal, modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.following), value = followingVal, modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.posts), value = postsVal, modifier = Modifier.weight(1f))
             }
 
             HorizontalDivider(

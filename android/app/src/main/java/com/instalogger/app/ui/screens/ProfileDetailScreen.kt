@@ -97,8 +97,14 @@ fun ProfileDetailScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 // Profile Header Card
                 target?.let { t ->
+                    val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, t.username)
                     val localFile = t.localAvatarPath?.let { File(it) }
-                    val hasLocalPic = localFile != null && localFile.exists()
+                    val resolvedFile = when {
+                        internalFile != null && internalFile.exists() && internalFile.length() > 0 -> internalFile
+                        localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
+                        else -> null
+                    }
+                    val hasLocalPic = resolvedFile != null
 
                     Card(
                         modifier = Modifier
@@ -118,25 +124,22 @@ fun ProfileDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                if (hasLocalPic) {
+                                val topImageSource: Any? = when {
+                                    resolvedFile != null -> resolvedFile
+                                    !t.avatarUrl.isNullOrBlank() -> t.avatarUrl
+                                    !t.instagramId.isNullOrBlank() -> "http://127.0.0.1:3000/archives/${t.instagramId}/profile/avatar_current.jpg"
+                                    else -> "http://127.0.0.1:3000/archives/${t.username}/profile/avatar_current.jpg"
+                                }
+
+                                if (topImageSource != null) {
                                     AsyncImage(
-                                        model = localFile,
+                                        model = topImageSource,
                                         contentDescription = t.username,
                                         modifier = Modifier
                                             .size(64.dp)
                                             .clip(CircleShape)
                                             .border(2.dp, AccentBlue, CircleShape)
-                                            .clickable { previewImagePath = t.localAvatarPath },
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else if (!t.avatarUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = t.avatarUrl,
-                                        contentDescription = t.username,
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(CircleShape)
-                                            .border(2.dp, AccentBlue, CircleShape),
+                                            .clickable { previewImagePath = (topImageSource as? File)?.absolutePath ?: topImageSource.toString() },
                                         contentScale = ContentScale.Crop
                                     )
                                 } else {
@@ -199,20 +202,24 @@ fun ProfileDetailScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
+                            val followersDisplay = if (t.followersCount > 0) "${t.followersCount}" else if (t.isPrivate) "—" else "0"
+                            val followingDisplay = if (t.followingCount > 0) "${t.followingCount}" else if (t.isPrivate) "—" else "0"
+                            val postsDisplay = if (t.mediaCount > 0) "${t.mediaCount}" else "0"
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = "${t.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(text = followersDisplay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.followers), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = "${t.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(text = followingDisplay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = "${t.mediaCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(text = postsDisplay, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.posts), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
@@ -332,13 +339,19 @@ fun ProfileDetailScreen(
                             ) {
                                 items(avatars, key = { it.id }) { avatar ->
                                     val file = File(avatar.localPath)
+                                    val internalCandidate = File(context.filesDir, "avatars/${avatar.username}/${file.name}")
+                                    val imageModel: Any = when {
+                                        internalCandidate.exists() && internalCandidate.length() > 0 -> internalCandidate
+                                        file.exists() && file.canRead() && file.length() > 0 -> file
+                                        else -> "http://127.0.0.1:3000/archives/${avatar.username}/profile/${file.name}"
+                                    }
                                     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
                                     val formattedDate = timeFormat.format(Date(avatar.archivedAt))
 
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { previewImagePath = avatar.localPath },
+                                            .clickable { previewImagePath = (imageModel as? File)?.absolutePath ?: avatar.localPath },
                                         shape = RoundedCornerShape(20.dp),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
@@ -351,7 +364,7 @@ fun ProfileDetailScreen(
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
                                             AsyncImage(
-                                                model = file,
+                                                model = imageModel,
                                                 contentDescription = null,
                                                 modifier = Modifier
                                                     .size(64.dp)

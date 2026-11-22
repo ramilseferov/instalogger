@@ -4,7 +4,7 @@
     <string name="nav_dashboard">Panel</string>
     <string name="nav_notifications">Bildirişlər</string>
     <string name="nav_session">Sessiya</string>
-    <string name="nav_settings">Tənzimləmələr</string>
+    <string name="nav_settings">Ayarlar</string>
 
     <!-- Dashboard -->
     <string name="dashboard_title">İzləmə Paneli</string>
@@ -92,7 +92,7 @@
     <string name="msg_session_cleared">Sessiya təmizləndi</string>
 
     <!-- Settings -->
-    <string name="settings_title">Tənzimləmələr</string>
+    <string name="settings_title">Ayarlar</string>
     <string name="settings_subtitle">Sistem, dil və arxa fon konfiqurasiyası</string>
     <string name="section_language">Tətbiq Dili</string>
     <string name="section_language_desc">İstədiyiniz interfeys dilini seçin. Dəyişikliklər dərhal tətbiq olunur.</string>
@@ -115,8 +115,20 @@
     <string name="archive_dir_desc">Yüklənən profil şəkilləri və media fayllarının saxlanıldığı yerli qovluq.</string>
     <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
     <string name="btn_save_path">Qovluğu Saxla</string>
+    <string name="btn_select_folder">Qovluq Seç</string>
+    <string name="btn_reset_default">Standart</string>
     <string name="msg_archive_dir_saved">Arxiv qovluğu uğurla yeniləndi</string>
     <string name="msg_archive_dir_invalid">Qovluq ünvanı etibarsızdır və ya yazıla bilmir</string>
+
+    <!-- Audit Logs in Settings -->
+    <string name="section_audit_logs">Audit və Yoxlama Logları</string>
+    <string name="section_audit_logs_desc">Hədəflər üzrə canlı yoxlama və dəyişiklik qeydləri.</string>
+    <string name="btn_view_logs">Loglara Bax</string>
+    <string name="btn_hide_logs">Logları Gizlə</string>
+    <string name="logs_count_format">%1$d qeyd</string>
+    <string name="empty_logs_text">Hələ heç bir qeyd yoxdur</string>
+    <string name="dialog_clear_logs_title">Logları Təmizlə</string>
+    <string name="dialog_clear_logs_desc">Bütün audit və yoxlama loglarını silmək istədiyinizdən əminsiniz?</string>
 
     <!-- Foreground Service -->
     <string name="service_notification_channel">InstaLogger Xidməti</string>

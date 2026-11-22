@@ -115,8 +115,20 @@
     <string name="archive_dir_desc">Место для сохранения загруженных аватаров и медиафайлов профилей.</string>
     <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
     <string name="btn_save_path">Сохранить путь</string>
+    <string name="btn_select_folder">Выбрать папку</string>
+    <string name="btn_reset_default">По умолчанию</string>
     <string name="msg_archive_dir_saved">Папка архива успешно обновлена</string>
     <string name="msg_archive_dir_invalid">Путь к папке недействителен или недоступен для записи</string>
+
+    <!-- Audit Logs in Settings -->
+    <string name="section_audit_logs">Логи проверок и аудита</string>
+    <string name="section_audit_logs_desc">История проверок и изменений профилей.</string>
+    <string name="btn_view_logs">Просмотр логов</string>
+    <string name="btn_hide_logs">Скрыть логи</string>
+    <string name="logs_count_format">%1$d записей</string>
+    <string name="empty_logs_text">Записей пока нет</string>
+    <string name="dialog_clear_logs_title">Очистить логи</string>
+    <string name="dialog_clear_logs_desc">Вы уверены, что хотите удалить все логи аудита и проверок?</string>
 
     <!-- Foreground Service -->
     <string name="service_notification_channel">Служба InstaLogger</string>

@@ -1,34 +1,75 @@
 package com.instalogger.app.util
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Environment
+import android.provider.DocumentsContract
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import java.io.FileOutputStream
 
 object ArchiveDirectoryManager {
     private const val PREFS_NAME = "instalogger_prefs"
     private const val KEY_ARCHIVE_PATH = "custom_archive_path"
+    private const val KEY_ARCHIVE_TREE_URI = "custom_archive_tree_uri"
 
-    fun getArchiveDirectory(context: Context): File {
+    private val _displayPathFlow = MutableStateFlow("")
+    val displayPathFlow: StateFlow<String> = _displayPathFlow.asStateFlow()
+
+    fun init(context: Context) {
+        _displayPathFlow.value = getDisplayPath(context)
+    }
+
+    fun getDisplayPath(context: Context): String {
         val prefs = getPrefs(context)
-        val customPath = prefs.getString(KEY_ARCHIVE_PATH, null)
-        if (!customPath.isNullOrBlank()) {
-            val dir = File(customPath)
-            if (dir.exists() || dir.mkdirs()) {
-                return dir
+        val uriStr = prefs.getString(KEY_ARCHIVE_TREE_URI, null)
+        if (!uriStr.isNullOrBlank()) {
+            try {
+                val uri = Uri.parse(uriStr)
+                val docId = DocumentsContract.getTreeDocumentId(uri)
+                if (docId != null) {
+                    if (docId.startsWith("primary:")) {
+                        val sub = docId.substringAfter("primary:")
+                        return "/storage/emulated/0/" + sub.trimStart('/')
+                    } else if (docId.contains(":")) {
+                        return "/storage/" + docId.replace(":", "/")
+                    }
+                }
+                return uri.path ?: uriStr
+            } catch (e: Exception) {
+                // Ignore parse error
             }
         }
 
-        // Default priority 1: /storage/emulated/0/instalogger/archives
-        val workspaceArchives = File("/storage/emulated/0/instalogger/archives")
-        if (workspaceArchives.exists() || workspaceArchives.mkdirs()) {
-            return workspaceArchives
+        val customPath = prefs.getString(KEY_ARCHIVE_PATH, null)
+        if (!customPath.isNullOrBlank()) {
+            return customPath
         }
 
-        // Default priority 2: /storage/emulated/0/InstaLogger/archives
-        val standardArchives = File(Environment.getExternalStorageDirectory(), "InstaLogger/archives")
-        if (standardArchives.exists() || standardArchives.mkdirs()) {
-            return standardArchives
+        return "/storage/emulated/0/instalogger/archives"
+    }
+
+    fun getArchiveDirectory(context: Context): File {
+        val display = getDisplayPath(context)
+        val target = File(display)
+        if (target.exists() || target.mkdirs()) {
+            return target
+        }
+
+        // Standard priority 1
+        val dir1 = File("/storage/emulated/0/instalogger/archives")
+        if (dir1.exists() || dir1.mkdirs()) {
+            return dir1
+        }
+
+        // Standard priority 2
+        val dir2 = File(Environment.getExternalStorageDirectory(), "InstaLogger/archives")
+        if (dir2.exists() || dir2.mkdirs()) {
+            return dir2
         }
 
         // Fallback: App external files dir
@@ -37,17 +78,92 @@ object ArchiveDirectoryManager {
         return appDir
     }
 
-    fun setArchiveDirectory(context: Context, path: String): Boolean {
-        val dir = File(path.trim())
-        val ok = dir.exists() || dir.mkdirs()
-        if (ok) {
-            getPrefs(context).edit().putString(KEY_ARCHIVE_PATH, dir.absolutePath).apply()
+    fun setArchiveUri(context: Context, uri: Uri): Boolean {
+        try {
+            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (e: Exception) {
+                // Some Android ROMs don't support persistable flags
+            }
+
+            getPrefs(context).edit()
+                .putString(KEY_ARCHIVE_TREE_URI, uri.toString())
+                .apply()
+
+            val display = getDisplayPath(context)
+            _displayPathFlow.value = display
+            return true
+        } catch (e: Exception) {
+            return false
         }
-        return ok
     }
 
-    fun getCustomPath(context: Context): String {
-        return getPrefs(context).getString(KEY_ARCHIVE_PATH, "") ?: ""
+    fun resetToDefault(context: Context) {
+        getPrefs(context).edit()
+            .remove(KEY_ARCHIVE_TREE_URI)
+            .remove(KEY_ARCHIVE_PATH)
+            .apply()
+        _displayPathFlow.value = getDisplayPath(context)
+    }
+
+    /**
+     * Always preserves an internal copy of the avatar in the app's private filesDir.
+     * This guarantees Coil can load it with zero permission restrictions on Android 11-14.
+     */
+    fun copyToInternalAvatar(context: Context, username: String, sourceFile: File): File? {
+        return try {
+            if (!sourceFile.exists() || sourceFile.length() == 0L) return null
+            val dir = File(context.filesDir, "avatars/$username")
+            dir.mkdirs()
+            val dest = File(dir, "avatar_current.jpg")
+            sourceFile.copyTo(dest, overwrite = true)
+            dest
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveInternalAvatarBytes(context: Context, username: String, bytes: ByteArray): File? {
+        return try {
+            val dir = File(context.filesDir, "avatars/$username")
+            dir.mkdirs()
+            val dest = File(dir, "avatar_current.jpg")
+            FileOutputStream(dest).use { it.write(bytes) }
+            dest
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun copyToInternalNamedAvatar(context: Context, username: String, sourceFile: File): File? {
+        return try {
+            if (!sourceFile.exists() || sourceFile.length() == 0L) return null
+            val dir = File(context.filesDir, "avatars/$username")
+            dir.mkdirs()
+            val dest = File(dir, sourceFile.name)
+            sourceFile.copyTo(dest, overwrite = true)
+            dest
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveInternalNamedAvatarBytes(context: Context, username: String, filename: String, bytes: ByteArray): File? {
+        return try {
+            val dir = File(context.filesDir, "avatars/$username")
+            dir.mkdirs()
+            val dest = File(dir, filename)
+            FileOutputStream(dest).use { it.write(bytes) }
+            dest
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun getInternalAvatar(context: Context, username: String): File? {
+        val f = File(context.filesDir, "avatars/$username/avatar_current.jpg")
+        return if (f.exists() && f.length() > 0L) f else null
     }
 
     private fun getPrefs(context: Context): SharedPreferences {

@@ -68,48 +68,56 @@ class ProfileInspector(
 
         // 1. Check avatar change
         val avatarUrl = snapshot.profilePicUrl
-        if (!avatarUrl.isNullOrBlank() && (localAvatarPath == null || avatarUrl != existing?.avatarUrl)) {
-            val downloadedPath = downloadAndArchiveAvatar(cleanUser, avatarUrl)
-            if (downloadedPath != null) {
-                val oldPath = localAvatarPath
-                localAvatarPath = downloadedPath
+        if (!avatarUrl.isNullOrBlank()) {
+            if (avatarUrl.startsWith("/")) {
+                val f = File(avatarUrl)
+                if (f.exists()) {
+                    val internal = ArchiveDirectoryManager.copyToInternalAvatar(context, cleanUser, f)
+                    localAvatarPath = internal?.absolutePath ?: f.absolutePath
+                }
+            } else if (localAvatarPath == null || avatarUrl != existing?.avatarUrl) {
+                val downloadedPath = downloadAndArchiveAvatar(cleanUser, avatarUrl)
+                if (downloadedPath != null) {
+                    val oldPath = localAvatarPath
+                    localAvatarPath = downloadedPath
 
-                val file = File(downloadedPath)
-                avatarHistoryDao.insertAvatar(
-                    AvatarHistoryEntity(
-                        username = cleanUser,
-                        localPath = downloadedPath,
-                        archivedAt = now,
-                        fileSize = file.length()
-                    )
-                )
-
-                if (existing != null && oldPath != null) {
-                    val title = "@$cleanUser profile picture updated"
-                    val desc = "New profile picture archived successfully"
-                    changeLogDao.insertLog(
-                        ChangeLogEntity(
-                            targetUsername = cleanUser,
-                            eventType = "avatar_change",
-                            title = title,
-                            oldValue = oldPath,
-                            newValue = downloadedPath,
-                            oldAvatarPath = oldPath,
-                            newAvatarPath = downloadedPath,
-                            timestamp = now
-                        )
-                    )
-                    notificationDao.insertNotification(
-                        NotificationEntity(
-                            targetId = cleanUser,
+                    val file = File(downloadedPath)
+                    avatarHistoryDao.insertAvatar(
+                        AvatarHistoryEntity(
                             username = cleanUser,
-                            eventType = "avatar_change",
-                            title = title,
-                            message = desc,
-                            timestamp = now
+                            localPath = downloadedPath,
+                            archivedAt = now,
+                            fileSize = file.length()
                         )
                     )
-                    onAlertNotification(title, desc)
+
+                    if (existing != null && oldPath != null) {
+                        val title = "@$cleanUser profile picture updated"
+                        val desc = "New profile picture archived successfully"
+                        changeLogDao.insertLog(
+                            ChangeLogEntity(
+                                targetUsername = cleanUser,
+                                eventType = "avatar_change",
+                                title = title,
+                                oldValue = oldPath,
+                                newValue = downloadedPath,
+                                oldAvatarPath = oldPath,
+                                newAvatarPath = downloadedPath,
+                                timestamp = now
+                            )
+                        )
+                        notificationDao.insertNotification(
+                            NotificationEntity(
+                                targetId = cleanUser,
+                                username = cleanUser,
+                                eventType = "avatar_change",
+                                title = title,
+                                message = desc,
+                                timestamp = now
+                            )
+                        )
+                        onAlertNotification(title, desc)
+                    }
                 }
             }
         }
@@ -189,18 +197,6 @@ class ProfileInspector(
             )
         }
 
-        // 5. Always record an inspection check log so user sees live update details
-        changeLogDao.insertLog(
-            ChangeLogEntity(
-                targetUsername = cleanUser,
-                eventType = "check_status",
-                title = "@$cleanUser verified",
-                oldValue = "Checked at ${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(now))}",
-                newValue = if (snapshot.isPrivate) "Private | Media: ${snapshot.mediaCount}" else "Public | Media: ${snapshot.mediaCount}",
-                timestamp = now
-            )
-        )
-
         // Resolve local avatar path if still null
         if (localAvatarPath == null) {
             localAvatarPath = findExistingLocalAvatar(cleanUser, snapshot.instagramId)
@@ -267,11 +263,30 @@ class ProfileInspector(
                         }
 
                         var localPic: String? = null
+                        var avatarUrlString: String? = null
                         if (!picPath.isNullOrBlank()) {
-                            val f1 = File("/storage/emulated/0/instalogger/$picPath")
-                            val f2 = File(ArchiveDirectoryManager.getArchiveDirectory(context), picPath.removePrefix("archives/"))
-                            if (f1.exists()) localPic = f1.absolutePath
-                            else if (f2.exists()) localPic = f2.absolutePath
+                            avatarUrlString = "http://127.0.0.1:3000/$picPath"
+                            try {
+                                val dlReq = Request.Builder().url(avatarUrlString).get().build()
+                                httpClient.newCall(dlReq).execute().use { imgResp ->
+                                    if (imgResp.isSuccessful) {
+                                        val bytes = imgResp.body?.bytes()
+                                        if (bytes != null && bytes.isNotEmpty()) {
+                                            val internal = ArchiveDirectoryManager.saveInternalAvatarBytes(context, username, bytes)
+                                            ArchiveDirectoryManager.saveInternalNamedAvatarBytes(context, username, File(picPath).name, bytes)
+                                            localPic = internal?.absolutePath
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                val f1 = File("/storage/emulated/0/instalogger/$picPath")
+                                val f2 = File(ArchiveDirectoryManager.getArchiveDirectory(context), picPath.removePrefix("archives/"))
+                                val resolvedFile = if (f1.exists()) f1 else if (f2.exists()) f2 else null
+                                if (resolvedFile != null) {
+                                    val internal = ArchiveDirectoryManager.copyToInternalAvatar(context, username, resolvedFile)
+                                    localPic = internal?.absolutePath ?: resolvedFile.absolutePath
+                                }
+                            }
                         }
 
                         return InstagramProfileSnapshot(
@@ -283,7 +298,7 @@ class ProfileInspector(
                             followersCount = 0L,
                             followingCount = 0L,
                             mediaCount = mediaCount,
-                            profilePicUrl = localPic
+                            profilePicUrl = localPic ?: avatarUrlString
                         )
                     }
                 }
@@ -294,7 +309,37 @@ class ProfileInspector(
         return null
     }
 
+    suspend fun syncAllFromDaemon(): List<String> = withContext(Dispatchers.IO) {
+        val synced = mutableListOf<String>()
+        try {
+            val request = Request.Builder()
+                .url("http://127.0.0.1:3000/api/targets")
+                .get()
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val body = response.body?.string() ?: return@withContext emptyList()
+                val json = gson.fromJson(body, JsonObject::class.java) ?: return@withContext emptyList()
+                val targets = json.getAsJsonArray("targets") ?: return@withContext emptyList()
+
+                for (item in targets) {
+                    val obj = item.asJsonObject ?: continue
+                    val u = obj.get("username")?.asString ?: continue
+                    inspectTarget(u)
+                    synced.add(u)
+                }
+            }
+        } catch (e: Exception) {
+            // Local daemon not reachable
+        }
+        synced
+    }
+
     private fun findExistingLocalAvatar(username: String, instagramId: String?): String? {
+        val internal = ArchiveDirectoryManager.getInternalAvatar(context, username)
+        if (internal != null) return internal.absolutePath
+
         val candidates = mutableListOf<File>()
         val archiveRoot = ArchiveDirectoryManager.getArchiveDirectory(context)
 
@@ -306,14 +351,26 @@ class ProfileInspector(
         candidates.add(File("/storage/emulated/0/instalogger/archives/$username/profile/avatar_current.jpg"))
 
         for (f in candidates) {
-            if (f.exists() && f.length() > 0) return f.absolutePath
+            if (f.exists() && f.length() > 0) {
+                val copied = ArchiveDirectoryManager.copyToInternalAvatar(context, username, f)
+                return copied?.absolutePath ?: f.absolutePath
+            }
         }
         return null
     }
 
     private suspend fun importLocalArchives(username: String, instagramId: String?) {
+        try {
+            database.avatarHistoryDao().cleanCurrentAvatarDuplicates()
+        } catch (e: Exception) {
+            // Ignore
+        }
+
         val dirs = mutableListOf<File>()
         val archiveRoot = ArchiveDirectoryManager.getArchiveDirectory(context)
+
+        val internalDir = File(context.filesDir, "avatars/$username")
+        if (internalDir.exists()) dirs.add(internalDir)
 
         if (!instagramId.isNullOrBlank()) {
             dirs.add(File("/storage/emulated/0/instalogger/archives/$instagramId/profile"))
@@ -322,14 +379,23 @@ class ProfileInspector(
         dirs.add(File(archiveRoot, "$username/profile"))
         dirs.add(File("/storage/emulated/0/instalogger/archives/$username/profile"))
 
+        val existingList = database.avatarHistoryDao().getAvatarsListForTarget(username)
+        val existingNames = existingList.map { File(it.localPath).name }.toSet()
+
         for (d in dirs) {
             if (d.exists() && d.isDirectory) {
                 val files = d.listFiles { f -> f.isFile && f.name.endsWith(".jpg", ignoreCase = true) } ?: continue
                 for (file in files) {
+                    if (file.name == "avatar_current.jpg" || file.name.startsWith(".")) continue
+                    if (existingNames.contains(file.name)) continue
+
+                    val internal = ArchiveDirectoryManager.copyToInternalNamedAvatar(context, username, file)
+                    val pathToStore = internal?.absolutePath ?: file.absolutePath
+
                     database.avatarHistoryDao().insertAvatar(
                         AvatarHistoryEntity(
                             username = username,
-                            localPath = file.absolutePath,
+                            localPath = pathToStore,
                             archivedAt = file.lastModified(),
                             fileSize = file.length()
                         )
@@ -358,6 +424,7 @@ class ProfileInspector(
                 } catch (e: Exception) {
                     // Ignore copy error
                 }
+                ArchiveDirectoryManager.copyToInternalAvatar(context, username, destFile)
                 destFile.absolutePath
             } else null
         } catch (e: Exception) {

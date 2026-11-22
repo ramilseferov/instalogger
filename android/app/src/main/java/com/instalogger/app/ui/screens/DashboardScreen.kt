@@ -56,9 +56,10 @@ fun DashboardScreen(
         }
     }
 
-    // Auto-inspect on initial launch to sync daemon data
+    // Auto-inspect and sync daemon on initial launch
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
+            app.profileInspector.syncAllFromDaemon()
             val current = app.database.targetDao().getActiveTargets()
             for (t in current) {
                 try {
@@ -74,15 +75,18 @@ fun DashboardScreen(
         if (isGlobalRefreshing) return
         scope.launch {
             isGlobalRefreshing = true
-            val activeTargets = withContext(Dispatchers.IO) { app.database.targetDao().getActiveTargets() }
-            for (t in activeTargets) {
-                try {
-                    val result = app.profileInspector.inspectTarget(t.username)
-                    result.onSuccess { updated ->
-                        targets = targets.map { if (it.username == t.username) updated else it }
+            withContext(Dispatchers.IO) {
+                app.profileInspector.syncAllFromDaemon()
+                val activeTargets = app.database.targetDao().getActiveTargets()
+                for (t in activeTargets) {
+                    try {
+                        val result = app.profileInspector.inspectTarget(t.username)
+                        result.onSuccess { updated ->
+                            targets = targets.map { if (it.username == t.username) updated else it }
+                        }
+                    } catch (e: Exception) {
+                        // Continue to next target
                     }
-                } catch (e: Exception) {
-                    // Continue to next target
                 }
             }
             isGlobalRefreshing = false

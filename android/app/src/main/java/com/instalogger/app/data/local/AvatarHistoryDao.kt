@@ -8,6 +8,12 @@ interface AvatarHistoryDao {
     @Query("SELECT * FROM avatar_history WHERE username = :username ORDER BY archivedAt DESC")
     fun getAvatarsForTarget(username: String): Flow<List<AvatarHistoryEntity>>
 
+    @Query("SELECT * FROM avatar_history WHERE username = :username ORDER BY archivedAt DESC")
+    suspend fun getAvatarsListForTarget(username: String): List<AvatarHistoryEntity>
+
+    @Query("DELETE FROM avatar_history WHERE localPath LIKE '%avatar_current.jpg%'")
+    suspend fun cleanCurrentAvatarDuplicates()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAvatar(avatar: AvatarHistoryEntity): Long
 

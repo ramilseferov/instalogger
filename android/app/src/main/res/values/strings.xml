@@ -115,8 +115,20 @@
     <string name="archive_dir_desc">Location where downloaded profile avatars and media files are stored.</string>
     <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
     <string name="btn_save_path">Save Path</string>
+    <string name="btn_select_folder">Select Folder</string>
+    <string name="btn_reset_default">Default</string>
     <string name="msg_archive_dir_saved">Archive directory updated successfully</string>
     <string name="msg_archive_dir_invalid">Directory path is invalid or not writable</string>
+
+    <!-- Audit Logs in Settings -->
+    <string name="section_audit_logs">Inspection &amp; Audit Logs</string>
+    <string name="section_audit_logs_desc">Live inspection activity and target change records.</string>
+    <string name="btn_view_logs">View Logs</string>
+    <string name="btn_hide_logs">Hide Logs</string>
+    <string name="logs_count_format">%1$d log records</string>
+    <string name="empty_logs_text">No logs recorded yet</string>
+    <string name="dialog_clear_logs_title">Clear Logs</string>
+    <string name="dialog_clear_logs_desc">Are you sure you want to delete all audit and inspection logs?</string>
 
     <!-- Foreground Service -->
     <string name="service_notification_channel">InstaLogger Service</string>
