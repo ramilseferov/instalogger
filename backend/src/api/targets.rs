@@ -57,6 +57,20 @@ pub async fn add_target(
 ) -> impl IntoResponse {
     let clean_username = payload.username.trim().trim_start_matches('@').to_string();
 
+    if clean_username.is_empty()
+        || clean_username.len() > 30
+        || !clean_username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        || clean_username.contains("..")
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "Invalid username. Must be 1-30 characters containing only letters, numbers, underscores, or periods."
+            })),
+        );
+    }
+
     info!("Adding new target: @{}", clean_username);
 
     // Resolve profile
@@ -221,14 +235,15 @@ pub async fn get_target_avatars(
         }
     };
 
-    let profile_dir = format!("archives/{}/profile", target.id);
+    let safe_id = target.id.replace('/', "").replace('\\', "").replace("..", "");
+    let profile_dir = format!("archives/{}/profile", safe_id);
     let mut avatars = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(&profile_dir) {
         for entry in entries.flatten() {
             let file_name = entry.file_name().to_string_lossy().to_string();
             if file_name.starts_with("avatar_") && file_name.ends_with(".jpg") && file_name != "avatar_current.jpg" {
-                avatars.push(format!("archives/{}/profile/{}", target.id, file_name));
+                avatars.push(format!("archives/{}/profile/{}", safe_id, file_name));
             }
         }
     }
@@ -237,7 +252,7 @@ pub async fn get_target_avatars(
     avatars.reverse();
 
     if avatars.is_empty() && std::path::Path::new(&format!("{}/avatar_current.jpg", profile_dir)).exists() {
-        avatars.push(format!("archives/{}/profile/avatar_current.jpg", target.id));
+        avatars.push(format!("archives/{}/profile/avatar_current.jpg", safe_id));
     }
 
     (

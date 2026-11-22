@@ -4,7 +4,7 @@ pub mod targets;
 pub mod ws;
 
 use axum::{
-    http::StatusCode,
+    http::{header, HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -54,10 +54,29 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         )
         .route("/ws", get(ws::ws_handler));
 
+    let cors = CorsLayer::new()
+        .allow_origin([
+            "http://localhost:3000".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:3000".parse::<HeaderValue>().unwrap(),
+            "http://localhost:5173".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:5173".parse::<HeaderValue>().unwrap(),
+        ])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::ACCEPT,
+        ]);
+
     Router::new()
         .nest("/api", api_routes)
         .nest_service("/archives", ServeDir::new("archives"))
         .fallback_service(ServeDir::new("web/dist"))
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .with_state(state)
 }

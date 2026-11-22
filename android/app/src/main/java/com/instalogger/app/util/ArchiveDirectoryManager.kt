@@ -50,7 +50,9 @@ object ArchiveDirectoryManager {
             return customPath
         }
 
-        return "/storage/emulated/0/instalogger/archives"
+        // App-isolated sandbox storage by default
+        val appDir = context.getExternalFilesDir("archives") ?: File(context.filesDir, "archives")
+        return appDir.absolutePath
     }
 
     fun getArchiveDirectory(context: Context): File {
@@ -60,19 +62,7 @@ object ArchiveDirectoryManager {
             return target
         }
 
-        // Standard priority 1
-        val dir1 = File("/storage/emulated/0/instalogger/archives")
-        if (dir1.exists() || dir1.mkdirs()) {
-            return dir1
-        }
-
-        // Standard priority 2
-        val dir2 = File(Environment.getExternalStorageDirectory(), "InstaLogger/archives")
-        if (dir2.exists() || dir2.mkdirs()) {
-            return dir2
-        }
-
-        // Fallback: App external files dir
+        // App-isolated sandbox fallback
         val appDir = context.getExternalFilesDir("archives") ?: File(context.filesDir, "archives")
         appDir.mkdirs()
         return appDir

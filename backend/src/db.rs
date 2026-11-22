@@ -410,22 +410,12 @@ impl Database {
         media_type: Option<&str>,
     ) -> Result<Vec<ArchivedMedia>> {
         let conn = self.conn.lock().unwrap();
-        let mut query = "SELECT id, target_id, media_type, highlight_title, caption, cdn_url,
-                                relative_file_path, file_size_bytes, posted_at, download_status,
-                                downloaded_at, is_vanished, vanished_at
-                         FROM archived_media WHERE target_id = ?1".to_string();
+        let base_select = "SELECT id, target_id, media_type, highlight_title, caption, cdn_url,
+                                  relative_file_path, file_size_bytes, posted_at, download_status,
+                                  downloaded_at, is_vanished, vanished_at
+                           FROM archived_media WHERE target_id = ?1";
 
-        if let Some(mt) = media_type {
-            if mt == "vanished" {
-                query.push_str(" AND is_vanished = 1");
-            } else {
-                query.push_str(&format!(" AND media_type = '{}'", mt));
-            }
-        }
-        query.push_str(" ORDER BY posted_at DESC");
-
-        let mut stmt = conn.prepare(&query)?;
-        let rows = stmt.query_map(params![target_id], |row| {
+        let map_row = |row: &rusqlite::Row| {
             Ok(ArchivedMedia {
                 id: row.get(0)?,
                 target_id: row.get(1)?,
@@ -449,12 +439,36 @@ impl Database {
                     .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                     .map(|dt| dt.with_timezone(&Utc)),
             })
-        })?;
+        };
 
         let mut items = Vec::new();
-        for r in rows {
-            items.push(r?);
+        match media_type {
+            Some("vanished") => {
+                let sql = format!("{} AND is_vanished = 1 ORDER BY posted_at DESC", base_select);
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![target_id], map_row)?;
+                for r in rows {
+                    items.push(r?);
+                }
+            }
+            Some(mt) => {
+                let sql = format!("{} AND media_type = ?2 ORDER BY posted_at DESC", base_select);
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![target_id, mt], map_row)?;
+                for r in rows {
+                    items.push(r?);
+                }
+            }
+            None => {
+                let sql = format!("{} ORDER BY posted_at DESC", base_select);
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![target_id], map_row)?;
+                for r in rows {
+                    items.push(r?);
+                }
+            }
         }
+
         Ok(items)
     }
 

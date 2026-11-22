@@ -42,7 +42,14 @@ async fn main() -> Result<()> {
     // Axum router
     let app = create_router(db, scheduler);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let host_str = std::env::var("INSTALOGGER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port: u16 = std::env::var("INSTALOGGER_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3000);
+    let addr: SocketAddr = format!("{}:{}", host_str, port)
+        .parse()
+        .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], 3000)));
     info!("InstaLogger Web Dashboard & API listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

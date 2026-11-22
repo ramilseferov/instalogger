@@ -17,6 +17,13 @@ except ImportError:
     from instagram_client import InstagramClient
 
 
+def sanitize_identifier(val: Any) -> str:
+    """Sanitize identifiers to prevent directory traversal attacks."""
+    s = str(val or "")
+    sanitized = "".join(c for c in s if c.isalnum() or c in "._-")
+    return sanitized.strip("._-") or "unknown"
+
+
 def extract_avatar_asset_key(url: str) -> str:
     """Extract asset path from CDN URL stripping query parameters."""
     if not url:
@@ -35,7 +42,8 @@ def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Sess
     if not url or not target_id:
         return None
 
-    profile_dir = os.path.join("archives", str(target_id), "profile")
+    safe_target_id = sanitize_identifier(target_id)
+    profile_dir = os.path.join("archives", safe_target_id, "profile")
     os.makedirs(profile_dir, exist_ok=True)
     key_file = os.path.join(profile_dir, ".avatar_key")
     asset_key = extract_avatar_asset_key(url)
@@ -65,7 +73,7 @@ def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Sess
             with open(current_path, "wb") as f:
                 f.write(r.content)
 
-            rel_path = f"archives/{target_id}/profile/{history_filename}"
+            rel_path = f"archives/{safe_target_id}/profile/{history_filename}"
             with open(key_file, "w", encoding="utf-8") as kf:
                 kf.write(f"{asset_key}||{rel_path}")
 
@@ -75,7 +83,7 @@ def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Sess
 
     current_path = os.path.join(profile_dir, "avatar_current.jpg")
     if os.path.exists(current_path):
-        return f"archives/{target_id}/profile/avatar_current.jpg"
+        return f"archives/{safe_target_id}/profile/avatar_current.jpg"
     return None
 
 
