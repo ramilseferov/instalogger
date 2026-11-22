@@ -170,4 +170,6 @@
     <string name="btn_open_system_notifs">Android Bildiriş Ayarlarını Aç</string>
     <string name="btn_open_system_notifs_desc">Sistem səviyyəli kilid ekranı, prioritet və zəng səsi</string>
     <string name="notif_settings_sheet_title">Bildiriş Tənzimləmələri</string>
+    <string name="btn_battery_opt_active">İstisna Aktivdir • Ayarları Aç</string>
+    <string name="badge_active_count_format">%1$d aktiv</string>
 </resources>

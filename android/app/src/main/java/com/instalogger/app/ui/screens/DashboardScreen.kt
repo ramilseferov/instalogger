@@ -117,7 +117,7 @@ fun DashboardScreen(
                     if (targets.isNotEmpty()) {
                         val turboCount = targets.count { it.isTurbo }
                         StatusBadge(
-                            text = "${targets.size} Aktív" + if (turboCount > 0) " • $turboCount Turbo" else "",
+                            text = stringResource(R.string.badge_active_count_format, targets.size) + if (turboCount > 0) " • $turboCount ${stringResource(R.string.badge_turbo)}" else "",
                             containerColor = AccentBlue.copy(alpha = 0.14f),
                             contentColor = AccentBlue,
                             borderColor = AccentBlue.copy(alpha = 0.28f)

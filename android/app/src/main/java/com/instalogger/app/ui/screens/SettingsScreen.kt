@@ -174,7 +174,9 @@ fun SettingsScreen() {
                         iconTint = Color(0xFFF59E0B),
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            app.settingsManager.setThemeMode(ThemeMode.LIGHT)
+                            scope.launch {
+                                app.settingsManager.changeThemeWithAnimation(ThemeMode.LIGHT)
+                            }
                         }
                     )
                     ThemeOptionCard(
@@ -185,7 +187,9 @@ fun SettingsScreen() {
                         iconTint = Color(0xFF818CF8),
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            app.settingsManager.setThemeMode(ThemeMode.DARK)
+                            scope.launch {
+                                app.settingsManager.changeThemeWithAnimation(ThemeMode.DARK)
+                            }
                         }
                     )
                     ThemeOptionCard(
@@ -196,7 +200,9 @@ fun SettingsScreen() {
                         iconTint = AccentBlue,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            app.settingsManager.setThemeMode(ThemeMode.SYSTEM)
+                            scope.launch {
+                                app.settingsManager.changeThemeWithAnimation(ThemeMode.SYSTEM)
+                            }
                         }
                     )
                 }
@@ -278,20 +284,24 @@ fun SettingsScreen() {
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
                         onClick = { showNotifSettingsSheet = true },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .bouncyClickable(pressScale = 0.95f) { showNotifSettingsSheet = true }
                     ) {
                         Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(17.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.notif_categories_title))
+                        Text(
+                            text = stringResource(R.string.notif_categories_title),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     OutlinedButton(
@@ -300,13 +310,19 @@ fun SettingsScreen() {
                             AppSettingsManager.openSystemNotificationSettings(context)
                         },
                         shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.bouncyClickable(pressScale = 0.95f) {
-                            AppSettingsManager.openSystemNotificationSettings(context)
-                        }
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bouncyClickable(pressScale = 0.95f) {
+                                AppSettingsManager.openSystemNotificationSettings(context)
+                            }
                     ) {
                         Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(17.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.btn_open_system_notifs))
+                        Text(
+                            text = stringResource(R.string.btn_open_system_notifs),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -492,18 +508,42 @@ fun SettingsScreen() {
                     }
                 }
             ) {
-                Button(
-                    onClick = {
-                        BatteryHelper.requestIgnoreBatteryOptimization(context)
-                        isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
-                        BatteryHelper.requestIgnoreBatteryOptimization(context)
-                        isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
+                if (isBatteryIgnored) {
+                    OutlinedButton(
+                        onClick = {
+                            BatteryHelper.openBatteryOptimizationSettings(context)
+                            isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bouncyClickable(pressScale = 0.94f) {
+                                BatteryHelper.openBatteryOptimizationSettings(context)
+                                isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
+                            }
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp), tint = StatusGreen)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.btn_battery_opt_active))
                     }
-                ) {
-                    Text(stringResource(R.string.btn_request_battery_opt))
+                } else {
+                    Button(
+                        onClick = {
+                            BatteryHelper.requestIgnoreBatteryOptimization(context)
+                            isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .bouncyClickable(pressScale = 0.94f) {
+                                BatteryHelper.requestIgnoreBatteryOptimization(context)
+                                isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
+                            }
+                    ) {
+                        Icon(Icons.Default.BatteryChargingFull, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.btn_request_battery_opt))
+                    }
                 }
             }
 
@@ -713,7 +753,8 @@ private fun SettingsGroupCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
+                        maxLines = 2,
+                        softWrap = true,
                         overflow = TextOverflow.Ellipsis
                     )
                 }

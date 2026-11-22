@@ -1,5 +1,16 @@
 package com.instalogger.app.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -8,18 +19,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.instalogger.app.R
 import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.ui.animation.bouncyClickable
@@ -70,8 +88,8 @@ fun TargetCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Profile Avatar Thumbnail
-                    val context = androidx.compose.ui.platform.LocalContext.current
+                    // Profile Avatar Thumbnail with resilient fallback and loading state
+                    val context = LocalContext.current
                     val localFile = target.localAvatarPath?.let { File(it) }
                     val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, target.username)
                     val resolvedAvatarFile = when {
@@ -84,39 +102,40 @@ fun TargetCard(
                         resolvedAvatarFile != null -> resolvedAvatarFile
                         !target.avatarUrl.isNullOrBlank() -> target.avatarUrl
                         !target.instagramId.isNullOrBlank() -> "http://127.0.0.1:3000/archives/${target.instagramId}/profile/avatar_current.jpg"
-                        else -> "http://127.0.0.1:3000/archives/${target.username}/profile/avatar_current.jpg"
+                        else -> null
                     }
 
-                    if (imageSource != null) {
-                        AsyncImage(
-                            model = coil.request.ImageRequest.Builder(context)
-                                .data(imageSource)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = target.username,
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .border(1.5.dp, AccentBlue.copy(alpha = 0.8f), CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(28.dp)
-                            )
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(imageSource)
+                            .crossfade(true)
+                            .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36")
+                            .setHeader("Referer", "https://www.instagram.com/")
+                            .build(),
+                        contentDescription = target.username,
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .border(1.5.dp, AccentBlue.copy(alpha = 0.8f), CircleShape),
+                        contentScale = ContentScale.Crop,
+                        loading = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = AccentBlue
+                                )
+                            }
+                        },
+                        error = {
+                            AvatarInitialsFallback(username = target.username)
                         }
-                    }
+                    )
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -145,7 +164,14 @@ fun TargetCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             PrivacyBadge(isPrivate = target.isPrivate)
-                            if (target.isTurbo) {
+                            AnimatedVisibility(
+                                visible = target.isTurbo,
+                                enter = fadeIn(tween(200)) + scaleIn(
+                                    initialScale = 0.7f,
+                                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                                ),
+                                exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.7f)
+                            ) {
                                 TurboBadge(isTurbo = true)
                             }
                         }
@@ -195,7 +221,7 @@ fun TargetCard(
                     // Refresh Button Pod
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .clip(actionButtonShape)
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                             .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, actionButtonShape),
@@ -204,26 +230,65 @@ fun TargetCard(
                         RotatingRefreshButton(
                             isRefreshing = isChecking,
                             onClick = onCheckNow,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(38.dp)
                         )
                     }
 
-                    // Turbo Toggle Pod
+                    // Turbo Toggle Pod with high-response spring animation
                     val isTurboActive = target.isTurbo
+                    val haptic = LocalHapticFeedback.current
+
+                    val turboBgColor by animateColorAsState(
+                        targetValue = if (isTurboActive) AccentBlue.copy(alpha = 0.22f)
+                        else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                        label = "turboBgColor"
+                    )
+
+                    val turboBorderColor by animateColorAsState(
+                        targetValue = if (isTurboActive) AccentBlue.copy(alpha = 0.80f)
+                        else MaterialTheme.colorScheme.outlineVariant,
+                        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                        label = "turboBorderColor"
+                    )
+
+                    val turboIconTint by animateColorAsState(
+                        targetValue = if (isTurboActive) Color(0xFF38BDF8)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "turboIconTint"
+                    )
+
+                    val boltScale by animateFloatAsState(
+                        targetValue = if (isTurboActive) 1.18f else 1f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "boltScale"
+                    )
+
+                    val boltRotation by animateFloatAsState(
+                        targetValue = if (isTurboActive) -12f else 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        ),
+                        label = "boltRotation"
+                    )
+
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .clip(actionButtonShape)
-                            .background(
-                                if (isTurboActive) AccentBlue.copy(alpha = 0.18f)
-                                else MaterialTheme.colorScheme.surfaceContainerHigh
-                            )
+                            .background(turboBgColor)
                             .border(
-                                width = if (isTurboActive) 1.dp else 0.5.dp,
-                                color = if (isTurboActive) AccentBlue.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant,
+                                width = if (isTurboActive) 1.2.dp else 0.5.dp,
+                                color = turboBorderColor,
                                 shape = actionButtonShape
                             )
-                            .bouncyClickable(pressScale = 0.94f) {
+                            .bouncyClickable(pressScale = 0.90f) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onToggleTurbo(!isTurboActive)
                             },
                         contentAlignment = Alignment.Center
@@ -231,19 +296,25 @@ fun TargetCard(
                         Icon(
                             imageVector = Icons.Default.Bolt,
                             contentDescription = stringResource(R.string.badge_turbo),
-                            tint = if (isTurboActive) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
+                            tint = turboIconTint,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .graphicsLayer {
+                                    scaleX = boltScale
+                                    scaleY = boltScale
+                                    rotationZ = boltRotation
+                                }
                         )
                     }
 
                     // Delete Pod
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .clip(actionButtonShape)
                             .background(StatusRed.copy(alpha = 0.1f))
                             .border(0.5.dp, StatusRed.copy(alpha = 0.25f), actionButtonShape)
-                            .bouncyClickable(pressScale = 0.94f, onClick = onDelete),
+                            .bouncyClickable(pressScale = 0.90f, onClick = onDelete),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -256,6 +327,30 @@ fun TargetCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AvatarInitialsFallback(username: String, modifier: Modifier = Modifier) {
+    val initial = username.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    val gradientBrush = Brush.linearGradient(
+        colors = listOf(
+            AccentBlue,
+            Color(0xFF8B5CF6)
+        )
+    )
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(gradientBrush),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = initial,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
     }
 }
 

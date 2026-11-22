@@ -342,7 +342,12 @@ class InstagramEngine {
 
     fun downloadImage(url: String, destFile: File): Long {
         destFile.parentFile?.mkdirs()
-        val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
 
         clientWithRedirects.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return 0L

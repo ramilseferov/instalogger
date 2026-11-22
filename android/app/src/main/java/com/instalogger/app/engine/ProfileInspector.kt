@@ -120,6 +120,15 @@ class ProfileInspector(
         var localAvatarPath = existing?.localAvatarPath
         var currentAvatarHash = existing?.avatarHash
 
+        // Verify if localAvatarPath actually exists on disk! If missing or 0 bytes, reset so it re-downloads cleanly
+        if (localAvatarPath != null) {
+            val fileCheck = File(localAvatarPath)
+            if (!fileCheck.exists() || fileCheck.length() == 0L) {
+                localAvatarPath = null
+                currentAvatarHash = null
+            }
+        }
+
         // If existing record has local file but no stored hash, compute it lazily
         if (currentAvatarHash == null && localAvatarPath != null) {
             currentAvatarHash = computeFileSha256(File(localAvatarPath))
@@ -309,11 +318,15 @@ class ProfileInspector(
 
     suspend fun updateDaemonTurbo(targetIdentifier: String, isTurbo: Boolean) = withContext(Dispatchers.IO) {
         try {
+            val fastClient = httpClient.newBuilder()
+                .connectTimeout(1, TimeUnit.SECONDS)
+                .readTimeout(1, TimeUnit.SECONDS)
+                .build()
             val request = Request.Builder()
                 .url("http://127.0.0.1:3000/api/targets/$targetIdentifier/turbo")
                 .post("{\"turbo\": $isTurbo}".toRequestBody("application/json".toMediaType()))
                 .build()
-            httpClient.newCall(request).execute().close()
+            fastClient.newCall(request).execute().close()
         } catch (_: Exception) {
             // Daemon not reachable or endpoint failed
         }
@@ -321,12 +334,16 @@ class ProfileInspector(
 
     private fun fetchFromLocalDaemon(username: String): InstagramProfileSnapshot? {
         try {
+            val fastClient = httpClient.newBuilder()
+                .connectTimeout(1, TimeUnit.SECONDS)
+                .readTimeout(1, TimeUnit.SECONDS)
+                .build()
             val request = Request.Builder()
                 .url("http://127.0.0.1:3000/api/targets")
                 .get()
                 .build()
 
-            httpClient.newCall(request).execute().use { response ->
+            fastClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null
                 val body = response.body?.string() ?: return null
                 val json = gson.fromJson(body, JsonObject::class.java) ?: return null

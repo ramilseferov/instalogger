@@ -85,6 +85,9 @@ class AppSettingsManager(private val context: Context) {
     private val _themeMode = MutableStateFlow(loadThemeMode())
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    private val _isTransitioning = MutableStateFlow(false)
+    val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
+
     private val _statusBarNotifications = MutableStateFlow(loadBoolean(KEY_STATUS_BAR_NOTIFS, true))
     val statusBarNotifications: StateFlow<Boolean> = _statusBarNotifications.asStateFlow()
 
@@ -118,6 +121,18 @@ class AppSettingsManager(private val context: Context) {
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
         prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
+    }
+
+    suspend fun changeThemeWithAnimation(mode: ThemeMode) {
+        if (_themeMode.value == mode) return
+        try {
+            _isTransitioning.value = true
+            kotlinx.coroutines.delay(160) // Silky smooth blur & frosted veil flows in
+            setThemeMode(mode)
+            kotlinx.coroutines.delay(200) // Recomposition settles cleanly under blur
+        } finally {
+            _isTransitioning.value = false
+        }
     }
 
     fun setStatusBarNotifications(enabled: Boolean) {

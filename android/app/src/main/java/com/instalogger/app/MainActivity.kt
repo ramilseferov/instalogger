@@ -102,10 +102,12 @@ class MainActivity : ComponentActivity() {
                     val currentRoute = currentDestination?.route
 
                     val isLanguageTransitioning by LanguageManager.isTransitioning.collectAsState()
+                    val isThemeTransitioning by app.settingsManager.isTransitioning.collectAsState()
+                    val isSettingsTransitionActive = isLanguageTransitioning || isThemeTransitioning
 
                     // Transition safety watchdog: guaranteed release within 600ms
-                    LaunchedEffect(isLanguageTransitioning) {
-                        if (isLanguageTransitioning) {
+                    LaunchedEffect(isSettingsTransitionActive) {
+                        if (isSettingsTransitionActive) {
                             kotlinx.coroutines.delay(600)
                             LanguageManager.resetTransition()
                         }
@@ -132,7 +134,7 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .languageTransitionBlur(isLanguageTransitioning)
+                            .languageTransitionBlur(isSettingsTransitionActive)
                     ) {
                         Scaffold(
                             modifier = Modifier.fillMaxSize(),
@@ -195,7 +197,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        LanguageBlurOverlay(isBlurActive = isLanguageTransitioning)
+                        LanguageBlurOverlay(isBlurActive = isSettingsTransitionActive)
                     }
             }
         }

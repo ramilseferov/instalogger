@@ -1,5 +1,6 @@
 package com.instalogger.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -202,9 +203,12 @@ fun ProfileDetailScreen(
 
                                     Spacer(modifier = Modifier.height(6.dp))
 
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
                                         PrivacyBadge(isPrivate = t.isPrivate)
-                                        if (t.isTurbo) {
+                                        AnimatedVisibility(visible = t.isTurbo) {
                                             TurboBadge(isTurbo = true)
                                         }
                                     }

@@ -170,4 +170,6 @@
     <string name="btn_open_system_notifs">Open Android Notification Settings</string>
     <string name="btn_open_system_notifs_desc">Native OS sound, lock screen and channel controls</string>
     <string name="notif_settings_sheet_title">Notification Settings</string>
+    <string name="btn_battery_opt_active">Exemption Active • Open Settings</string>
+    <string name="badge_active_count_format">%1$d active</string>
 </resources>
