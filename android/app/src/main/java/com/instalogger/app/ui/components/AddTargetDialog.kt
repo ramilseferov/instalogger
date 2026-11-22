@@ -96,10 +96,7 @@ fun AddTargetDialog(
                     }
                 },
                 enabled = username.isNotBlank(),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.bouncyClickable(enabled = username.isNotBlank(), pressScale = 0.94f) {
-                    if (username.isNotBlank()) onConfirm(username.trim(), turbo)
-                }
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Text(stringResource(R.string.dialog_confirm))
             }
@@ -107,8 +104,7 @@ fun AddTargetDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.bouncyClickable(pressScale = 0.94f, onClick = onDismiss)
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Text(stringResource(R.string.dialog_cancel))
             }

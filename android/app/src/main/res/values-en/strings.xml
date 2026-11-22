@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">InstaLogger</string>
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_notifications">Notifications</string>
+    <string name="nav_session">Session</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">Monitoring Dashboard</string>
+    <string name="dashboard_subtitle">Active Instagram targets and audit status</string>
+    <string name="dashboard_empty_title">No Targets Found</string>
+    <string name="dashboard_empty_desc">Add an Instagram username to monitor. Swipe down to refresh.</string>
+    <string name="btn_add_target">Add Target</string>
+    <string name="btn_check_all">Check All</string>
+    <string name="msg_all_targets_checked">All targets checked</string>
+    <string name="msg_target_checked">@%1$s checked</string>
+    <string name="msg_check_failed">Check failed: %1$s</string>
+    <string name="msg_turbo_enabled">Turbo mode enabled</string>
+    <string name="msg_turbo_disabled">Turbo mode disabled</string>
+    <string name="msg_target_deleted">@%1$s deleted</string>
+    <string name="msg_target_added">@%1$s successfully added</string>
+    <string name="followers">Followers</string>
+    <string name="following">Following</string>
+    <string name="posts">Posts</string>
+    <string name="badge_private">Private</string>
+    <string name="badge_public">Public</string>
+    <string name="badge_turbo">Turbo</string>
+    <string name="badge_active">Active</string>
+    <string name="badge_inactive">Inactive</string>
+    <string name="last_checked_format">Checked: %1$s</string>
+    <string name="never_checked">Not checked yet</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_add_title">Add New Target</string>
+    <string name="dialog_username_label">Instagram Username</string>
+    <string name="dialog_username_hint">e.g. username</string>
+    <string name="dialog_turbo_label">Turbo Mode (High Frequency)</string>
+    <string name="dialog_turbo_desc">Check target every few seconds</string>
+    <string name="dialog_cancel">Cancel</string>
+    <string name="dialog_confirm">Add</string>
+    <string name="dialog_close">Close</string>
+    <string name="dialog_delete_confirm_title">Delete Target</string>
+    <string name="dialog_delete_confirm_desc">Are you sure you want to delete @%1$s and all its history?</string>
+
+    <!-- Target Detail -->
+    <string name="target_detail_title">Target Details</string>
+    <string name="tab_audit_logs">Audit Logs (%1$d)</string>
+    <string name="tab_avatar_history">Avatar History (%1$d)</string>
+    <string name="empty_target_logs">No profile changes detected yet.</string>
+    <string name="empty_target_avatars">No historical avatars archived.</string>
+    <string name="avatar_size_format">Size: %1$d KB</string>
+    <string name="avatar_archived_format">Archived: %1$s</string>
+    <string name="preview_title">Image Preview</string>
+
+    <!-- Notification Center & Audit Logs -->
+    <string name="notifications_title">Notifications</string>
+    <string name="notifications_subtitle">System and target change notifications</string>
+    <string name="tab_audit_journal">Audit Journal (%1$d)</string>
+    <string name="tab_notifications">Notifications (%1$d)</string>
+    <string name="audit_journal_title">Audit Journal</string>
+    <string name="audit_journal_subtitle">Live activity log across all targets</string>
+    <string name="unread_notifications_format">%1$d unread notifications</string>
+    <string name="btn_clear_all_logs">Clear All Logs</string>
+    <string name="btn_mark_all_read">Mark All as Read</string>
+    <string name="btn_clear_all_notifications">Clear All</string>
+    <string name="empty_audit_logs_title">Audit Journal is Empty</string>
+    <string name="empty_audit_logs_desc">Changes detected in target profiles are automatically recorded here. Swipe down to refresh.</string>
+    <string name="empty_notifications_title">No Notifications</string>
+    <string name="empty_notifications_desc">Instant alerts will appear here when changes are detected.</string>
+    <string name="avatar_updated_badge">Avatar Updated</string>
+    <string name="avatar_previous">Previous</string>
+    <string name="avatar_new">New</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_mark_read">Mark Read</string>
+    <string name="none_value">None</string>
+
+    <!-- Instagram Session -->
+    <string name="session_title">Instagram Session</string>
+    <string name="session_subtitle">Account connection for monitoring private profiles</string>
+    <string name="session_status_card_title">Session Status</string>
+    <string name="session_active_desc">Instagram session is active</string>
+    <string name="session_inactive_desc">No session linked (Public profiles only)</string>
+    <string name="tab_webview_login">In-App Login (WebView)</string>
+    <string name="tab_manual_cookie">Manual Cookie</string>
+    <string name="cookie_input_desc">Enter sessionid or full cookie string from your browser.</string>
+    <string name="cookie_input_label">Cookie String</string>
+    <string name="btn_save_cookie">Save Cookie</string>
+    <string name="btn_clear_session">Reset Session</string>
+    <string name="msg_session_captured">Instagram session captured and saved successfully!</string>
+    <string name="msg_cookie_saved">Cookie saved successfully</string>
+    <string name="msg_session_cleared">Session cleared</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">System, language and background configuration</string>
+    <string name="section_language">Application Language</string>
+    <string name="section_language_desc">Select your preferred display language. Changes apply instantly.</string>
+    <string name="battery_opt_title">Battery Optimization</string>
+    <string name="battery_opt_desc">Request exemption from system battery saver to run continuously in the background and receive instant alerts.</string>
+    <string name="badge_unrestricted">Unrestricted</string>
+    <string name="badge_restricted">Restricted</string>
+    <string name="btn_request_battery_opt">Request Exemption</string>
+    <string name="service_card_title">Background Service</string>
+    <string name="service_card_desc">Restart the foreground service to refresh persistent notification status and worker threads.</string>
+    <string name="btn_restart_service">Restart Service</string>
+    <string name="msg_service_restarted">Background service restarted</string>
+    <string name="danger_zone_title">Data Management</string>
+    <string name="danger_zone_desc">Reset all local targets, change logs, and notifications stored on this device.</string>
+    <string name="btn_clear_all_data">Clear All Local Data</string>
+    <string name="msg_data_cleared">All local data cleared</string>
+
+    <!-- Archive Directory -->
+    <string name="archive_dir_title">Archive Directory</string>
+    <string name="archive_dir_desc">Location where downloaded profile avatars and media files are stored.</string>
+    <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
+    <string name="btn_save_path">Save Path</string>
+    <string name="btn_select_folder">Select Folder</string>
+    <string name="btn_reset_default">Default</string>
+    <string name="msg_archive_dir_saved">Archive directory updated successfully</string>
+    <string name="msg_archive_dir_invalid">Directory path is invalid or not writable</string>
+
+    <!-- Audit Logs in Settings -->
+    <string name="section_audit_logs">Inspection &amp; Audit Logs</string>
+    <string name="section_audit_logs_desc">Live inspection activity and target change records.</string>
+    <string name="btn_view_logs">View Logs</string>
+    <string name="btn_hide_logs">Hide Logs</string>
+    <string name="logs_count_format">%1$d log records</string>
+    <string name="empty_logs_text">No logs recorded yet</string>
+    <string name="dialog_clear_logs_title">Clear Logs</string>
+    <string name="dialog_clear_logs_desc">Are you sure you want to delete all audit and inspection logs?</string>
+
+    <!-- Foreground Service -->
+    <string name="service_notification_channel">InstaLogger Service</string>
+    <string name="service_notification_title">InstaLogger Background Monitor</string>
+    <string name="service_notification_desc">Instagram profiles are actively being monitored</string>
+    <string name="alert_notification_channel">InstaLogger Alerts</string>
+
+    <!-- Theme & Appearance -->
+    <string name="theme_section_title">Appearance &amp; Theme</string>
+    <string name="theme_section_desc">Customize application color scheme and theme mode.</string>
+    <string name="theme_light">Light Mode</string>
+    <string name="theme_light_desc">Bright and clean interface</string>
+    <string name="theme_dark">Dark Mode</string>
+    <string name="theme_dark_desc">Deep dark slate contrast</string>
+    <string name="theme_system">System Default</string>
+    <string name="theme_system_desc">Follows device appearance</string>
+
+    <!-- Notification Settings -->
+    <string name="section_notifications">Notifications &amp; Alerts</string>
+    <string name="section_notifications_desc">Configure alert channels, sounds and system notifications.</string>
+    <string name="notif_status_bar_title">Phone Notifications</string>
+    <string name="notif_status_bar_desc">Show alert banners in Android status bar</string>
+    <string name="notif_in_app_title">In-App Notifications</string>
+    <string name="notif_in_app_desc">Collect events in notification center</string>
+    <string name="notif_sound_title">Sound Alerts</string>
+    <string name="notif_sound_desc">Play audio tone when changes are found</string>
+    <string name="notif_vibration_title">Vibration Feedback</string>
+    <string name="notif_vibration_desc">Haptic vibration pulse on new alerts</string>
+    <string name="notif_categories_title">Alert Categories</string>
+    <string name="notif_categories_desc">Fine-tune individual alert channels</string>
+    <string name="notif_cat_profile_title">Profile &amp; Avatar Changes</string>
+    <string name="notif_cat_profile_desc">Avatar, bio and full name update alerts</string>
+    <string name="notif_cat_privacy_title">Privacy &amp; Account Status</string>
+    <string name="notif_cat_privacy_desc">Private to Public account status switches</string>
+    <string name="notif_cat_activity_title">Posts &amp; Activity</string>
+    <string name="notif_cat_activity_desc">Post count and followers/following shifts</string>
+    <string name="notif_cat_system_title">Service &amp; System Alerts</string>
+    <string name="notif_cat_system_desc">Daemon health, battery and session warnings</string>
+    <string name="btn_open_system_notifs">Open Android Notification Settings</string>
+    <string name="btn_open_system_notifs_desc">Native OS sound, lock screen and channel controls</string>
+    <string name="notif_settings_sheet_title">Notification Settings</string>
+</resources>

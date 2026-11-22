@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.content.res.Configuration
+import android.os.Build
+import android.os.LocaleList
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultRegistryOwner
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +35,14 @@ object LanguageManager {
 
     private val _isTransitioning = MutableStateFlow(false)
     val isTransitioning: StateFlow<Boolean> = _isTransitioning.asStateFlow()
+
+    fun getLocale(languageCode: String): Locale {
+        return when (languageCode.lowercase()) {
+            "az" -> Locale("az", "AZ")
+            "ru" -> Locale("ru", "RU")
+            else -> Locale("en", "US")
+        }
+    }
 
     fun init(context: Context) {
         _isTransitioning.value = false
@@ -77,10 +87,14 @@ object LanguageManager {
 
     private fun applyLocale(context: Context, languageCode: String) {
         try {
-            val locale = Locale.forLanguageTag(languageCode)
+            val locale = getLocale(languageCode)
             Locale.setDefault(locale)
             val config = context.resources.configuration
-            config.setLocale(locale)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                config.setLocales(LocaleList(locale))
+            } else {
+                config.setLocale(locale)
+            }
             config.setLayoutDirection(locale)
             context.createConfigurationContext(config)
             @Suppress("DEPRECATION")
@@ -91,19 +105,27 @@ object LanguageManager {
     }
 
     fun getLocalizedContext(activity: ComponentActivity, languageCode: String): Context {
-        val locale = Locale.forLanguageTag(languageCode)
+        val locale = getLocale(languageCode)
         Locale.setDefault(locale)
         val config = Configuration(activity.resources.configuration)
-        config.setLocale(locale)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            config.setLocales(LocaleList(locale))
+        } else {
+            config.setLocale(locale)
+        }
         config.setLayoutDirection(locale)
         val base = activity.createConfigurationContext(config)
         return object : ContextWrapper(base), ActivityResultRegistryOwner by activity {}
     }
 
     fun getLocalizedConfiguration(baseConfig: Configuration, languageCode: String): Configuration {
-        val locale = Locale.forLanguageTag(languageCode)
+        val locale = getLocale(languageCode)
         val config = Configuration(baseConfig)
-        config.setLocale(locale)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            config.setLocales(LocaleList(locale))
+        } else {
+            config.setLocale(locale)
+        }
         config.setLayoutDirection(locale)
         return config
     }

@@ -105,9 +105,9 @@ class ProfileInspector(
                 daemonSnapshot
             }
         } else {
-            val existing = targetDao.getTarget(cleanUser)
-            if (existing != null) {
-                val updated = existing.copy(lastCheckedAt = System.currentTimeMillis())
+            val freshInDb = targetDao.getTarget(cleanUser)
+            if (freshInDb != null) {
+                val updated = freshInDb.copy(lastCheckedAt = System.currentTimeMillis())
                 targetDao.insertTarget(updated)
                 return@withContext Result.success(updated)
             }
@@ -242,27 +242,46 @@ class ProfileInspector(
             localAvatarPath = findExistingLocalAvatar(cleanUser, snapshot.instagramId)
         }
 
+        // Always query the absolute freshest record from Room DB right before writing
+        // to prevent overwriting user modifications (e.g. isTurbo toggle) made while network fetch was running
+        val freshInDb = targetDao.getTarget(cleanUser) ?: existing
+        val resolvedTurbo = freshInDb?.isTurbo ?: existing?.isTurbo ?: false
+        val resolvedActive = freshInDb?.isActive ?: existing?.isActive ?: true
+        val resolvedInterval = freshInDb?.checkIntervalSeconds ?: existing?.checkIntervalSeconds ?: 60
+
         val updatedTarget = TargetEntity(
             username = cleanUser,
-            instagramId = snapshot.instagramId ?: existing?.instagramId,
-            fullName = if (snapshot.fullName.isNotBlank()) snapshot.fullName else (existing?.fullName ?: ""),
-            biography = if (snapshot.biography.isNotBlank()) snapshot.biography else (existing?.biography ?: ""),
+            instagramId = snapshot.instagramId ?: freshInDb?.instagramId ?: existing?.instagramId,
+            fullName = if (snapshot.fullName.isNotBlank()) snapshot.fullName else (freshInDb?.fullName ?: existing?.fullName ?: ""),
+            biography = if (snapshot.biography.isNotBlank()) snapshot.biography else (freshInDb?.biography ?: existing?.biography ?: ""),
             isPrivate = snapshot.isPrivate,
-            followersCount = if (snapshot.followersCount > 0) snapshot.followersCount else (existing?.followersCount ?: 0L),
-            followingCount = if (snapshot.followingCount > 0) snapshot.followingCount else (existing?.followingCount ?: 0L),
-            mediaCount = if (snapshot.mediaCount > 0) snapshot.mediaCount else (existing?.mediaCount ?: 0L),
-            avatarUrl = snapshot.profilePicUrl ?: existing?.avatarUrl,
+            followersCount = if (snapshot.followersCount > 0) snapshot.followersCount else (freshInDb?.followersCount ?: existing?.followersCount ?: 0L),
+            followingCount = if (snapshot.followingCount > 0) snapshot.followingCount else (freshInDb?.followingCount ?: existing?.followingCount ?: 0L),
+            mediaCount = if (snapshot.mediaCount > 0) snapshot.mediaCount else (freshInDb?.mediaCount ?: existing?.mediaCount ?: 0L),
+            avatarUrl = snapshot.profilePicUrl ?: freshInDb?.avatarUrl ?: existing?.avatarUrl,
             localAvatarPath = localAvatarPath,
-            isTurbo = existing?.isTurbo ?: false,
-            isActive = true,
-            checkIntervalSeconds = existing?.checkIntervalSeconds ?: 60,
+            isTurbo = resolvedTurbo,
+            isActive = resolvedActive,
+            checkIntervalSeconds = resolvedInterval,
             lastCheckedAt = now,
-            lastStatusChangeAt = if (existing != null && existing.isPrivate != snapshot.isPrivate) now else existing?.lastStatusChangeAt,
-            createdAt = existing?.createdAt ?: now
+            lastStatusChangeAt = if (freshInDb != null && freshInDb.isPrivate != snapshot.isPrivate) now else (freshInDb?.lastStatusChangeAt ?: existing?.lastStatusChangeAt),
+            createdAt = freshInDb?.createdAt ?: existing?.createdAt ?: now
         )
 
         targetDao.insertTarget(updatedTarget)
         Result.success(updatedTarget)
+    }
+
+    suspend fun updateDaemonTurbo(targetIdentifier: String, isTurbo: Boolean) = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("http://127.0.0.1:3000/api/targets/$targetIdentifier/turbo")
+                .post("{\"turbo\": $isTurbo}".toRequestBody("application/json".toMediaType()))
+                .build()
+            httpClient.newCall(request).execute().close()
+        } catch (_: Exception) {
+            // Daemon not reachable or endpoint failed
+        }
     }
 
     private fun fetchFromLocalDaemon(username: String): InstagramProfileSnapshot? {

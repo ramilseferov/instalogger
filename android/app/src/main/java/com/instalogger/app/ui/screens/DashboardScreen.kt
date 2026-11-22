@@ -37,6 +37,7 @@ import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.components.TargetCard
 import com.instalogger.app.ui.theme.AccentBlue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -55,6 +56,7 @@ fun DashboardScreen(
     var isGlobalRefreshing by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var targetToDelete by remember { mutableStateOf<TargetEntity?>(null) }
+    var turboSnackbarJob by remember { mutableStateOf<Job?>(null) }
 
     val allCheckedMsg = stringResource(R.string.msg_all_targets_checked)
     val turboEnabledMsg = stringResource(R.string.msg_turbo_enabled)
@@ -93,7 +95,8 @@ fun DashboardScreen(
                     try {
                         val result = app.profileInspector.inspectTarget(t.username)
                         result.onSuccess { updated ->
-                            targets = targets.map { if (it.username == t.username) updated else it }
+                            val preservedTurbo = targets.find { it.username == t.username }?.isTurbo ?: updated.isTurbo
+                            targets = targets.map { if (it.username == t.username) updated.copy(isTurbo = preservedTurbo) else it }
                         }
                     } catch (e: Exception) {
                         // Continue to next target
@@ -260,7 +263,8 @@ fun DashboardScreen(
 
                                         if (result.isSuccess) {
                                             val updated = result.getOrThrow()
-                                            targets = targets.map { if (it.username == target.username) updated else it }
+                                            val preservedTurbo = targets.find { it.username == target.username }?.isTurbo ?: updated.isTurbo
+                                            targets = targets.map { if (it.username == target.username) updated.copy(isTurbo = preservedTurbo) else it }
                                             snackbarHostState.showSnackbar(context.getString(R.string.msg_target_checked, target.username))
                                         } else {
                                             snackbarHostState.showSnackbar(context.getString(R.string.msg_check_failed, result.exceptionOrNull()?.message ?: ""))
@@ -269,12 +273,23 @@ fun DashboardScreen(
                                 }
                             },
                             onToggleTurbo = { newTurbo ->
+                                // 1. Instant optimistic UI state update for zero lag
                                 targets = targets.map { if (it.username == target.username) it.copy(isTurbo = newTurbo) else it }
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        app.database.targetDao().updateTurbo(target.username, newTurbo)
-                                    }
-                                    snackbarHostState.showSnackbar(if (newTurbo) turboEnabledMsg else turboDisabledMsg)
+
+                                // 2. Asynchronously persist to Room DB & notify daemon
+                                scope.launch(Dispatchers.IO) {
+                                    app.database.targetDao().updateTurbo(target.username, newTurbo)
+                                    val daemonId = target.instagramId ?: target.username
+                                    app.profileInspector.updateDaemonTurbo(daemonId, newTurbo)
+                                }
+
+                                // 3. Instant snackbar without blocking coroutine queue
+                                turboSnackbarJob?.cancel()
+                                turboSnackbarJob = scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        message = if (newTurbo) turboEnabledMsg else turboDisabledMsg,
+                                        duration = SnackbarDuration.Short
+                                    )
                                 }
                             },
                             onDelete = {
