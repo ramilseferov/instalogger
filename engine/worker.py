@@ -195,8 +195,8 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
         item["relative_file_path"] = f"archives/{profile['id']}/{item['media_type']}s/{item['shortcode']}.{'mp4' if item['media_type'] == 'reel' else 'jpg'}"
         items.append(item)
 
-    # When profile is active/public, also extract all highlights
-    if not profile.get("is_private"):
+    # When profile is active/public or followed by viewer, also extract all highlights
+    if not profile.get("is_private") or profile.get("followed_by_viewer"):
         try:
             hl_trays = client.fetch_user_highlights(profile["id"])
             for tray in hl_trays:

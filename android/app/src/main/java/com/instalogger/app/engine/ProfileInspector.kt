@@ -8,6 +8,7 @@ import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.data.local.*
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.util.ArchiveDirectoryManager
+import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -202,6 +203,8 @@ class ProfileInspector(
 
         // Also import existing archives if available on disk
         importLocalArchives(cleanUser, snapshot.instagramId)
+        importLocalPostsAndHighlights(cleanUser, snapshot.instagramId)
+        fetchMediaFromLocalDaemon(cleanUser, snapshot.instagramId)
 
         // 2. Check privacy change
         val wasPrivateToPublic = (existing != null && existing.isPrivate && !snapshot.isPrivate)
@@ -327,8 +330,8 @@ class ProfileInspector(
             }
         }
 
-        // 8. Auto archive highlights and posts if account transitioned to Public or is Public
-        if (!snapshot.isPrivate && !targetId.isNullOrBlank()) {
+        // 8. Auto archive highlights and posts
+        if (!snapshot.isPrivate || existing == null || wasPrivateToPublic || !cookie.isNullOrBlank()) {
             archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic)
         }
 
@@ -506,6 +509,180 @@ class ProfileInspector(
             // Local daemon not reachable, fallback to direct engine
         }
         return null
+    }
+
+    suspend fun notifyDaemonAddTarget(username: String, turbo: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        try {
+            val json = JsonObject().apply {
+                addProperty("username", cleanUser)
+                addProperty("turbo", turbo)
+            }
+            val body = json.toString().toRequestBody("application/json".toMediaType())
+            val req = Request.Builder()
+                .url("http://127.0.0.1:3000/api/targets")
+                .post(body)
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                resp.isSuccessful
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun fetchMediaFromLocalDaemon(username: String, instagramId: String?) = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val keys = mutableListOf<String>()
+        if (!instagramId.isNullOrBlank()) keys.add(instagramId)
+        keys.add(cleanUser)
+
+        for (k in keys.distinct()) {
+            try {
+                val req = Request.Builder()
+                    .url("http://127.0.0.1:3000/api/targets/$k/media")
+                    .get()
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val body = resp.body?.string() ?: return@use
+                    val json = gson.fromJson(body, JsonObject::class.java) ?: return@use
+                    val items = json.getAsJsonArray("items") ?: return@use
+
+                    val postEntities = mutableListOf<PostEntity>()
+                    val highlightEntities = mutableListOf<HighlightEntity>()
+                    val highlightMedia = mutableListOf<HighlightMediaEntity>()
+
+                    val internalPostDir = File(context.filesDir, "posts/$cleanUser").apply { mkdirs() }
+                    val internalHlDir = File(context.filesDir, "highlights/$cleanUser").apply { mkdirs() }
+
+                    for (item in items) {
+                        val obj = item.asJsonObject ?: continue
+                        val id = obj.get("id")?.asString ?: continue
+                        val mediaType = obj.get("media_type")?.asString ?: "image"
+                        val cdnUrl = obj.get("cdn_url")?.asString ?: ""
+                        val relPath = obj.get("relative_file_path")?.asString
+                        val caption = obj.get("caption")?.asString?.cleanDisplayText()
+                        val hlTitle = obj.get("highlight_title")?.asString ?: "Highlight"
+
+                        var localPath: String? = null
+                        if (!relPath.isNullOrBlank()) {
+                            val f1 = File("/storage/emulated/0/instalogger/$relPath")
+                            val f2 = File(ArchiveDirectoryManager.getArchiveDirectory(context), relPath.removePrefix("archives/"))
+                            val resolved = if (f1.exists() && f1.length() > 0) f1 else if (f2.exists() && f2.length() > 0) f2 else null
+                            if (resolved != null) {
+                                val dest = if (mediaType == "highlight") File(internalHlDir, resolved.name) else File(internalPostDir, resolved.name)
+                                try { resolved.copyTo(dest, overwrite = true) } catch (_: Exception) {}
+                                localPath = dest.absolutePath
+                            }
+                        }
+
+                        if (mediaType == "highlight") {
+                            val hlId = "hl_${cleanUser}_${hlTitle.hashCode()}"
+                            highlightEntities.add(
+                                HighlightEntity(
+                                    id = hlId,
+                                    username = cleanUser,
+                                    title = hlTitle.cleanDisplayText(),
+                                    coverUrl = cdnUrl,
+                                    localCoverPath = localPath,
+                                    mediaCount = 1,
+                                    archivedAt = System.currentTimeMillis()
+                                )
+                            )
+                            highlightMedia.add(
+                                HighlightMediaEntity(
+                                    id = id,
+                                    highlightId = hlId,
+                                    username = cleanUser,
+                                    mediaType = if (relPath?.endsWith(".mp4") == true) "video" else "image",
+                                    mediaUrl = cdnUrl,
+                                    localPath = localPath ?: cdnUrl,
+                                    takenAt = System.currentTimeMillis()
+                                )
+                            )
+                        } else {
+                            val shortcode = id.removePrefix("post_").removePrefix("reel_")
+                            postEntities.add(
+                                PostEntity(
+                                    id = shortcode,
+                                    username = cleanUser,
+                                    caption = caption,
+                                    displayUrl = cdnUrl,
+                                    localPath = localPath,
+                                    isVideo = (mediaType == "reel" || relPath?.endsWith(".mp4") == true),
+                                    likeCount = 0,
+                                    commentCount = 0,
+                                    postedAt = System.currentTimeMillis()
+                                )
+                            )
+                        }
+                    }
+
+                    if (postEntities.isNotEmpty()) {
+                        database.postDao().insertPosts(postEntities)
+                    }
+                    if (highlightEntities.isNotEmpty()) {
+                        database.highlightDao().insertHighlights(highlightEntities)
+                    }
+                    if (highlightMedia.isNotEmpty()) {
+                        database.highlightDao().insertHighlightMedia(highlightMedia)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun importLocalPostsAndHighlights(username: String, instagramId: String?) = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val archiveRoot = ArchiveDirectoryManager.getArchiveDirectory(context)
+        val candidateRoots = mutableListOf<File>()
+
+        candidateRoots.add(File(archiveRoot, cleanUser))
+        candidateRoots.add(File("/storage/emulated/0/instalogger/archives/$cleanUser"))
+        if (!instagramId.isNullOrBlank()) {
+            candidateRoots.add(File(archiveRoot, instagramId))
+            candidateRoots.add(File("/storage/emulated/0/instalogger/archives/$instagramId"))
+        }
+
+        val internalPostDir = File(context.filesDir, "posts/$cleanUser").apply { mkdirs() }
+        val postEntities = mutableListOf<PostEntity>()
+
+        for (root in candidateRoots.distinct()) {
+            if (!root.exists() || !root.isDirectory) continue
+
+            val postDirs = listOf(File(root, "posts"), File(root, "reels"))
+            for (pd in postDirs) {
+                if (!pd.exists() || !pd.isDirectory) continue
+                val files = pd.listFiles { f -> f.isFile && (f.name.endsWith(".jpg", ignoreCase = true) || f.name.endsWith(".mp4", ignoreCase = true)) } ?: continue
+                for (file in files) {
+                    val sc = file.nameWithoutExtension
+                    val internalFile = File(internalPostDir, file.name)
+                    try { file.copyTo(internalFile, overwrite = true) } catch (_: Exception) {}
+
+                    val capFile = File(pd, "${sc}_caption.txt")
+                    val caption = if (capFile.exists()) capFile.readText().cleanDisplayText() else null
+
+                    postEntities.add(
+                        PostEntity(
+                            id = sc,
+                            username = cleanUser,
+                            caption = caption,
+                            displayUrl = internalFile.absolutePath,
+                            localPath = internalFile.absolutePath,
+                            isVideo = file.name.endsWith(".mp4", ignoreCase = true),
+                            likeCount = 0,
+                            commentCount = 0,
+                            postedAt = file.lastModified()
+                        )
+                    )
+                }
+            }
+        }
+
+        if (postEntities.isNotEmpty()) {
+            database.postDao().insertPosts(postEntities)
+        }
     }
 
     fun unmarkDeleted(username: String) {
@@ -910,99 +1087,111 @@ class ProfileInspector(
 
     suspend fun archiveHighlightsAndPosts(
         username: String,
-        targetId: String,
-        cookie: String?,
+        targetId: String? = null,
+        cookie: String? = null,
         wasPrivateToPublic: Boolean = false
     ) = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val effectiveTargetId = targetId ?: database.targetDao().getTarget(cleanUser)?.instagramId
+        val effectiveCookie = cookie ?: sessionManager.getCookieString()
+
+        // 1. Immediately import any media already cached on disk or daemon
+        importLocalPostsAndHighlights(cleanUser, effectiveTargetId)
+        fetchMediaFromLocalDaemon(cleanUser, effectiveTargetId)
+
         try {
-            // 1. Fetch highlights list
-            val highlights = instagramEngine.fetchUserHighlights(targetId, cookie)
-            if (highlights.isNotEmpty()) {
-                val highlightDao = database.highlightDao()
-                val highlightEntities = mutableListOf<HighlightEntity>()
-                val mediaEntities = mutableListOf<HighlightMediaEntity>()
+            // 2. Fetch highlights list if targetId is available
+            var hlCount = 0
+            if (!effectiveTargetId.isNullOrBlank()) {
+                val highlights = instagramEngine.fetchUserHighlights(effectiveTargetId, effectiveCookie)
+                if (highlights.isNotEmpty()) {
+                    hlCount = highlights.size
+                    val highlightDao = database.highlightDao()
+                    val highlightEntities = mutableListOf<HighlightEntity>()
+                    val mediaEntities = mutableListOf<HighlightMediaEntity>()
 
-                val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$username/highlights")
-                archiveDir.mkdirs()
-                val internalDir = File(context.filesDir, "highlights/$username")
-                internalDir.mkdirs()
+                    val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
+                    archiveDir.mkdirs()
+                    val internalDir = File(context.filesDir, "highlights/$cleanUser")
+                    internalDir.mkdirs()
 
-                for (hl in highlights) {
-                    var localCover: String? = null
-                    if (!hl.coverUrl.isNullOrBlank()) {
-                        val coverFile = File(archiveDir, "${hl.id.replace(":", "_")}_cover.jpg")
-                        if (!coverFile.exists() || coverFile.length() == 0L) {
-                            instagramEngine.downloadMedia(hl.coverUrl, coverFile)
-                        }
-                        if (coverFile.exists() && coverFile.length() > 0L) {
-                            val internalCover = File(internalDir, coverFile.name)
-                            try { coverFile.copyTo(internalCover, overwrite = true) } catch (_: Exception) {}
-                            localCover = internalCover.absolutePath
-                        }
-                    }
-
-                    highlightEntities.add(
-                        HighlightEntity(
-                            id = hl.id,
-                            username = username,
-                            title = hl.title,
-                            coverUrl = hl.coverUrl ?: "",
-                            localCoverPath = localCover,
-                            mediaCount = hl.mediaCount,
-                            archivedAt = System.currentTimeMillis()
-                        )
-                    )
-
-                    // Fetch stories for this highlight
-                    val stories = instagramEngine.fetchHighlightStories(hl.id, cookie)
-                    for (story in stories) {
-                        val ext = if (story.mediaType == "video") "mp4" else "jpg"
-                        val fileName = "${hl.id.replace(":", "_")}_${story.id}.$ext"
-                        val mediaFile = File(archiveDir, fileName)
-                        val internalMedia = File(internalDir, fileName)
-
-                        if (!mediaFile.exists() || mediaFile.length() == 0L) {
-                            instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
+                    for (hl in highlights) {
+                        var localCover: String? = null
+                        if (!hl.coverUrl.isNullOrBlank()) {
+                            val coverFile = File(archiveDir, "${hl.id.replace(":", "_")}_cover.jpg")
+                            if (!coverFile.exists() || coverFile.length() == 0L) {
+                                instagramEngine.downloadMedia(hl.coverUrl, coverFile)
+                            }
+                            if (coverFile.exists() && coverFile.length() > 0L) {
+                                val internalCover = File(internalDir, coverFile.name)
+                                try { coverFile.copyTo(internalCover, overwrite = true) } catch (_: Exception) {}
+                                localCover = internalCover.absolutePath
+                            }
                         }
 
-                        val localPath = if (mediaFile.exists() && mediaFile.length() > 0L) {
-                            try { mediaFile.copyTo(internalMedia, overwrite = true) } catch (_: Exception) {}
-                            internalMedia.absolutePath
-                        } else {
-                            story.mediaUrl
-                        }
-
-                        mediaEntities.add(
-                            HighlightMediaEntity(
-                                id = story.id,
-                                highlightId = hl.id,
-                                username = username,
-                                mediaType = story.mediaType,
-                                mediaUrl = story.mediaUrl,
-                                localPath = localPath,
-                                takenAt = story.takenAt
+                        highlightEntities.add(
+                            HighlightEntity(
+                                id = hl.id,
+                                username = cleanUser,
+                                title = hl.title.cleanDisplayText(),
+                                coverUrl = hl.coverUrl ?: "",
+                                localCoverPath = localCover,
+                                mediaCount = hl.mediaCount,
+                                archivedAt = System.currentTimeMillis()
                             )
                         )
-                    }
-                }
 
-                if (highlightEntities.isNotEmpty()) {
-                    highlightDao.insertHighlights(highlightEntities)
-                }
-                if (mediaEntities.isNotEmpty()) {
-                    highlightDao.insertHighlightMedia(mediaEntities)
+                        // Fetch stories for this highlight
+                        val stories = instagramEngine.fetchHighlightStories(hl.id, effectiveCookie)
+                        for (story in stories) {
+                            val ext = if (story.mediaType == "video") "mp4" else "jpg"
+                            val fileName = "${hl.id.replace(":", "_")}_${story.id}.$ext"
+                            val mediaFile = File(archiveDir, fileName)
+                            val internalMedia = File(internalDir, fileName)
+
+                            if (!mediaFile.exists() || mediaFile.length() == 0L) {
+                                instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
+                            }
+
+                            val localPath = if (mediaFile.exists() && mediaFile.length() > 0L) {
+                                try { mediaFile.copyTo(internalMedia, overwrite = true) } catch (_: Exception) {}
+                                internalMedia.absolutePath
+                            } else {
+                                story.mediaUrl
+                            }
+
+                            mediaEntities.add(
+                                HighlightMediaEntity(
+                                    id = story.id,
+                                    highlightId = hl.id,
+                                    username = cleanUser,
+                                    mediaType = story.mediaType,
+                                    mediaUrl = story.mediaUrl,
+                                    localPath = localPath,
+                                    takenAt = story.takenAt
+                                )
+                            )
+                        }
+                    }
+
+                    if (highlightEntities.isNotEmpty()) {
+                        highlightDao.insertHighlights(highlightEntities)
+                    }
+                    if (mediaEntities.isNotEmpty()) {
+                        highlightDao.insertHighlightMedia(mediaEntities)
+                    }
                 }
             }
 
-            // 2. Fetch and archive recent posts
-            val posts = instagramEngine.fetchRecentPosts(targetId, username, cookie, limit = 24)
+            // 3. Fetch and archive recent posts
+            val posts = instagramEngine.fetchRecentPosts(effectiveTargetId, cleanUser, effectiveCookie, limit = 24)
             if (posts.isNotEmpty()) {
                 val postDao = database.postDao()
                 val postEntities = mutableListOf<PostEntity>()
 
-                val postDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$username/posts")
+                val postDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/posts")
                 postDir.mkdirs()
-                val internalPostDir = File(context.filesDir, "posts/$username")
+                val internalPostDir = File(context.filesDir, "posts/$cleanUser")
                 internalPostDir.mkdirs()
 
                 for (p in posts) {
@@ -1025,8 +1214,8 @@ class ProfileInspector(
                     postEntities.add(
                         PostEntity(
                             id = p.shortcode,
-                            username = username,
-                            caption = p.caption.ifBlank { null },
+                            username = cleanUser,
+                            caption = p.caption.cleanDisplayText().ifBlank { null },
                             displayUrl = p.displayUrl,
                             localPath = localPath,
                             isVideo = (p.mediaType == "video"),
@@ -1045,10 +1234,10 @@ class ProfileInspector(
             // If account was private and became public, dispatch a special success alert
             if (wasPrivateToPublic) {
                 val now = System.currentTimeMillis()
-                val title = "@$username is now PUBLIC! Highlights & Posts archived."
-                val message = "Archived ${highlights.size} highlight reels and ${posts.size} posts in high speed."
+                val title = "@$cleanUser is now PUBLIC! Highlights & Posts archived."
+                val message = "Archived $hlCount highlight reels and ${posts.size} posts in high speed."
                 dispatchAlert(
-                    targetUsername = username,
+                    targetUsername = cleanUser,
                     eventType = "privacy_change",
                     title = title,
                     message = message,
@@ -1056,16 +1245,15 @@ class ProfileInspector(
                 )
             }
         } catch (e: Exception) {
-            Log.w("ProfileInspector", "Failed to archive highlights and posts for @$username: ${e.message}")
+            Log.w("ProfileInspector", "Failed to archive highlights and posts for @$cleanUser: ${e.message}")
         }
     }
 
     suspend fun inspectHighlightsAndPosts(username: String): Boolean = withContext(Dispatchers.IO) {
         val cleanUser = username.trim().trimStart('@').lowercase()
-        val target = database.targetDao().getTarget(cleanUser) ?: return@withContext false
+        val target = database.targetDao().getTarget(cleanUser)
         val cookie = sessionManager.getCookieString()
-        val targetId = target.instagramId
-        if (targetId.isNullOrBlank()) return@withContext false
+        val targetId = target?.instagramId
         archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic = false)
         true
     }

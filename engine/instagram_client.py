@@ -105,6 +105,29 @@ class InstagramClient:
             media_count = profile.mediacount if profile.mediacount is not None else 0
             followers = profile.followers if profile.followers is not None else 0
             followees = profile.followees if profile.followees is not None else 0
+
+            posts_edges = []
+            if not profile.is_private or getattr(profile, "followed_by_viewer", False):
+                try:
+                    for idx, post in enumerate(profile.get_posts()):
+                        if idx >= 24:
+                            break
+                        posts_edges.append({
+                            "node": {
+                                "id": str(post.mediaid),
+                                "shortcode": post.shortcode,
+                                "display_url": post.url,
+                                "is_video": post.is_video,
+                                "video_url": post.video_url if post.is_video else None,
+                                "edge_media_to_caption": {"edges": [{"node": {"text": post.caption or ""}}]},
+                                "edge_media_preview_like": {"count": post.likes or 0},
+                                "edge_media_to_comment": {"count": post.comments or 0},
+                                "taken_at_timestamp": int(post.date_utc.timestamp()),
+                            }
+                        })
+                except Exception as post_err:
+                    logger.debug(f"Instaloader posts extraction error for @{username}: {post_err}")
+
             return {
                 "status": "ok",
                 "data": {
@@ -117,7 +140,7 @@ class InstagramClient:
                         "followed_by_viewer": bool(getattr(profile, "followed_by_viewer", False)),
                         "edge_followed_by": {"count": followers},
                         "edge_follow": {"count": followees},
-                        "edge_owner_to_timeline_media": {"count": media_count},
+                        "edge_owner_to_timeline_media": {"count": media_count, "edges": posts_edges},
                         "profile_pic_url_hd": profile.profile_pic_url or "",
                     }
                 }
@@ -143,9 +166,26 @@ class InstagramClient:
                         "cover_url": node.get("cover_media", {}).get("thumbnail_src") or "",
                         "media_count": int(node.get("media_count") or 0)
                     })
-                return results
+                if results:
+                    return results
         except Exception as e:
             logger.debug(f"Highlights query failed for user {user_id}: {e}")
+
+        # Fallback to Instaloader highlights
+        try:
+            profile = instaloader.Profile.from_id(self.il.context, int(user_id))
+            results = []
+            for highlight in self.il.get_highlights(user=profile):
+                results.append({
+                    "id": str(highlight.unique_id),
+                    "title": highlight.title or "Highlight",
+                    "cover_url": highlight.cover_url or "",
+                    "media_count": highlight.itemcount
+                })
+            return results
+        except Exception as e:
+            logger.debug(f"Instaloader highlight fallback error for user {user_id}: {e}")
+
         return []
 
     def fetch_highlight_stories(self, highlight_id: str) -> List[Dict[str, Any]]:

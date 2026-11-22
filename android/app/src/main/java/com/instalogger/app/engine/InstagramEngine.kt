@@ -3,6 +3,7 @@ package com.instalogger.app.engine
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.instalogger.app.util.cleanDisplayText
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -156,11 +157,22 @@ class InstagramEngine {
                 following = followingMatcher.group(1)?.toLongOrNull() ?: 0L
             }
 
-            // 3. Extract pk / ID
-            val pkPattern = Pattern.compile("\"pk\":\\s*\"?(\\d+)\"?")
-            val pkMatcher = pkPattern.matcher(html)
-            if (pkMatcher.find()) {
-                id = pkMatcher.group(1)
+            // 3. Extract pk / ID (multi-pattern fallback)
+            val pkPatterns = listOf(
+                Pattern.compile("\"pk\":\\s*\"?(\\d+)\"?"),
+                Pattern.compile("\"profile_id\":\\s*\"?(\\d+)\"?"),
+                Pattern.compile("\"id\":\\s*\"?(\\d{6,})\"?"),
+                Pattern.compile("<meta\\s+property=\"instapp:owner_user_id\"\\s+content=\"(\\d+)\""),
+                Pattern.compile("<meta\\s+property=\"al:ios:url\"\\s+content=\"instagram://user\\?id=(\\d+)\""),
+                Pattern.compile("instagram://user\\?id=(\\d+)"),
+                Pattern.compile("\"owner\":\\s*\\{\\s*\"id\":\\s*\"?(\\d+)\"?")
+            )
+            for (p in pkPatterns) {
+                val m = p.matcher(html)
+                if (m.find()) {
+                    id = m.group(1)
+                    if (!id.isNullOrBlank()) break
+                }
             }
 
             // 4. Extract is_private
@@ -342,33 +354,70 @@ class InstagramEngine {
             val c = input[i]
             if (c == '\\' && i + 1 < len) {
                 val next = input[i + 1]
-                if (next == 'u' && i + 5 < len) {
-                    try {
-                        val hex = input.substring(i + 2, i + 6)
-                        sb.append(hex.toInt(16).toChar())
-                        i += 6
-                        continue
-                    } catch (e: Exception) {
-                        sb.append(c)
+                when (next) {
+                    'u' -> {
+                        if (i + 5 < len) {
+                            try {
+                                val hex = input.substring(i + 2, i + 6)
+                                sb.append(hex.toInt(16).toChar())
+                                i += 6
+                                continue
+                            } catch (_: Exception) {
+                                sb.append(c)
+                            }
+                        }
                     }
-                } else if (next == '/') {
-                    sb.append('/')
-                    i += 2
-                    continue
-                } else if (next == '\\') {
-                    sb.append('\\')
-                    i += 2
-                    continue
-                } else if (next == '\"') {
-                    sb.append('\"')
-                    i += 2
-                    continue
+                    'n' -> {
+                        sb.append('\n')
+                        i += 2
+                        continue
+                    }
+                    'r' -> {
+                        sb.append('\r')
+                        i += 2
+                        continue
+                    }
+                    't' -> {
+                        sb.append('\t')
+                        i += 2
+                        continue
+                    }
+                    'b' -> {
+                        sb.append('\b')
+                        i += 2
+                        continue
+                    }
+                    'f' -> {
+                        sb.append('\u000c')
+                        i += 2
+                        continue
+                    }
+                    '/' -> {
+                        sb.append('/')
+                        i += 2
+                        continue
+                    }
+                    '\\' -> {
+                        sb.append('\\')
+                        i += 2
+                        continue
+                    }
+                    '\"' -> {
+                        sb.append('\"')
+                        i += 2
+                        continue
+                    }
+                    '\'' -> {
+                        sb.append('\'')
+                        i += 2
+                        continue
+                    }
                 }
             }
             sb.append(c)
             i++
         }
-        return sb.toString().replace("&amp;", "&")
+        return sb.toString().cleanDisplayText()
     }
 
     private fun parseFormattedNumber(text: String): Long {
@@ -746,7 +795,7 @@ class InstagramEngine {
                                 val videoUrl = if (isVideo) node.get("video_url")?.asString else null
                                 val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
                                 val caption = if (captionEdges != null && captionEdges.size() > 0) {
-                                    captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString ?: ""
+                                    captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
                                 } else ""
                                 val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
                                     ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
@@ -760,7 +809,7 @@ class InstagramEngine {
                                         mediaType = if (isVideo) "video" else "image",
                                         displayUrl = displayUrl,
                                         videoUrl = videoUrl,
-                                        caption = caption,
+                                        caption = caption.cleanDisplayText(),
                                         timestamp = timestamp * 1000L,
                                         likeCount = likes,
                                         commentCount = comments
@@ -810,7 +859,7 @@ class InstagramEngine {
                                 val videoUrl = if (isVideo) node.get("video_url")?.asString else null
                                 val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
                                 val caption = if (captionEdges != null && captionEdges.size() > 0) {
-                                    captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString ?: ""
+                                    captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
                                 } else ""
                                 val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt ?: 0
                                 val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
@@ -823,7 +872,7 @@ class InstagramEngine {
                                         mediaType = if (isVideo) "video" else "image",
                                         displayUrl = displayUrl,
                                         videoUrl = videoUrl,
-                                        caption = caption,
+                                        caption = caption.cleanDisplayText(),
                                         timestamp = timestamp * 1000L,
                                         likeCount = likes,
                                         commentCount = comments
@@ -836,6 +885,50 @@ class InstagramEngine {
             } catch (e: Exception) {
                 Log.w(TAG, "GraphQL timeline posts query failed: ${e.message}")
             }
+        }
+
+        if (list.isNotEmpty()) return list
+
+        // 3. Fallback: Parse posts embedded in public profile HTML
+        try {
+            val htmlUrl = "https://www.instagram.com/$username/"
+            val htmlReq = Request.Builder()
+                .url(htmlUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .build()
+            clientWithRedirects.newCall(htmlReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string() ?: ""
+                    val scPattern = Pattern.compile("\"shortcode\":\\s*\"([A-Za-z0-9_-]+)\"")
+                    val scMatcher = scPattern.matcher(html)
+                    val shortcodes = mutableListOf<String>()
+                    while (scMatcher.find() && shortcodes.size < limit) {
+                        val sc = scMatcher.group(1)
+                        if (!sc.isNullOrBlank() && !shortcodes.contains(sc)) {
+                            shortcodes.add(sc)
+                        }
+                    }
+                    for (sc in shortcodes) {
+                        list.add(
+                            InstagramPostItem(
+                                id = sc,
+                                shortcode = sc,
+                                mediaType = "image",
+                                displayUrl = "https://instagram.com/p/$sc/media/?size=l",
+                                videoUrl = null,
+                                caption = "",
+                                timestamp = System.currentTimeMillis(),
+                                likeCount = 0,
+                                commentCount = 0
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "HTML post parsing fallback failed: ${e.message}")
         }
 
         return list

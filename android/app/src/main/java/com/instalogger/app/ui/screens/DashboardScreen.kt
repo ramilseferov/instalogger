@@ -96,6 +96,7 @@ fun DashboardScreen(
                 for (t in activeTargets) {
                     try {
                         val result = app.profileInspector.inspectTarget(t.username)
+                        app.profileInspector.inspectHighlightsAndPosts(t.username)
                         result.onSuccess { updated ->
                             val preservedTurbo = targets.find { it.username == t.username }?.isTurbo ?: updated.isTurbo
                             targets = targets.map { if (it.username == t.username) updated.copy(isTurbo = preservedTurbo) else it }
@@ -247,7 +248,9 @@ fun DashboardScreen(
                 val cleanUser = username.trim().trimStart('@')
                 scope.launch {
                     app.profileInspector.unmarkDeleted(cleanUser)
+                    app.profileInspector.notifyDaemonAddTarget(cleanUser, turbo)
                     val result = app.profileInspector.inspectTarget(cleanUser)
+                    app.profileInspector.inspectHighlightsAndPosts(cleanUser)
                     if (result.isSuccess) {
                         val newTarget = result.getOrThrow().copy(isTurbo = turbo)
                         if (turbo) {

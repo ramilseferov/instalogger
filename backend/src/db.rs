@@ -442,7 +442,10 @@ impl Database {
         let base_select = "SELECT id, target_id, media_type, highlight_title, caption, cdn_url,
                                   relative_file_path, file_size_bytes, posted_at, download_status,
                                   downloaded_at, is_vanished, vanished_at
-                           FROM archived_media WHERE target_id = ?1";
+                           FROM archived_media
+                           WHERE (target_id = ?1
+                              OR target_id = (SELECT id FROM targets WHERE username = ?1 LIMIT 1)
+                              OR target_id = (SELECT username FROM targets WHERE id = ?1 LIMIT 1))";
 
         let map_row = |row: &rusqlite::Row| {
             Ok(ArchivedMedia {

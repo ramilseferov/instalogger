@@ -38,6 +38,7 @@ import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.data.local.HighlightEntity
 import com.instalogger.app.data.local.HighlightMediaEntity
+import com.instalogger.app.util.cleanDisplayText
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
@@ -76,6 +77,10 @@ fun ProfileDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var auditInitialFilter by remember { mutableStateOf("follower_lost") }
     val noneStr = stringResource(R.string.none_value)
+
+    LaunchedEffect(username) {
+        app.profileInspector.inspectHighlightsAndPosts(username)
+    }
 
     fun refreshTargetData() {
         if (isRefreshing) return
@@ -251,10 +256,10 @@ fun ProfileDetailScreen(
                             if (t.biography.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = t.biography,
+                                    text = t.biography.cleanDisplayText(),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 4,
+                                    maxLines = 6,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
@@ -417,7 +422,7 @@ fun ProfileDetailScreen(
                                                 if (!log.oldValue.isNullOrBlank() || !log.newValue.isNullOrBlank()) {
                                                     Spacer(modifier = Modifier.height(8.dp))
                                                     Text(
-                                                        text = "${log.oldValue ?: noneStr}  ->  ${log.newValue ?: noneStr}",
+                                                        text = "${log.oldValue?.cleanDisplayText() ?: noneStr}  ->  ${log.newValue?.cleanDisplayText() ?: noneStr}",
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
