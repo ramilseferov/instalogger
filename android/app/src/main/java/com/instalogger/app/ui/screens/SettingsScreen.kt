@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -41,7 +40,7 @@ fun SettingsScreen() {
         topBar = {
             InstaLoggerTopBar(
                 title = "Tənzimləmələr",
-                subtitle = "Müstəqil mühərrik və sistem konfiqurasiyası"
+                subtitle = "Sistem və arxa fon konfiqurasiyası"
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -54,52 +53,6 @@ fun SettingsScreen() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Standalone Native Engine Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Text(
-                                text = "Müstəqil Daxili Mühərrik",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        StatusBadge(
-                            text = "Aktivdir",
-                            icon = Icons.Default.CheckCircle,
-                            containerColor = StatusGreenLight,
-                            contentColor = StatusGreen
-                        )
-                    }
-
-                    Text(
-                        text = "Tətbiq heç bir xarici daemon və ya serverə ehtiyac duymadan birbaşa cihaz daxilində tam müstəqil çalışır.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
             // Battery Optimization Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -224,7 +177,7 @@ fun SettingsScreen() {
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Cihazda saxlanılan bütün yerli hədəf, bildiriş və arxiv qeydlərini sıfırlayın.",
+                        text = "Cihazda saxlanılan bütün yerli hədəf, dəyişiklik jurnalı və bildiriş qeydlərini sıfırlayın.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

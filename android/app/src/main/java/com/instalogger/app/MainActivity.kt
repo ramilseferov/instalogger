@@ -155,9 +155,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Screen.Notifications.route) {
-                            NotificationCenterScreen(
-                                notificationRepository = app.notificationRepository
-                            )
+                            NotificationCenterScreen()
                         }
                         composable(Screen.Session.route) {
                             InstagramSessionScreen()
