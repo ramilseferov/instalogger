@@ -24,6 +24,15 @@ data class InstagramProfileSnapshot(
     val profileHash: String? = null
 )
 
+data class InstagramUserSummary(
+    val id: String,
+    val username: String,
+    val fullName: String = "",
+    val profilePicUrl: String? = null,
+    val isPrivate: Boolean = false,
+    val isVerified: Boolean = false
+)
+
 class InstagramEngine {
 
     private val client = OkHttpClient.Builder()
@@ -356,6 +365,193 @@ class InstagramEngine {
             FileOutputStream(destFile).use { it.write(bytes) }
             return bytes.size.toLong()
         }
+    }
+
+    fun fetchFollowersList(userId: String, cookieString: String?, limit: Int = 50): List<InstagramUserSummary> {
+        if (userId.isBlank()) return emptyList()
+        val list = mutableListOf<InstagramUserSummary>()
+
+        // 1. Try Mobile/Web friendship API
+        val url = "https://www.instagram.com/api/v1/friendships/$userId/followers/?count=$limit&search_surface=follow_list_page"
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .header("X-IG-App-ID", APP_ID)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+
+        if (!cookieString.isNullOrBlank()) {
+            requestBuilder.header("Cookie", cookieString)
+        }
+
+        try {
+            clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        list.addAll(parseUsersList(body))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Friendship followers query failed: ${e.message}")
+        }
+
+        if (list.isNotEmpty()) return list
+
+        // 2. Fallback to GraphQL query hash
+        val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=5aedd8a53048e9663c401fa0098046e7&variables=%7B%22id%22%3A%22$userId%22%2C%22first%22%3A$limit%7D"
+        val gqlReq = Request.Builder()
+            .url(gqlUrl)
+            .header("User-Agent", USER_AGENT)
+            .header("X-IG-App-ID", APP_ID)
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+
+        if (!cookieString.isNullOrBlank()) {
+            gqlReq.header("Cookie", cookieString)
+        }
+
+        try {
+            clientWithRedirects.newCall(gqlReq.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        list.addAll(parseGraphQLUsersList(body, "edge_followed_by"))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "GraphQL followers query failed: ${e.message}")
+        }
+
+        return list
+    }
+
+    fun fetchFollowingList(userId: String, cookieString: String?, limit: Int = 50): List<InstagramUserSummary> {
+        if (userId.isBlank()) return emptyList()
+        val list = mutableListOf<InstagramUserSummary>()
+
+        // 1. Try Mobile/Web friendship API
+        val url = "https://www.instagram.com/api/v1/friendships/$userId/following/?count=$limit"
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .header("User-Agent", USER_AGENT)
+            .header("X-IG-App-ID", APP_ID)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+
+        if (!cookieString.isNullOrBlank()) {
+            requestBuilder.header("Cookie", cookieString)
+        }
+
+        try {
+            clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        list.addAll(parseUsersList(body))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Friendship following query failed: ${e.message}")
+        }
+
+        if (list.isNotEmpty()) return list
+
+        // 2. Fallback to GraphQL query hash
+        val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=d04b0a864b4b54837c0d870b0e77e076&variables=%7B%22id%22%3A%22$userId%22%2C%22first%22%3A$limit%7D"
+        val gqlReq = Request.Builder()
+            .url(gqlUrl)
+            .header("User-Agent", USER_AGENT)
+            .header("X-IG-App-ID", APP_ID)
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+
+        if (!cookieString.isNullOrBlank()) {
+            gqlReq.header("Cookie", cookieString)
+        }
+
+        try {
+            clientWithRedirects.newCall(gqlReq.build()).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        list.addAll(parseGraphQLUsersList(body, "edge_follow"))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "GraphQL following query failed: ${e.message}")
+        }
+
+        return list
+    }
+
+    private fun parseGraphQLUsersList(jsonBody: String, edgeKey: String): List<InstagramUserSummary> {
+        val list = mutableListOf<InstagramUserSummary>()
+        try {
+            val root = gson.fromJson(jsonBody, JsonObject::class.java) ?: return emptyList()
+            val data = root.getAsJsonObject("data") ?: return emptyList()
+            val user = data.getAsJsonObject("user") ?: return emptyList()
+            val edge = user.getAsJsonObject(edgeKey) ?: return emptyList()
+            val edges = edge.getAsJsonArray("edges") ?: return emptyList()
+            for (item in edges) {
+                val node = item.asJsonObject?.getAsJsonObject("node") ?: continue
+                val id = node.get("id")?.asString ?: continue
+                val username = node.get("username")?.asString ?: continue
+                val fullName = node.get("full_name")?.asString ?: ""
+                val picUrl = node.get("profile_pic_url")?.asString
+                val isPrivate = node.get("is_private")?.asBoolean ?: false
+                val isVerified = node.get("is_verified")?.asBoolean ?: false
+                list.add(
+                    InstagramUserSummary(
+                        id = id,
+                        username = username,
+                        fullName = fullName,
+                        profilePicUrl = picUrl,
+                        isPrivate = isPrivate,
+                        isVerified = isVerified
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing GraphQL users list: ${e.message}")
+        }
+        return list
+    }
+
+    private fun parseUsersList(jsonBody: String): List<InstagramUserSummary> {
+        val list = mutableListOf<InstagramUserSummary>()
+        try {
+            val root = gson.fromJson(jsonBody, JsonObject::class.java) ?: return emptyList()
+            val users = root.getAsJsonArray("users") ?: return emptyList()
+            for (u in users) {
+                val obj = u.asJsonObject ?: continue
+                val id = obj.get("pk")?.asString ?: obj.get("id")?.asString ?: continue
+                val username = obj.get("username")?.asString ?: continue
+                val fullName = obj.get("full_name")?.asString ?: ""
+                val picUrl = obj.get("profile_pic_url")?.asString
+                val isPrivate = obj.get("is_private")?.asBoolean ?: false
+                val isVerified = obj.get("is_verified")?.asBoolean ?: false
+                list.add(
+                    InstagramUserSummary(
+                        id = id,
+                        username = username,
+                        fullName = fullName,
+                        profilePicUrl = picUrl,
+                        isPrivate = isPrivate,
+                        isVerified = isVerified
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error parsing users list: ${e.message}")
+        }
+        return list
     }
 
     companion object {

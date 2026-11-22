@@ -260,21 +260,12 @@ fun TargetCard(
                     )
 
                     val boltScale by animateFloatAsState(
-                        targetValue = if (isTurboActive) 1.18f else 1f,
+                        targetValue = if (isTurboActive) 1.15f else 1f,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
                             stiffness = Spring.StiffnessMediumLow
                         ),
                         label = "boltScale"
-                    )
-
-                    val boltRotation by animateFloatAsState(
-                        targetValue = if (isTurboActive) -12f else 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        ),
-                        label = "boltRotation"
                     )
 
                     Box(
@@ -302,7 +293,6 @@ fun TargetCard(
                                 .graphicsLayer {
                                     scaleX = boltScale
                                     scaleY = boltScale
-                                    rotationZ = boltRotation
                                 }
                         )
                     }

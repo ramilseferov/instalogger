@@ -156,6 +156,42 @@ object ArchiveDirectoryManager {
         return if (f.exists() && f.length() > 0L) f else null
     }
 
+    fun saveUserArchiveJson(context: Context, username: String, filename: String, content: String): File? {
+        return try {
+            val root = getArchiveDirectory(context)
+            val userDir = File(root, username)
+            userDir.mkdirs()
+            val dest = File(userDir, filename)
+            dest.writeText(content, Charsets.UTF_8)
+
+            // Also keep internal app-isolated copy
+            val internalDir = File(context.filesDir, "archives/$username")
+            internalDir.mkdirs()
+            File(internalDir, filename).writeText(content, Charsets.UTF_8)
+
+            dest
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun getUserArchiveJson(context: Context, username: String, filename: String): String? {
+        return try {
+            val root = getArchiveDirectory(context)
+            val f = File(root, "$username/$filename")
+            if (f.exists() && f.length() > 0L) {
+                return f.readText(Charsets.UTF_8)
+            }
+            val internal = File(context.filesDir, "archives/$username/$filename")
+            if (internal.exists() && internal.length() > 0L) {
+                return internal.readText(Charsets.UTF_8)
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }

@@ -1,169 +1,140 @@
-<p align="center">
-  <img src="instalogger-icon.svg" width="120" height="120" alt="InstaLogger Logo" />
-</p>
-
 # InstaLogger
 
-> **Fasiləsiz Instagram Profil Monitorinqi və Avtomatik Rəqəmsal Arxivləşdirici**  
-> *Termux (Android, root tələb olunmur), Linux, Windows (PowerShell) və macOS üçün Rust və Python əsaslı açıq mənbəli sistem.*
+InstaLogger is an automated, continuous Instagram profile monitoring and digital archival system. It operates as an asynchronous background daemon, tracking account state transitions, calculating cryptographic media digests, and archiving media before account state or post visibility changes.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Termux%20%7C%20Linux%20%7C%20Windows%20%7C%20macOS%20%7C%20Android-green.svg)](#)
-[![Backend](https://img.shields.io/badge/Backend-Rust%20%2B%20Axum%20%2B%20SQLite-orange.svg)](#)
-[![Frontend](https://img.shields.io/badge/Frontend-React%2019%20%2B%20TypeScript%20%2B%20Tailwind-blue.svg)](#)
-[![Android](https://img.shields.io/badge/Android-Kotlin%20%2B%20Jetpack%20Compose-blue.svg)](#)
-
----
-
-## 📌 Nədir və Nə Üçün Lazımdır?
-
-**InstaLogger** adi bir Instagram yükləyicisi və ya birdəfəlik post endirici proqram deyil. 
-
-Bu sistemin əsas məqsədi seçilmiş Instagram profillərini **fasiləsiz olaraq 24/7 arxa planda izləmək**, profilin zamanla necə dəyişdiyini xronoloji qeyd etmək və ən əsası — **gizli hesab (Private) hamı üçün açılan (Public) kimi dərhal avtomatik olaraq onun bütün keçmiş və yeni paylaşımlarını, Reels, Hekayə və Highlights kolleksiyalarını lokal yaddaşa endirib arxivləşdirməkdir**.
-
-Hesab bir neçə dəqiqə sonra yenidən gizli olsa belə, əldə edilmiş arxiv faylları **heç vaxt silinmir** və lokal cihazda daimi qorunur.
+[![License: MIT](https://img.shields.io/badge/license-MIT-333333.svg?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android%20%7C%20Windows%20%7C%20macOS-333333.svg?style=flat-square)](#)
+[![Backend](https://img.shields.io/badge/daemon-Rust%20%2B%20Axum%20%2B%20SQLite%20WAL-333333.svg?style=flat-square)](#)
+[![Engine](https://img.shields.io/badge/worker-Python%203.11%20%2B%20GraphQL-333333.svg?style=flat-square)](#)
+[![Android](https://img.shields.io/badge/android-Kotlin%20%2B%20Compose-333333.svg?style=flat-square)](#)
 
 ---
 
-## ✨ Əsas Funksiyalar
+## Overview
 
-- ⚡ **Gizli → Açıq Keçidinin Ani Aşkarlanması:** Profil açıq statusa keçən andaca "İki Mərhələli" (Two-Phase) arxivləşdirmə işə düşür (Mərhələ 1: saniyələr ərzində bütün imzalanmış CDN linkləri və metadata götürülür; Mərhələ 2: fayllar arxa planda fasiləsiz endirilir).
-- 📁 **Kateqoriyalı Arxiv Qovluq Strukturu:** Bütün şəkillər, videolar və Highlights kolleksiyaları yaddaşda səliqəli şəkildə kateqoriyalara ayrılır.
-- 🕒 **Tam Dəyişiklik Tarixçəsi (Audit Trail):** İstifadəçi adı (username), profil şəkli, ad, bio və post sayındakı bütün dəyişikliklər tarix və saatla `Köhnə → Yeni` şəklində qeydə alınır.
-- 🛡️ **Sıfır Məlumat İtkisi (Zero Data Loss):** Profildən silinən və ya arxivə atılan postlar lokal yaddaşdan **silinmir**, "Yoxa Çıxanlar" etiketi ilə qorunur.
-- 🎨 **Müasir və Axıcı Veb İnterfeys:** React 19, TypeScript və Tailwind CSS ilə hazırlanmış, 60/120 FPS hamar animasiyalı mobil və masaüstü yönümlü idarəetmə paneli.
-- 🔔 **Hibrid Xəbərdarlıq Sistemi:** Hesab açıldıqda və ya mühüm dəyişiklik baş verdikdə həm Android Termux bildirişi (`termux-notification`), həm veb paneldə səsli/vizual xəbərdarlıq, həm də Telegram Bot vasitəsilə push mesaj göndərilir.
-- 🌐 **Tam Çarpaz Platforma Dəstəyi:** Android Termux, Linux, Windows (PowerShell) və macOS sistemlərində eyni dərəcədə stabil işləyir.
+Public and private accounts frequently modify metadata, delete publications, or toggle privacy states. InstaLogger provides automated observation with local-first persistence:
+
+- **Two-Phase Asset Blitz:** When a monitored private account becomes public, signed CDN media URLs and metadata are cataloged within seconds, followed by prioritized asynchronous binary streaming to disk.
+- **Dual-Layer Hash Verification:** Differentiates genuine profile picture updates from ephemeral CDN token rotations by comparing cryptographic SHA-256 byte digests alongside GraphQL query hashes.
+- **Differential Audit Trail:** Chronologically captures changes in usernames, display names, biographies, follower/following counts, and individual follow list differentials (`followers.json`, `following.json`).
+- **Non-Destructive Preservation:** Posts deleted or archived on Instagram remain preserved locally with metadata preserved in sidecar format.
+- **Cross-Platform Daemon:** Runs natively as a lightweight system service on Android (Termux or Native App), Linux servers, macOS, and Windows.
 
 ---
 
-## 🏗️ Arxitektura
+## Architecture
 
-```
-+-------------------------------------------------------------------------+
-|                  Android (Termux) / Linux / Windows / macOS             |
-|                                                                         |
-|    +---------------------------------------------------------------+    |
-|    |            CLI İdarəetməsi: instalogger / instalogger.ps1     |    |
-|    |        (arxa plan xidməti, wake-lock, nəzarət mexanizmi)      |    |
-|    +-------------------------------+-------------------------------+    |
-|                                    |                                    |
-|                                    v                                    |
-|    +---------------------------------------------------------------+    |
-|    |                   Rust Əsas Daemon (Axum)                     |    |
-|    |    - SQLite Quraşdırılmış Verilənlər Bazası (WAL mode)        |    |
-|    |    - Təsadüfi gecikməli Scheduler & Turbo Rejim (30-60s)      |    |
-|    |    - REST API & WebSocket Real-time Hub                       |    |
-|    |    - Statik Veb Server (TSX Saytı & Media faylları)           |    |
-|    |    - Bildiriş Sistemi (Termux API & Telegram Bot)             |    |
-|    +------------------+------------------------------+-------------+    |
-|                       |                              |                  |
-|         JSON / IPC    |                              | HTTP / WebSocket |
-|         Subprocess    v                              v                  |
-|    +-----------------------------+    +----------------------------+    |
-|    |    Python Worker Mühərriki  |    |     Veb İdarəetmə Paneli   |    |
-|    | - Metadata & CDN Blitz      |    | - React 19 + TypeScript    |    |
-|    | - Media Hydration Yükləyici |    | - Axıcı Hərəkət Əyriləri   |    |
-|    | - Highlights Kolleksiyaları |    | - Canlı Hadisə İzləmə      |    |
-|    | - Sessiya & Cookie İdarəsi  |    | - Qalereya və Media Baxış  |    |
-|    +-----------------------------+    +----------------------------+    |
-+-------------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    subgraph HostSystem["System Environment"]
+        Daemon["Rust Daemon (Axum :3000)<br/>Scheduler • SQLite WAL • WebSocket Hub"]
+        Worker["Python Worker Engine<br/>Web API • GraphQL Hash • CDN Blitz"]
+        AndroidApp["Native Android App (Compose)<br/>Foreground Service • Room DB • Hardware Blur"]
+        WebUI["Web Management Console<br/>React 19 • TypeScript • Tailwind"]
+    end
+
+    subgraph TargetWorld["Instagram Target"]
+        IGMeta["Profile Metadata & Privacy State"]
+        IGMedia["Posts, Reels, Highlights, Stories"]
+        IGGraph["Followers & Following Graphs"]
+    end
+
+    Daemon -->|"IPC Task Dispatch"| Worker
+    Worker -->|"Extract & Blitz"| TargetWorld
+    Worker -->|"Binary Streaming"| DiskStorage["Lokal Arxiv Qovluğu<br/>/archives/{target_id}/"]
+    Daemon <-->|"REST API / WebSocket"| AndroidApp
+    Daemon <-->|"HTTP / WS Stream"| WebUI
+    AndroidApp -->|"Direct Inspection (Fallback)"| TargetWorld
 ```
 
 ---
 
-## 🚀 Quraşdırma və İstifadə
+## Installation & Deployment
 
-### 📱 Android (Termux — Root Tələb Olunmur)
+### Android (Termux)
+
+Root access is not required.
+
 ```bash
 pkg update && pkg install -y git rust python nodejs-lts termux-api
 pip install requests instaloader urllib3
 
 git clone https://github.com/ramilseferov/instalogger.git
 cd instalogger
-bash scripts/build.sh
-instalogger start
+cargo build --release
 ```
 
-### 🐧 Linux (Ubuntu / Debian / Arch / Fedora)
+### Linux (Ubuntu / Debian / Arch / Fedora)
+
 ```bash
 git clone https://github.com/ramilseferov/instalogger.git
 cd instalogger
 pip install requests instaloader urllib3
-bash scripts/build.sh
-./instalogger start
+cargo build --release
 ```
 
-### 🪟 Windows (PowerShell)
+### Windows (PowerShell)
+
 ```powershell
 git clone https://github.com/ramilseferov/instalogger.git
 cd instalogger
 pip install requests instaloader urllib3
-
-# Arxa planda işə salın:
-.\instalogger.ps1 start
-
-# Statusu yoxlayın:
-.\instalogger.ps1 status
+cargo build --release
 ```
 
-Brauzerinizdə daxil olun:  
-👉 **[http://localhost:3000](http://localhost:3000)**
-
 ---
 
-## 📋 Terminal Komandaları
+## CLI Reference
 
-| Əmr (Bash) | Əmr (PowerShell) | Təsvir |
+Control the daemon and background scheduler through the host script:
+
+| Bash Command | PowerShell Command | Purpose |
 | :--- | :--- | :--- |
-| `instalogger start` | `.\instalogger.ps1 start` | Arxa planda xidməti işə salır |
-| `instalogger status` | `.\instalogger.ps1 status` | PID və sağlamlıq statusunu yoxlayır |
-| `instalogger logs` | `.\instalogger.ps1 logs` | Canlı sistem loqlarını izləyir |
-| `instalogger stop` | `.\instalogger.ps1 stop` | Xidməti dayandırır |
-| `instalogger restart` | `.\instalogger.ps1 restart` | Xidməti yenidən başladır |
+| `instalogger start` | `.\instalogger.ps1 start` | Starts daemon in background with wake-lock |
+| `instalogger status` | `.\instalogger.ps1 status` | Queries process health, uptime, and target metrics |
+| `instalogger logs` | `.\instalogger.ps1 logs` | Tails live scheduler and engine stdout |
+| `instalogger stop` | `.\instalogger.ps1 stop` | Signals graceful termination to daemon and workers |
+| `instalogger restart` | `.\instalogger.ps1 restart` | Restarts the running service and refreshes scheduler |
+
+The local web dashboard binds to `http://127.0.0.1:3000`.
 
 ---
 
-## 📂 Fayl və Arxiv Strukturu
+## File and Archive Layout
 
 ```
 instalogger/
 ├── data/
-│   └── instalogger.db            # SQLite verilənlər bazası
+│   └── instalogger.db               # SQLite database (WAL journal mode)
 ├── sessions/
-│   └── instagram_session.json   # Əlavə edilmiş Instagram sessiya faylı
+│   └── instagram_session.json      # Optional authenticated session tokens
 ├── logs/
-│   └── instalogger.log           # Fasiləsiz sistem loqları
+│   └── instalogger.log              # Persistent execution and inspection logs
 └── archives/
-    └── <instagram_user_id>/
-        ├── posts/                # Şəkillər, videolar və başlıq (.txt) faylları
-        ├── reels/                # Bütün Reels videoları
-        ├── highlights/<Ad>/      # Hər kolleksiya üzrə qovluqlar
-        └── profile/              # Tarixi profil şəkilləri və metadata
+    └── <target_username_or_id>/
+        ├── followers.json           # Cached follower accounts with diff metadata
+        ├── following.json           # Cached following accounts with diff metadata
+        ├── profile/                 # Historical avatars and metadata snapshots
+        │   ├── avatar_current.jpg
+        │   └── <timestamp>_<hash>.jpg
+        ├── posts/                   # Static photo publications with sidecar metadata
+        ├── reels/                   # MP4 video streams
+        └── highlights/              # Organized highlight collections
 ```
 
 ---
 
-## 📱 Android Mobil Tətbiqi (Kotlin / Jetpack Compose)
+## Native Android Application
 
-InstaLogger sistemi üçün rəsmi native Android tətbiqi `android/` qovluğunda yerləşir:
+The `android/` directory contains an independent native Android application developed with Jetpack Compose:
 
-- **Texnologiya:** Kotlin, Jetpack Compose, Material 3, Room SQLite, Retrofit/OkHttp, OkHttp WebSocket.
-- **Arxa Fon Xidməti (Foreground Service):** Cihaz bağlansa belə `InstaLoggerForegroundService` vasitəsilə profil dəyişiklikləri fasiləsiz yoxlanılır və bildiriş göndərilir.
-- **Batareya Optimizasiyası:** `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` inteqrasiyası ilə sistemin arxa fon proseslərini məhdudlaşdırmasının qarşısını alır.
-- **Aktiv Bildirişlər və Room Bazası:** Bildiriş panelində birbaşa 'Oxundu' (`ACTION_MARK_READ`) düyməsi təqdim edilir və bütün hadisələr yerli Room bazasında arxivlənir. Tətbiqdə tək-tək və ya toplu silmə dəstəklənir.
-- **Instagram Sessiyası:** Tətbiqdaxili təhlükəsiz WebView vasitəsilə rəsmi giriş və avtomatik cookie (`sessionid`) tutulması, habelə əl ilə cookie daxil etmə rejimi.
-- **Dizayn:** Rəsmi vektor ikonları, 24-28dp yuvarlaq künclər və veb panellə tam uyğunlaşdırılmış neytral sakit tonlar.
-
-### Android Tətbiqinin Build Edilməsi
-```bash
-cd android
-./gradlew assembleDebug
-```
-Hazır APK faylı `android/app/build/outputs/apk/debug/app-debug.apk` yolunda yaranacaq.
+- **Framework:** Kotlin, Jetpack Compose, Material 3, Room SQLite, Coroutines & Flow.
+- **Foreground Monitoring:** Background service (`InstaLoggerForegroundService`) executes scheduled profile checks with battery optimization exclusion (`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`).
+- **Rendering & Aesthetics:** Hardware-accelerated frosted glass blur transitions via `RenderEffect` on Android 12+, dynamic SVG avatar fallbacks, and low-latency interaction handling.
+- **Multilingual Support:** Localized string catalogs for Azerbaijani (`AZ`), English (`EN`), and Russian (`RU`).
 
 ---
 
-## 📄 Lisenziya
+## License
 
-Bu layihə [MIT Lisenziyası](LICENSE) altında açıq mənbəli olaraq paylanılır. Müəllif: [Ramil Səfərov](https://github.com/ramilseferov).
+Distributed under the [MIT License](LICENSE). Maintained by [Ramil Seferov](https://github.com/ramilseferov).

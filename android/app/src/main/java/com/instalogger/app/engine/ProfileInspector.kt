@@ -267,6 +267,63 @@ class ProfileInspector(
             )
         }
 
+        // 5. Check followers count change
+        if (existing != null && existing.followersCount > 0 && snapshot.followersCount > 0 && existing.followersCount != snapshot.followersCount) {
+            val diff = snapshot.followersCount - existing.followersCount
+            val sign = if (diff > 0) "+$diff" else "$diff"
+            val title = "@$cleanUser followers count changed ($sign)"
+            val desc = "${existing.followersCount} -> ${snapshot.followersCount} followers ($sign)"
+            changeLogDao.insertLog(
+                ChangeLogEntity(
+                    targetUsername = cleanUser,
+                    eventType = "followers_change",
+                    title = title,
+                    oldValue = existing.followersCount.toString(),
+                    newValue = snapshot.followersCount.toString(),
+                    timestamp = now
+                )
+            )
+            dispatchAlert(
+                targetUsername = cleanUser,
+                eventType = "followers_change",
+                title = title,
+                message = desc,
+                timestamp = now
+            )
+        }
+
+        // 6. Check following count change
+        if (existing != null && existing.followingCount > 0 && snapshot.followingCount > 0 && existing.followingCount != snapshot.followingCount) {
+            val diff = snapshot.followingCount - existing.followingCount
+            val sign = if (diff > 0) "+$diff" else "$diff"
+            val title = "@$cleanUser following count changed ($sign)"
+            val desc = "${existing.followingCount} -> ${snapshot.followingCount} following ($sign)"
+            changeLogDao.insertLog(
+                ChangeLogEntity(
+                    targetUsername = cleanUser,
+                    eventType = "following_change",
+                    title = title,
+                    oldValue = existing.followingCount.toString(),
+                    newValue = snapshot.followingCount.toString(),
+                    timestamp = now
+                )
+            )
+            dispatchAlert(
+                targetUsername = cleanUser,
+                eventType = "following_change",
+                title = title,
+                message = desc,
+                timestamp = now
+            )
+        }
+
+        // 7. Check and archive followers & following lists
+        val targetId = snapshot.instagramId ?: existing?.instagramId
+        if (!targetId.isNullOrBlank() && !cookie.isNullOrBlank()) {
+            inspectFollowersList(cleanUser, targetId, cookie, now)
+            inspectFollowingList(cleanUser, targetId, cookie, now)
+        }
+
         // Resolve local avatar path if still null
         if (localAvatarPath == null) {
             localAvatarPath = findExistingLocalAvatar(cleanUser, snapshot.instagramId)
@@ -581,5 +638,127 @@ class ProfileInspector(
         val raw = "${username.lowercase()}|${fullName.trim()}|${biography.trim()}|$isPrivate|$followersCount|$followingCount|$mediaCount|${avatarHash ?: ""}"
         val md = MessageDigest.getInstance("SHA-256")
         return md.digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
+
+    private suspend fun inspectFollowersList(username: String, targetId: String, cookie: String, now: Long) {
+        try {
+            val freshUsers = instagramEngine.fetchFollowersList(targetId, cookie, limit = 50)
+            if (freshUsers.isEmpty()) return
+
+            val oldJson = ArchiveDirectoryManager.getUserArchiveJson(context, username, "followers.json")
+            if (!oldJson.isNullOrBlank()) {
+                val oldType = object : com.google.gson.reflect.TypeToken<List<InstagramUserSummary>>() {}.type
+                val oldUsers: List<InstagramUserSummary> = try {
+                    gson.fromJson(oldJson, oldType) ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+
+                if (oldUsers.isNotEmpty()) {
+                    val oldSet = oldUsers.map { it.username.lowercase() }.toSet()
+                    val newSet = freshUsers.map { it.username.lowercase() }.toSet()
+
+                    val gained = freshUsers.filter { it.username.lowercase() !in oldSet }
+                    val lost = oldUsers.filter { it.username.lowercase() !in newSet }
+
+                    for (u in gained.take(10)) {
+                        val title = "@$username gained new follower: @${u.username}"
+                        val desc = "New follower: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.changeLogDao().insertLog(
+                            ChangeLogEntity(
+                                targetUsername = username,
+                                eventType = "follower_gained",
+                                title = title,
+                                newValue = "@${u.username}",
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(username, "follower_gained", title, desc, now)
+                    }
+
+                    for (u in lost.take(10)) {
+                        val title = "@$username lost follower: @${u.username}"
+                        val desc = "Unfollowed: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.changeLogDao().insertLog(
+                            ChangeLogEntity(
+                                targetUsername = username,
+                                eventType = "follower_lost",
+                                title = title,
+                                oldValue = "@${u.username}",
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(username, "follower_lost", title, desc, now)
+                    }
+                }
+            }
+
+            // Save updated followers list archive
+            val newJson = gson.toJson(freshUsers)
+            ArchiveDirectoryManager.saveUserArchiveJson(context, username, "followers.json", newJson)
+        } catch (e: Exception) {
+            Log.w("ProfileInspector", "Failed to inspect followers list for @$username: ${e.message}")
+        }
+    }
+
+    private suspend fun inspectFollowingList(username: String, targetId: String, cookie: String, now: Long) {
+        try {
+            val freshUsers = instagramEngine.fetchFollowingList(targetId, cookie, limit = 50)
+            if (freshUsers.isEmpty()) return
+
+            val oldJson = ArchiveDirectoryManager.getUserArchiveJson(context, username, "following.json")
+            if (!oldJson.isNullOrBlank()) {
+                val oldType = object : com.google.gson.reflect.TypeToken<List<InstagramUserSummary>>() {}.type
+                val oldUsers: List<InstagramUserSummary> = try {
+                    gson.fromJson(oldJson, oldType) ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+
+                if (oldUsers.isNotEmpty()) {
+                    val oldSet = oldUsers.map { it.username.lowercase() }.toSet()
+                    val newSet = freshUsers.map { it.username.lowercase() }.toSet()
+
+                    val gained = freshUsers.filter { it.username.lowercase() !in oldSet }
+                    val lost = oldUsers.filter { it.username.lowercase() !in newSet }
+
+                    for (u in gained.take(10)) {
+                        val title = "@$username followed: @${u.username}"
+                        val desc = "Now following: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.changeLogDao().insertLog(
+                            ChangeLogEntity(
+                                targetUsername = username,
+                                eventType = "following_gained",
+                                title = title,
+                                newValue = "@${u.username}",
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(username, "following_gained", title, desc, now)
+                    }
+
+                    for (u in lost.take(10)) {
+                        val title = "@$username unfollowed: @${u.username}"
+                        val desc = "Stopped following: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.changeLogDao().insertLog(
+                            ChangeLogEntity(
+                                targetUsername = username,
+                                eventType = "following_lost",
+                                title = title,
+                                oldValue = "@${u.username}",
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(username, "following_lost", title, desc, now)
+                    }
+                }
+            }
+
+            // Save updated following list archive
+            val newJson = gson.toJson(freshUsers)
+            ArchiveDirectoryManager.saveUserArchiveJson(context, username, "following.json", newJson)
+        } catch (e: Exception) {
+            Log.w("ProfileInspector", "Failed to inspect following list for @$username: ${e.message}")
+        }
     }
 }
