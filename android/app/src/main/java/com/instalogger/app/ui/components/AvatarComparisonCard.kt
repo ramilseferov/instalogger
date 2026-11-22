@@ -15,15 +15,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.instalogger.app.R
 import com.instalogger.app.data.local.ChangeLogEntity
-import com.instalogger.app.ui.theme.*
+import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.ui.theme.AccentBlueLight
+import com.instalogger.app.ui.theme.StatusGreen
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -33,10 +37,11 @@ fun AvatarComparisonCard(
     log: ChangeLogEntity,
     modifier: Modifier = Modifier
 ) {
-    var previewImagePath by remember { mutableStateOf<String?>(null) }
     val cardShape = RoundedCornerShape(22.dp)
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(log.timestamp))
+
+    var previewImagePath by remember { mutableStateOf<String?>(null) }
 
     Card(
         modifier = modifier
@@ -59,7 +64,7 @@ fun AvatarComparisonCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 StatusBadge(
-                    text = "Profil Şəkli Yeniləndi",
+                    text = stringResource(R.string.avatar_updated_badge),
                     icon = Icons.Default.Image,
                     containerColor = AccentBlueLight,
                     contentColor = AccentBlue
@@ -92,7 +97,7 @@ fun AvatarComparisonCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Əvvəlki",
+                        text = stringResource(R.string.avatar_previous),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.SemiBold
@@ -118,7 +123,7 @@ fun AvatarComparisonCard(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Dəyişdi",
+                        contentDescription = null,
                         tint = AccentBlue,
                         modifier = Modifier.size(18.dp)
                     )
@@ -130,7 +135,7 @@ fun AvatarComparisonCard(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Yeni Şəkil",
+                        text = stringResource(R.string.avatar_new),
                         style = MaterialTheme.typography.labelSmall,
                         color = StatusGreen,
                         fontWeight = FontWeight.Bold
@@ -162,7 +167,7 @@ fun AvatarComparisonCard(
                 ) {
                     AsyncImage(
                         model = File(previewImagePath!!),
-                        contentDescription = "Böyük Baxış",
+                        contentDescription = stringResource(R.string.preview_title),
                         modifier = Modifier
                             .size(280.dp)
                             .clip(RoundedCornerShape(18.dp)),
@@ -173,7 +178,7 @@ fun AvatarComparisonCard(
                         onClick = { previewImagePath = null },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Bağla")
+                        Text(stringResource(R.string.dialog_close))
                     }
                 }
             }
@@ -184,7 +189,7 @@ fun AvatarComparisonCard(
 @Composable
 private fun AvatarThumbnail(
     path: String?,
-    borderColor: androidx.compose.ui.graphics.Color,
+    borderColor: Color,
     onClick: () -> Unit
 ) {
     val file = path?.let { File(it) }
@@ -195,7 +200,7 @@ private fun AvatarThumbnail(
             .size(68.dp)
             .clip(CircleShape)
             .border(2.dp, borderColor, CircleShape)
-            .clickable(enabled = exists, onClick = onClick),
+            .clickable(enabled = exists) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         if (exists) {

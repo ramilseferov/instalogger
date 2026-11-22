@@ -22,6 +22,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.annotation.StringRes
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
@@ -29,119 +34,131 @@ import com.instalogger.app.service.BatteryHelper
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.ui.screens.*
 import com.instalogger.app.ui.theme.InstaLoggerTheme
+import com.instalogger.app.util.LanguageManager
 
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Dashboard : Screen("dashboard", "Panel", Icons.Default.Dashboard)
-    object Notifications : Screen("notifications", "Bildirişlər", Icons.Default.Notifications)
-    object Session : Screen("session", "Sessiya", Icons.Default.AccountCircle)
-    object Settings : Screen("settings", "Tənzimləmələr", Icons.Default.Settings)
-    object TargetDetail : Screen("target/{username}", "Təfərrüat", Icons.Default.Dashboard) {
+sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: ImageVector) {
+    object Dashboard : Screen("dashboard", R.string.nav_dashboard, Icons.Default.Dashboard)
+    object Notifications : Screen("notifications", R.string.nav_notifications, Icons.Default.Notifications)
+    object Session : Screen("session", R.string.nav_session, Icons.Default.AccountCircle)
+    object Settings : Screen("settings", R.string.nav_settings, Icons.Default.Settings)
+    object TargetDetail : Screen("target/{username}", R.string.target_detail_title, Icons.Default.Dashboard) {
         fun createRoute(username: String) = "target/$username"
     }
 }
 
 class MainActivity : ComponentActivity() {
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            startLoggerService()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        LanguageManager.init(this)
         val app = application as InstaLoggerApp
+
+        // Request notification permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         // Start background monitoring service
         startLoggerService()
 
         setContent {
-            InstaLoggerTheme {
-                val navController = rememberNavController()
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = navBackStackEntry?.destination
-                val currentRoute = currentDestination?.route
+            val currentLanguage by LanguageManager.currentLanguage.collectAsState()
+            val localizedContext = remember(currentLanguage) {
+                LanguageManager.getLocalizedContext(this@MainActivity, currentLanguage)
+            }
+            val localizedConfiguration = remember(currentLanguage) {
+                LanguageManager.getLocalizedConfiguration(resources.configuration, currentLanguage)
+            }
 
-                val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
+            CompositionLocalProvider(
+                LocalContext provides localizedContext,
+                LocalConfiguration provides localizedConfiguration
+            ) {
+                InstaLoggerTheme {
+                    val navController = rememberNavController()
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentDestination = navBackStackEntry?.destination
+                    val currentRoute = currentDestination?.route
 
-                // Request notification permission on Android 13+
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val permissionLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.RequestPermission(),
-                        onResult = { isGranted ->
-                            if (isGranted) {
-                                startLoggerService()
-                            }
+                    val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
+
+                    // Check battery optimization
+                    LaunchedEffect(Unit) {
+                        if (!BatteryHelper.isBatteryOptimizationIgnored(this@MainActivity)) {
+                            BatteryHelper.requestIgnoreBatteryOptimization(this@MainActivity)
                         }
+                    }
+
+                    val bottomNavItems = listOf(
+                        Screen.Dashboard,
+                        Screen.Notifications,
+                        Screen.Session,
+                        Screen.Settings
                     )
 
-                    LaunchedEffect(Unit) {
-                        if (ContextCompat.checkSelfPermission(
-                                this@MainActivity,
-                                Manifest.permission.POST_NOTIFICATIONS
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                    }
-                }
+                    val showBottomBar = currentRoute in bottomNavItems.map { it.route }
 
-                // Check battery optimization
-                LaunchedEffect(Unit) {
-                    if (!BatteryHelper.isBatteryOptimizationIgnored(this@MainActivity)) {
-                        BatteryHelper.requestIgnoreBatteryOptimization(this@MainActivity)
-                    }
-                }
-
-                val bottomNavItems = listOf(
-                    Screen.Dashboard,
-                    Screen.Notifications,
-                    Screen.Session,
-                    Screen.Settings
-                )
-
-                val showBottomBar = currentRoute in bottomNavItems.map { it.route }
-
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    bottomBar = {
-                        if (showBottomBar) {
-                            NavigationBar(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                tonalElevation = NavigationBarDefaults.Elevation
-                            ) {
-                                bottomNavItems.forEach { screen ->
-                                    val isSelected = currentRoute == screen.route
-                                    NavigationBarItem(
-                                        icon = {
-                                            if (screen == Screen.Notifications && unreadCount > 0) {
-                                                BadgedBox(
-                                                    badge = {
-                                                        Badge {
-                                                            Text(text = if (unreadCount > 99) "99+" else unreadCount.toString())
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        bottomBar = {
+                            if (showBottomBar) {
+                                NavigationBar(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    tonalElevation = NavigationBarDefaults.Elevation
+                                ) {
+                                    bottomNavItems.forEach { screen ->
+                                        val isSelected = currentRoute == screen.route
+                                        val title = stringResource(screen.titleRes)
+                                        NavigationBarItem(
+                                            icon = {
+                                                if (screen == Screen.Notifications && unreadCount > 0) {
+                                                    BadgedBox(
+                                                        badge = {
+                                                            Badge {
+                                                                Text(text = if (unreadCount > 99) "99+" else unreadCount.toString())
+                                                            }
                                                         }
+                                                    ) {
+                                                        Icon(screen.icon, contentDescription = title)
                                                     }
-                                                ) {
-                                                    Icon(screen.icon, contentDescription = screen.title)
+                                                } else {
+                                                    Icon(screen.icon, contentDescription = title)
                                                 }
-                                            } else {
-                                                Icon(screen.icon, contentDescription = screen.title)
-                                            }
-                                        },
-                                        label = { Text(screen.title) },
-                                        selected = isSelected,
-                                        onClick = {
-                                            if (currentRoute != screen.route) {
-                                                navController.navigate(screen.route) {
-                                                    popUpTo(navController.graph.findStartDestination().id) {
-                                                        saveState = true
+                                            },
+                                            label = { Text(title) },
+                                            selected = isSelected,
+                                            onClick = {
+                                                if (currentRoute != screen.route) {
+                                                    navController.navigate(screen.route) {
+                                                        popUpTo(navController.graph.findStartDestination().id) {
+                                                            saveState = true
+                                                        }
+                                                        launchSingleTop = true
+                                                        restoreState = true
                                                     }
-                                                    launchSingleTop = true
-                                                    restoreState = true
                                                 }
                                             }
-                                        }
-                                    )
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                ) { innerPadding ->
+                    ) { innerPadding ->
                     NavHost(
                         navController = navController,
                         startDestination = Screen.Dashboard.route,
@@ -178,6 +195,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
 
     private fun startLoggerService() {
         try {

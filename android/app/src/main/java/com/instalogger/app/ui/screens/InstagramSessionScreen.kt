@@ -18,10 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.instalogger.app.InstaLoggerApp
+import com.instalogger.app.R
 import com.instalogger.app.ui.components.InstaLoggerTopBar
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.theme.*
@@ -39,16 +41,20 @@ fun InstagramSessionScreen() {
     var hasSession by remember { mutableStateOf(app.sessionManager.hasSession()) }
     var manualCookieText by remember { mutableStateOf("") }
 
+    val capturedMsg = stringResource(R.string.msg_session_captured)
+    val savedMsg = stringResource(R.string.msg_cookie_saved)
+    val clearedMsg = stringResource(R.string.msg_session_cleared)
+
     Scaffold(
         topBar = {
             InstaLoggerTopBar(
-                title = "Instagram Sessiyası",
-                subtitle = "Məxfi profilləri izləmək üçün daxili hesab əlaqəsi",
+                title = stringResource(R.string.session_title),
+                subtitle = stringResource(R.string.session_subtitle),
                 actions = {
                     IconButton(onClick = { hasSession = app.sessionManager.hasSession() }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
-                            contentDescription = "Yoxla",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -78,14 +84,14 @@ fun InstagramSessionScreen() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Sessiya Vəziyyəti",
+                            text = stringResource(R.string.session_status_card_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (hasSession) "Instagram sessiyası aktivdir" else "Sessiya bağlı deyil (Yalnız açıq profillər)",
+                            text = if (hasSession) stringResource(R.string.session_active_desc) else stringResource(R.string.session_inactive_desc),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -93,14 +99,14 @@ fun InstagramSessionScreen() {
 
                     if (hasSession) {
                         StatusBadge(
-                            text = "Aktivdir",
+                            text = stringResource(R.string.badge_active),
                             icon = Icons.Default.CheckCircle,
                             containerColor = StatusGreenLight,
                             contentColor = StatusGreen
                         )
                     } else {
                         StatusBadge(
-                            text = "Deaktiv",
+                            text = stringResource(R.string.badge_inactive),
                             icon = Icons.Default.Lock,
                             containerColor = StatusRedLight,
                             contentColor = StatusRed
@@ -117,12 +123,12 @@ fun InstagramSessionScreen() {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Daxili Giriş (WebView)") }
+                    text = { Text(stringResource(R.string.tab_webview_login)) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Əl ilə Cookie") }
+                    text = { Text(stringResource(R.string.tab_manual_cookie)) }
                 )
             }
 
@@ -151,7 +157,7 @@ fun InstagramSessionScreen() {
                                                 app.sessionManager.saveCookieString(cookies)
                                                 hasSession = true
                                                 scope.launch {
-                                                    snackbarHostState.showSnackbar("Instagram sessiyası avtomatik tutuldu və saxlanıldı!")
+                                                    snackbarHostState.showSnackbar(capturedMsg)
                                                 }
                                             }
                                         }
@@ -171,7 +177,7 @@ fun InstagramSessionScreen() {
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "Brauzerdən götürülmüş sessionid və ya tam cookie sətrini daxil edin.",
+                            text = stringResource(R.string.cookie_input_desc),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -179,7 +185,7 @@ fun InstagramSessionScreen() {
                         OutlinedTextField(
                             value = manualCookieText,
                             onValueChange = { manualCookieText = it },
-                            label = { Text("Cookie String") },
+                            label = { Text(stringResource(R.string.cookie_input_label)) },
                             placeholder = { Text("sessionid=...; ds_user_id=...; csrftoken=...") },
                             minLines = 4,
                             maxLines = 8,
@@ -193,7 +199,7 @@ fun InstagramSessionScreen() {
                                     app.sessionManager.saveCookieString(manualCookieText.trim())
                                     hasSession = true
                                     scope.launch {
-                                        snackbarHostState.showSnackbar("Cookie uğurla yadda saxlanıldı")
+                                        snackbarHostState.showSnackbar(savedMsg)
                                         manualCookieText = ""
                                     }
                                 }
@@ -204,7 +210,7 @@ fun InstagramSessionScreen() {
                         ) {
                             Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Cookie Yadda Saxla")
+                            Text(stringResource(R.string.btn_save_cookie))
                         }
 
                         if (hasSession) {
@@ -213,14 +219,14 @@ fun InstagramSessionScreen() {
                                     app.sessionManager.clearSession()
                                     hasSession = false
                                     scope.launch {
-                                        snackbarHostState.showSnackbar("Sessiya təmizləndi")
+                                        snackbarHostState.showSnackbar(clearedMsg)
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed)
                             ) {
-                                Text("Sessiyanı Sıfırla")
+                                Text(stringResource(R.string.btn_clear_session))
                             }
                         }
                     }

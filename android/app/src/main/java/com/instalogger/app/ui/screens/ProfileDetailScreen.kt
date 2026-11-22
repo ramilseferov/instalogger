@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,6 +28,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.instalogger.app.InstaLoggerApp
+import com.instalogger.app.R
 import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
 import kotlinx.coroutines.launch
@@ -52,6 +54,7 @@ fun ProfileDetailScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
+    val noneStr = stringResource(R.string.none_value)
 
     fun refreshTargetData() {
         if (isRefreshing) return
@@ -60,9 +63,9 @@ fun ProfileDetailScreen(
             val result = app.profileInspector.inspectTarget(username)
             isRefreshing = false
             if (result.isSuccess) {
-                snackbarHostState.showSnackbar("@$username məlumatları yeniləndi")
+                snackbarHostState.showSnackbar(context.getString(R.string.msg_target_checked, username))
             } else {
-                snackbarHostState.showSnackbar("Yenilənmədi: ${result.exceptionOrNull()?.message}")
+                snackbarHostState.showSnackbar(context.getString(R.string.msg_check_failed, result.exceptionOrNull()?.message ?: ""))
             }
         }
     }
@@ -71,7 +74,7 @@ fun ProfileDetailScreen(
         topBar = {
             InstaLoggerTopBar(
                 title = "@$username",
-                subtitle = "Profil təfərrüatları və audit jurnalı",
+                subtitle = stringResource(R.string.target_detail_title),
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                 onNavigationClick = onBack,
                 actions = {
@@ -202,15 +205,15 @@ fun ProfileDetailScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(text = "${t.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(text = "İzləyici", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(text = stringResource(R.string.followers), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(text = "${t.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(text = "İzlənilən", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(text = "${t.mediaCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(text = "Paylaşım", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(text = stringResource(R.string.posts), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -226,13 +229,13 @@ fun ProfileDetailScreen(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Audit Jurnalı (${logs.size})") },
+                        text = { Text(stringResource(R.string.tab_audit_logs, logs.size)) },
                         icon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp)) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Tarixi Avatarlar (${avatars.size})") },
+                        text = { Text(stringResource(R.string.tab_avatar_history, avatars.size)) },
                         icon = { Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp)) }
                     )
                 }
@@ -247,7 +250,7 @@ fun ProfileDetailScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "Hələ ki profil dəyişikliyi aşkar edilməyib.",
+                                    text = stringResource(R.string.empty_target_logs),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -295,7 +298,7 @@ fun ProfileDetailScreen(
                                                 if (!log.oldValue.isNullOrBlank() || !log.newValue.isNullOrBlank()) {
                                                     Spacer(modifier = Modifier.height(8.dp))
                                                     Text(
-                                                        text = "${log.oldValue ?: "Yoxdur"}  ->  ${log.newValue ?: "Yoxdur"}",
+                                                        text = "${log.oldValue ?: noneStr}  ->  ${log.newValue ?: noneStr}",
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
@@ -316,7 +319,7 @@ fun ProfileDetailScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "Arxivlənmiş tarixi profil şəkli yoxdur.",
+                                    text = stringResource(R.string.empty_target_avatars),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -366,12 +369,12 @@ fun ProfileDetailScreen(
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text(
-                                                    text = "Arxiv tarixi: $formattedDate",
+                                                    text = stringResource(R.string.avatar_archived_format, formattedDate),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                                 Text(
-                                                    text = "Həcm: ${(avatar.fileSize / 1024)} KB",
+                                                    text = stringResource(R.string.avatar_size_format, (avatar.fileSize / 1024)),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -400,7 +403,7 @@ fun ProfileDetailScreen(
                 ) {
                     AsyncImage(
                         model = File(previewImagePath!!),
-                        contentDescription = "Böyük Baxış",
+                        contentDescription = stringResource(R.string.preview_title),
                         modifier = Modifier
                             .size(280.dp)
                             .clip(RoundedCornerShape(18.dp)),
@@ -411,7 +414,7 @@ fun ProfileDetailScreen(
                         onClick = { previewImagePath = null },
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Bağla")
+                        Text(stringResource(R.string.dialog_close))
                     }
                 }
             }

@@ -3,6 +3,7 @@ import { Target } from '../../types';
 import { Card } from '../common/Card';
 import { StatusBadge } from '../common/StatusBadge';
 import { Zap, RefreshCw, ChevronRight, User } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 interface TargetCardProps {
   target: Target;
@@ -19,6 +20,8 @@ export const TargetCard: React.FC<TargetCardProps> = ({
   onToggleTurbo,
   onCheckNow,
 }) => {
+  const { t } = useI18n();
+
   return (
     <Card
       index={index}
@@ -46,7 +49,7 @@ export const TargetCard: React.FC<TargetCardProps> = ({
               {target.turbo_mode && <StatusBadge status="turbo" />}
             </div>
             <p className="text-xs text-gray-500 font-medium truncate max-w-[180px] sm:max-w-[280px]">
-              {target.full_name || 'İstifadəçi adı yoxdur'}
+              {target.full_name || t.no_name}
             </p>
           </div>
         </div>
@@ -58,14 +61,14 @@ export const TargetCard: React.FC<TargetCardProps> = ({
         <div className="flex items-center gap-2">
           <StatusBadge status={target.is_private ? 'private' : 'public'} />
           <span className="text-xs text-gray-500 font-medium bg-gray-100/80 px-2.5 py-1 rounded-full">
-            {target.media_count} post
+            {target.media_count} {t.posts}
           </span>
         </div>
 
         <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={() => onToggleTurbo(target, !target.turbo_mode)}
-            title={target.turbo_mode ? 'Turbo rejimi söndür' : 'Turbo rejimi aç (30-60s)'}
+            title={t.turbo_mode}
             className={`p-2 rounded-full transition-all duration-200 active:scale-90 ${
               target.turbo_mode
                 ? 'bg-blue-100 text-[#0C7FF2] shadow-xs'
@@ -76,7 +79,7 @@ export const TargetCard: React.FC<TargetCardProps> = ({
           </button>
           <button
             onClick={() => onCheckNow(target)}
-            title="Dərhal yoxla"
+            title={t.check_now}
             className="p-2 rounded-full text-gray-400 hover:bg-gray-100 hover:text-[#0C7FF2] active:scale-90 transition-all duration-200"
           >
             <RefreshCw size={16} />

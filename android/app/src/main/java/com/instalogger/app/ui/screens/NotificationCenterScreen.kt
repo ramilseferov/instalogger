@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.History
@@ -16,11 +17,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.instalogger.app.InstaLoggerApp
+import com.instalogger.app.R
 import com.instalogger.app.data.local.ChangeLogEntity
 import com.instalogger.app.ui.components.AvatarComparisonCard
 import com.instalogger.app.ui.components.InstaLoggerTopBar
@@ -64,8 +67,8 @@ fun NotificationCenterScreen() {
     Scaffold(
         topBar = {
             InstaLoggerTopBar(
-                title = if (selectedTab == 0) "Audit Jurnalı" else "Bildirişlər",
-                subtitle = if (selectedTab == 0) "Bütün hədəflər üzrə canlı qeydlər" else "${unreadCount} oxunmamış bildiriş",
+                title = if (selectedTab == 0) stringResource(R.string.audit_journal_title) else stringResource(R.string.notifications_title),
+                subtitle = if (selectedTab == 0) stringResource(R.string.audit_journal_subtitle) else stringResource(R.string.unread_notifications_format, unreadCount),
                 actions = {
                     if (selectedTab == 0 && allLogs.isNotEmpty()) {
                         IconButton(onClick = {
@@ -75,7 +78,7 @@ fun NotificationCenterScreen() {
                         }) {
                             Icon(
                                 imageVector = Icons.Default.DeleteSweep,
-                                contentDescription = "Bütün Loqları Sil",
+                                contentDescription = stringResource(R.string.btn_clear_all_logs),
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
@@ -87,7 +90,7 @@ fun NotificationCenterScreen() {
                         }) {
                             Icon(
                                 imageVector = Icons.Default.DoneAll,
-                                contentDescription = "Hamısını Oxundu Et",
+                                contentDescription = stringResource(R.string.btn_mark_all_read),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -98,7 +101,7 @@ fun NotificationCenterScreen() {
                         }) {
                             Icon(
                                 imageVector = Icons.Default.DeleteSweep,
-                                contentDescription = "Hamısını Sil",
+                                contentDescription = stringResource(R.string.btn_clear_all_notifications),
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
@@ -121,13 +124,13 @@ fun NotificationCenterScreen() {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Audit Jurnalı (${allLogs.size})") },
+                    text = { Text(stringResource(R.string.tab_audit_journal, allLogs.size)) },
                     icon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Bildirişlər (${notifications.size})") },
+                    text = { Text(stringResource(R.string.tab_notifications, notifications.size)) },
                     icon = { Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
             }
@@ -159,14 +162,14 @@ fun NotificationCenterScreen() {
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = "Audit jurnalı boşdur",
+                                        text = stringResource(R.string.empty_audit_logs_title),
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "Hədəf profillərdə aşkar edilən hər bir dəyişiklik avtomatik burada toplanır. Yeniləmək üçün aşağı sürüşdürün.",
+                                        text = stringResource(R.string.empty_audit_logs_desc),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -218,14 +221,14 @@ fun NotificationCenterScreen() {
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = "Bildiriş yoxdur",
+                                        text = stringResource(R.string.empty_notifications_title),
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "Yeni dəyişiklik aşkarlandıqda anlıq olaraq burada qeyd ediləcək.",
+                                        text = stringResource(R.string.empty_notifications_desc),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -266,12 +269,13 @@ fun NotificationCenterScreen() {
 }
 
 @Composable
-private fun GlobalLogCard(
+fun GlobalLogCard(
     log: ChangeLogEntity,
     onDelete: () -> Unit
 ) {
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(log.timestamp))
+    val noneStr = stringResource(R.string.none_value)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -294,16 +298,32 @@ private fun GlobalLogCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = formattedTime,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = formattedTime,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = stringResource(R.string.action_delete),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
             if (!log.oldValue.isNullOrBlank() || !log.newValue.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${log.oldValue ?: "Yoxdur"}  ->  ${log.newValue ?: "Yoxdur"}",
+                    text = "${log.oldValue ?: noneStr}  ->  ${log.newValue ?: noneStr}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )

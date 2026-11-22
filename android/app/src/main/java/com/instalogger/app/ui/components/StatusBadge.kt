@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,9 +16,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.instalogger.app.R
 import com.instalogger.app.ui.theme.*
 
 @Composable
@@ -66,14 +67,14 @@ fun StatusBadge(
 fun PrivacyBadge(isPrivate: Boolean) {
     if (isPrivate) {
         StatusBadge(
-            text = "Məxfi",
+            text = stringResource(R.string.badge_private),
             icon = Icons.Default.Lock,
             containerColor = StatusAmberLight,
             contentColor = StatusAmber
         )
     } else {
         StatusBadge(
-            text = "Açıq",
+            text = stringResource(R.string.badge_public),
             icon = Icons.Default.LockOpen,
             containerColor = StatusGreenLight,
             contentColor = StatusGreen
@@ -85,7 +86,7 @@ fun PrivacyBadge(isPrivate: Boolean) {
 fun TurboBadge(isTurbo: Boolean) {
     if (isTurbo) {
         StatusBadge(
-            text = "Turbo",
+            text = stringResource(R.string.badge_turbo),
             icon = Icons.Default.Bolt,
             containerColor = AccentBlueLight,
             contentColor = AccentBlue

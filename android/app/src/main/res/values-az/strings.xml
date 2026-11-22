@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">InstaLogger</string>
+    <string name="nav_dashboard">Panel</string>
+    <string name="nav_notifications">Bildirişlər</string>
+    <string name="nav_session">Sessiya</string>
+    <string name="nav_settings">Tənzimləmələr</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">İzləmə Paneli</string>
+    <string name="dashboard_subtitle">Aktiv Instagram hədəfləri və audit vəziyyəti</string>
+    <string name="dashboard_empty_title">Heç bir hədəf tapılmadı</string>
+    <string name="dashboard_empty_desc">İzləmək istədiyiniz Instagram istifadəçi adını əlavə edin. Yeniləmək üçün aşağı sürüşdürün.</string>
+    <string name="btn_add_target">Hədəf Əlavə Et</string>
+    <string name="btn_check_all">Hamısını Yoxla</string>
+    <string name="msg_all_targets_checked">Bütün hədəflər yoxlanıldı</string>
+    <string name="msg_target_checked">@%1$s yoxlanıldı</string>
+    <string name="msg_check_failed">Yoxlama xətası: %1$s</string>
+    <string name="msg_turbo_enabled">Turbo rejim aktiv edildi</string>
+    <string name="msg_turbo_disabled">Turbo rejim deaktiv edildi</string>
+    <string name="msg_target_deleted">@%1$s silindi</string>
+    <string name="msg_target_added">@%1$s uğurla əlavə edildi</string>
+    <string name="followers">İzləyici</string>
+    <string name="following">İzlənilən</string>
+    <string name="posts">Paylaşım</string>
+    <string name="badge_private">Məxfi</string>
+    <string name="badge_public">Açıq</string>
+    <string name="badge_turbo">Turbo</string>
+    <string name="badge_active">Aktivdir</string>
+    <string name="badge_inactive">Deaktiv</string>
+    <string name="last_checked_format">Son yoxlanış: %1$s</string>
+    <string name="never_checked">Hələ yoxlanılmayıb</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_add_title">Yeni Hədəf Əlavə Et</string>
+    <string name="dialog_username_label">Instagram İstifadəçi Adı</string>
+    <string name="dialog_username_hint">məs: user</string>
+    <string name="dialog_turbo_label">Turbo Rejim (Yüksək Tezlikli)</string>
+    <string name="dialog_turbo_desc">Hədəfi hər bir neçə saniyədən bir yoxla</string>
+    <string name="dialog_cancel">Ləğv Et</string>
+    <string name="dialog_confirm">Əlavə Et</string>
+    <string name="dialog_close">Bağla</string>
+    <string name="dialog_delete_confirm_title">Hədəfi Sil</string>
+    <string name="dialog_delete_confirm_desc">@%1$s hədəfini və bütün arxiv tarixçəsini silmək istədiyinizdən əminsiniz?</string>
+
+    <!-- Target Detail -->
+    <string name="target_detail_title">Hədəf Təfərrüatları</string>
+    <string name="tab_audit_logs">Audit Jurnalı (%1$d)</string>
+    <string name="tab_avatar_history">Tarixi Avatarlar (%1$d)</string>
+    <string name="empty_target_logs">Hələ ki profil dəyişikliyi aşkar edilməyib.</string>
+    <string name="empty_target_avatars">Tarixi profil şəkli arxivlənməyib.</string>
+    <string name="avatar_size_format">Həcm: %1$d KB</string>
+    <string name="avatar_archived_format">Arxivləndi: %1$s</string>
+    <string name="preview_title">Şəkil Ön Baxışı</string>
+
+    <!-- Notification Center & Audit Logs -->
+    <string name="notifications_title">Bildirişlər</string>
+    <string name="notifications_subtitle">Sistem və profil dəyişiklikləri qeydləri</string>
+    <string name="tab_audit_journal">Audit Jurnalı (%1$d)</string>
+    <string name="tab_notifications">Bildirişlər (%1$d)</string>
+    <string name="audit_journal_title">Audit Jurnalı</string>
+    <string name="audit_journal_subtitle">Bütün hədəflər üzrə canlı qeydlər</string>
+    <string name="unread_notifications_format">%1$d oxunmamış bildiriş</string>
+    <string name="btn_clear_all_logs">Bütün Loqları Sil</string>
+    <string name="btn_mark_all_read">Hamısını Oxundu Et</string>
+    <string name="btn_clear_all_notifications">Hamısını Sil</string>
+    <string name="empty_audit_logs_title">Audit jurnalı boşdur</string>
+    <string name="empty_audit_logs_desc">Hədəf profillərdə aşkar edilən hər bir dəyişiklik avtomatik burada toplanır. Yeniləmək üçün aşağı sürüşdürün.</string>
+    <string name="empty_notifications_title">Bildiriş yoxdur</string>
+    <string name="empty_notifications_desc">Yeni dəyişiklik aşkarlandıqda anlıq olaraq burada qeyd ediləcək.</string>
+    <string name="avatar_updated_badge">Profil Şəkli Yeniləndi</string>
+    <string name="avatar_previous">Əvvəlki</string>
+    <string name="avatar_new">Yeni Şəkil</string>
+    <string name="action_delete">Sil</string>
+    <string name="action_mark_read">Oxundu</string>
+    <string name="none_value">Yoxdur</string>
+
+    <!-- Instagram Session -->
+    <string name="session_title">Instagram Sessiyası</string>
+    <string name="session_subtitle">Məxfi profilləri izləmək üçün daxili hesab əlaqəsi</string>
+    <string name="session_status_card_title">Sessiya Vəziyyəti</string>
+    <string name="session_active_desc">Instagram sessiyası aktivdir</string>
+    <string name="session_inactive_desc">Sessiya bağlı deyil (Yalnız açıq profillər)</string>
+    <string name="tab_webview_login">Daxili Giriş (WebView)</string>
+    <string name="tab_manual_cookie">Əl ilə Cookie</string>
+    <string name="cookie_input_desc">Brauzerdən götürülmüş sessionid və ya tam cookie sətrini daxil edin.</string>
+    <string name="cookie_input_label">Cookie Sətri</string>
+    <string name="btn_save_cookie">Cookie Yadda Saxla</string>
+    <string name="btn_clear_session">Sessiyanı Sıfırla</string>
+    <string name="msg_session_captured">Instagram sessiyası avtomatik tutuldu və saxlanıldı!</string>
+    <string name="msg_cookie_saved">Cookie uğurla yadda saxlanıldı</string>
+    <string name="msg_session_cleared">Sessiya təmizləndi</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Tənzimləmələr</string>
+    <string name="settings_subtitle">Sistem, dil və arxa fon konfiqurasiyası</string>
+    <string name="section_language">Tətbiq Dili</string>
+    <string name="section_language_desc">İstədiyiniz interfeys dilini seçin. Dəyişikliklər dərhal tətbiq olunur.</string>
+    <string name="battery_opt_title">Batareya Optimizasiyası</string>
+    <string name="battery_opt_desc">Arxa planda fasiləsiz işləmək və anlıq bildiriş almaq üçün sistem batareya qoruyucusundan istisna tələb edin.</string>
+    <string name="badge_unrestricted">Məhdudiyyətsiz</string>
+    <string name="badge_restricted">Məhdud</string>
+    <string name="btn_request_battery_opt">İstisna Tələb Et</string>
+    <string name="service_card_title">Arxa Plan Xidməti</string>
+    <string name="service_card_desc">Bildiriş panelində daimi xidmət statusunu təzələmək üçün xidməti yenidən başladın.</string>
+    <string name="btn_restart_service">Xidməti Yenidən Başlat</string>
+    <string name="msg_service_restarted">Arxa fon xidməti yenidən başladıldı</string>
+    <string name="danger_zone_title">Məlumatların İdarə Edilməsi</string>
+    <string name="danger_zone_desc">Cihazda saxlanılan bütün yerli hədəf, dəyişiklik jurnalı və bildiriş qeydlərini sıfırlayın.</string>
+    <string name="btn_clear_all_data">Bütün Məlumatları Təmizlə</string>
+    <string name="msg_data_cleared">Bütün yerli məlumatlar təmizləndi</string>
+
+    <!-- Archive Directory -->
+    <string name="archive_dir_title">Arxiv Qovluğu</string>
+    <string name="archive_dir_desc">Yüklənən profil şəkilləri və media fayllarının saxlanıldığı yerli qovluq.</string>
+    <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
+    <string name="btn_save_path">Qovluğu Saxla</string>
+    <string name="msg_archive_dir_saved">Arxiv qovluğu uğurla yeniləndi</string>
+    <string name="msg_archive_dir_invalid">Qovluq ünvanı etibarsızdır və ya yazıla bilmir</string>
+
+    <!-- Foreground Service -->
+    <string name="service_notification_channel">InstaLogger Xidməti</string>
+    <string name="service_notification_title">InstaLogger Arxa Fona Nəzarət</string>
+    <string name="service_notification_desc">Instagram profilləri anlıq olaraq izlənilir</string>
+    <string name="alert_notification_channel">InstaLogger Bildirişləri</string>
+</resources>

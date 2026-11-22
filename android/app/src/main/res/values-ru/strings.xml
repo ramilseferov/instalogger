@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">InstaLogger</string>
+    <string name="nav_dashboard">Панель</string>
+    <string name="nav_notifications">Уведомления</string>
+    <string name="nav_session">Сессия</string>
+    <string name="nav_settings">Настройки</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">Панель мониторинга</string>
+    <string name="dashboard_subtitle">Активные цели Instagram и статус аудита</string>
+    <string name="dashboard_empty_title">Цели не найдены</string>
+    <string name="dashboard_empty_desc">Добавьте имя пользователя Instagram для мониторинга. Потяните вниз для обновления.</string>
+    <string name="btn_add_target">Добавить цель</string>
+    <string name="btn_check_all">Проверить все</string>
+    <string name="msg_all_targets_checked">Все цели проверены</string>
+    <string name="msg_target_checked">@%1$s проверен</string>
+    <string name="msg_check_failed">Ошибка проверки: %1$s</string>
+    <string name="msg_turbo_enabled">Турбо-режим включен</string>
+    <string name="msg_turbo_disabled">Турбо-режим выключен</string>
+    <string name="msg_target_deleted">@%1$s удален</string>
+    <string name="msg_target_added">@%1$s успешно добавлен</string>
+    <string name="followers">Подписчики</string>
+    <string name="following">Подписки</string>
+    <string name="posts">Публикации</string>
+    <string name="badge_private">Закрытый</string>
+    <string name="badge_public">Открытый</string>
+    <string name="badge_turbo">Турбо</string>
+    <string name="badge_active">Активен</string>
+    <string name="badge_inactive">Неактивен</string>
+    <string name="last_checked_format">Проверено: %1$s</string>
+    <string name="never_checked">Еще не проверялось</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_add_title">Добавить новую цель</string>
+    <string name="dialog_username_label">Имя пользователя Instagram</string>
+    <string name="dialog_username_hint">напр: username</string>
+    <string name="dialog_turbo_label">Турбо-режим (Высокая частота)</string>
+    <string name="dialog_turbo_desc">Проверка цели каждые несколько секунд</string>
+    <string name="dialog_cancel">Отмена</string>
+    <string name="dialog_confirm">Добавить</string>
+    <string name="dialog_close">Закрыть</string>
+    <string name="dialog_delete_confirm_title">Удалить цель</string>
+    <string name="dialog_delete_confirm_desc">Вы уверены, что хотите удалить @%1$s и всю историю?</string>
+
+    <!-- Target Detail -->
+    <string name="target_detail_title">Детали цели</string>
+    <string name="tab_audit_logs">Журнал аудита (%1$d)</string>
+    <string name="tab_avatar_history">История аватаров (%1$d)</string>
+    <string name="empty_target_logs">Изменения профиля пока не обнаружены.</string>
+    <string name="empty_target_avatars">Архивных аватаров пока нет.</string>
+    <string name="avatar_size_format">Размер: %1$d КБ</string>
+    <string name="avatar_archived_format">Архивировано: %1$s</string>
+    <string name="preview_title">Предпросмотр изображения</string>
+
+    <!-- Notification Center & Audit Logs -->
+    <string name="notifications_title">Уведомления</string>
+    <string name="notifications_subtitle">Уведомления о системе и изменениях целей</string>
+    <string name="tab_audit_journal">Журнал аудита (%1$d)</string>
+    <string name="tab_notifications">Уведомления (%1$d)</string>
+    <string name="audit_journal_title">Журнал аудита</string>
+    <string name="audit_journal_subtitle">Живой журнал активности по всем целям</string>
+    <string name="unread_notifications_format">Непрочитанных уведомлений: %1$d</string>
+    <string name="btn_clear_all_logs">Очистить все логи</string>
+    <string name="btn_mark_all_read">Отметить все прочитанными</string>
+    <string name="btn_clear_all_notifications">Очистить все</string>
+    <string name="empty_audit_logs_title">Журнал аудита пуст</string>
+    <string name="empty_audit_logs_desc">Обнаруженные изменения в профилях целей будут автоматически сохраняться здесь. Потяните вниз для обновления.</string>
+    <string name="empty_notifications_title">Нет уведомлений</string>
+    <string name="empty_notifications_desc">При обнаружении изменений здесь появятся мгновенные оповещения.</string>
+    <string name="avatar_updated_badge">Аватар обновлен</string>
+    <string name="avatar_previous">Предыдущий</string>
+    <string name="avatar_new">Новый аватар</string>
+    <string name="action_delete">Удалить</string>
+    <string name="action_mark_read">Прочитано</string>
+    <string name="none_value">Нет</string>
+
+    <!-- Instagram Session -->
+    <string name="session_title">Сессия Instagram</string>
+    <string name="session_subtitle">Подключение аккаунта для мониторинга закрытых профилей</string>
+    <string name="session_status_card_title">Статус сессии</string>
+    <string name="session_active_desc">Сессия Instagram активна</string>
+    <string name="session_inactive_desc">Сессия не подключена (Только открытые профили)</string>
+    <string name="tab_webview_login">Вход в приложении (WebView)</string>
+    <string name="tab_manual_cookie">Ввод Cookie вручную</string>
+    <string name="cookie_input_desc">Введите sessionid или полную строку cookie из вашего браузера.</string>
+    <string name="cookie_input_label">Строка Cookie</string>
+    <string name="btn_save_cookie">Сохранить Cookie</string>
+    <string name="btn_clear_session">Сбросить сессию</string>
+    <string name="msg_session_captured">Сессия Instagram успешно перехвачена и сохранена!</string>
+    <string name="msg_cookie_saved">Cookie успешно сохранены</string>
+    <string name="msg_session_cleared">Сессия очищена</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Настройки</string>
+    <string name="settings_subtitle">Конфигурация системы, языка и фонового режима</string>
+    <string name="section_language">Язык приложения</string>
+    <string name="section_language_desc">Выберите язык интерфейса. Изменения применяются мгновенно.</string>
+    <string name="battery_opt_title">Оптимизация батареи</string>
+    <string name="battery_opt_desc">Запросите исключение из режима энергосбережения для непрерывной фоновой работы и мгновенных уведомлений.</string>
+    <string name="badge_unrestricted">Без ограничений</string>
+    <string name="badge_restricted">С ограничениями</string>
+    <string name="btn_request_battery_opt">Запросить исключение</string>
+    <string name="service_card_title">Фоновая служба</string>
+    <string name="service_card_desc">Перезапустите службу для обновления статуса в панели уведомлений и фоновых потоков.</string>
+    <string name="btn_restart_service">Перезапустить службу</string>
+    <string name="msg_service_restarted">Фоновая служба перезапущена</string>
+    <string name="danger_zone_title">Управление данными</string>
+    <string name="danger_zone_desc">Сбросить все локальные цели, журналы изменений и уведомления на этом устройстве.</string>
+    <string name="btn_clear_all_data">Очистить все локальные данные</string>
+    <string name="msg_data_cleared">Все локальные данные очищены</string>
+
+    <!-- Archive Directory -->
+    <string name="archive_dir_title">Папка архива</string>
+    <string name="archive_dir_desc">Место для сохранения загруженных аватаров и медиафайлов профилей.</string>
+    <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
+    <string name="btn_save_path">Сохранить путь</string>
+    <string name="msg_archive_dir_saved">Папка архива успешно обновлена</string>
+    <string name="msg_archive_dir_invalid">Путь к папке недействителен или недоступен для записи</string>
+
+    <!-- Foreground Service -->
+    <string name="service_notification_channel">Служба InstaLogger</string>
+    <string name="service_notification_title">Фоновый мониторинг InstaLogger</string>
+    <string name="service_notification_desc">Профили Instagram непрерывно отслеживаются</string>
+    <string name="alert_notification_channel">Оповещения InstaLogger</string>
+</resources>

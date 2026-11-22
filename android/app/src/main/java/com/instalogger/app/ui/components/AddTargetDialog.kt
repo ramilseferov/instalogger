@@ -6,8 +6,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.instalogger.app.R
 
 @Composable
 fun AddTargetDialog(
@@ -21,7 +23,7 @@ fun AddTargetDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Yeni Hədəf Əlavə Et",
+                text = stringResource(R.string.dialog_add_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -36,8 +38,8 @@ fun AddTargetDialog(
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text("Instagram İstifadəçi Adı") },
-                    placeholder = { Text("məs: user") },
+                    label = { Text(stringResource(R.string.dialog_username_label)) },
+                    placeholder = { Text(stringResource(R.string.dialog_username_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp)
@@ -48,14 +50,14 @@ fun AddTargetDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Turbo Rejim",
+                            text = stringResource(R.string.dialog_turbo_label),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = "Daha tez-tez anlıq yoxlanış",
+                            text = stringResource(R.string.dialog_turbo_desc),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -78,7 +80,7 @@ fun AddTargetDialog(
                 enabled = username.isNotBlank(),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Text("Əlavə Et")
+                Text(stringResource(R.string.dialog_confirm))
             }
         },
         dismissButton = {
@@ -86,7 +88,7 @@ fun AddTargetDialog(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Text("Ləğv Et")
+                Text(stringResource(R.string.dialog_cancel))
             }
         },
         shape = RoundedCornerShape(26.dp)

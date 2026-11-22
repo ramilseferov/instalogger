@@ -14,8 +14,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.instalogger.app.R
 import com.instalogger.app.data.local.NotificationEntity
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.StatusRed
@@ -79,7 +82,7 @@ fun NotificationItem(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -106,7 +109,7 @@ fun NotificationItem(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = "Oxundu",
+                            contentDescription = stringResource(R.string.action_mark_read),
                             tint = AccentBlue,
                             modifier = Modifier.size(18.dp)
                         )
@@ -118,7 +121,7 @@ fun NotificationItem(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Sil",
+                        contentDescription = stringResource(R.string.action_delete),
                         tint = StatusRed,
                         modifier = Modifier.size(18.dp)
                     )

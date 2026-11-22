@@ -15,10 +15,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.instalogger.app.R
 import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.StatusRed
@@ -38,7 +40,9 @@ fun TargetCard(
 ) {
     val cardShape = RoundedCornerShape(26.dp)
     val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
-    val lastCheckStr = target.lastCheckedAt?.let { "Yoxlanış: ${timeFormat.format(Date(it))}" } ?: "Yoxlanmayıb"
+    val lastCheckStr = target.lastCheckedAt?.let {
+        stringResource(R.string.last_checked_format, timeFormat.format(Date(it)))
+    } ?: stringResource(R.string.never_checked)
 
     Card(
         modifier = modifier
@@ -146,9 +150,9 @@ fun TargetCard(
                     .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                StatItem(label = "İzləyici", value = target.followersCount.toString(), modifier = Modifier.weight(1f))
-                StatItem(label = "İzlənilən", value = target.followingCount.toString(), modifier = Modifier.weight(1f))
-                StatItem(label = "Paylaşım", value = target.mediaCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.followers), value = target.followersCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.following), value = target.followingCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = stringResource(R.string.posts), value = target.mediaCount.toString(), modifier = Modifier.weight(1f))
             }
 
             HorizontalDivider(
@@ -186,7 +190,7 @@ fun TargetCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Bolt,
-                            contentDescription = "Turbo",
+                            contentDescription = stringResource(R.string.badge_turbo),
                             tint = if (target.isTurbo) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
@@ -198,7 +202,7 @@ fun TargetCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "Sil",
+                            contentDescription = stringResource(R.string.action_delete),
                             tint = StatusRed,
                             modifier = Modifier.size(18.dp)
                         )

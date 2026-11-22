@@ -8,8 +8,10 @@ import { ProfileDetail } from './components/profile/ProfileDetail';
 import { SettingsView } from './components/settings/SettingsView';
 import { UserPlus, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from './components/common/Button';
+import { useI18n } from './i18n';
 
 export const App: React.FC = () => {
+  const { t } = useI18n();
   const [targets, setTargets] = useState<Target[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -95,8 +97,6 @@ export const App: React.FC = () => {
 
       {/* Main Header */}
       <HeaderBanner
-        title="InstaLogger"
-        subtitle="Instagram Fasiləsiz Monitorinq və Lokal Arxivləşdirici"
         activeCount={targets.length}
         onSettingsClick={() => setIsSettingsOpen(true)}
       />
@@ -105,7 +105,7 @@ export const App: React.FC = () => {
       <main className="max-w-2xl mx-auto px-4 space-y-4">
         <div className="flex items-center justify-between px-2">
           <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">
-            İzlənən Hesablar ({targets.length})
+            {t.targets_badge} ({targets.length})
           </h2>
           <Button
             size="sm"
@@ -113,14 +113,14 @@ export const App: React.FC = () => {
             icon={<UserPlus size={16} />}
             onClick={() => setIsAddModalOpen(true)}
           >
-            Hesab Əlavə Et
+            {t.add_target}
           </Button>
         </div>
 
         {loading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-3 text-gray-400">
             <RefreshCw size={28} className="animate-spin text-[#0C7FF2]" />
-            <p className="text-xs font-semibold">Məlumatlar yüklənir...</p>
+            <p className="text-xs font-semibold">Loading...</p>
           </div>
         ) : targets.length === 0 ? (
           <div className="bg-white rounded-3xl p-8 text-center border border-[#E5E8EC] shadow-sm space-y-4 animate-scale-in">
@@ -128,9 +128,9 @@ export const App: React.FC = () => {
               <UserPlus size={28} />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-gray-900">Hələ heç bir profil əlavə edilməyib</h3>
+              <h3 className="text-lg font-bold text-gray-900">{t.no_targets_title}</h3>
               <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
-                Gizli və ya açıq Instagram profilini əlavə edin. Profil açıq olan kimi bütün arxiv avtomatik endiriləcək.
+                {t.no_targets_desc}
               </p>
             </div>
             <Button
@@ -139,7 +139,7 @@ export const App: React.FC = () => {
               icon={<UserPlus size={16} />}
               onClick={() => setIsAddModalOpen(true)}
             >
-              İlk Profili Əlavə Et
+              {t.add_target}
             </Button>
           </div>
         ) : (
@@ -163,7 +163,7 @@ export const App: React.FC = () => {
         <button
           onClick={() => setIsAddModalOpen(true)}
           className="w-14 h-14 rounded-full bg-[#0C7FF2] text-white shadow-xl hover:bg-[#006CE6] active:scale-95 flex items-center justify-center transition-all duration-200"
-          title="Yeni Profil Əlavə Et"
+          title={t.add_target}
         >
           <UserPlus size={24} />
         </button>
@@ -183,4 +183,3 @@ export const App: React.FC = () => {
 };
 
 export default App;
-
