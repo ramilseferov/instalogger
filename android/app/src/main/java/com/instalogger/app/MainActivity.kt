@@ -4,10 +4,11 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -20,14 +21,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.annotation.StringRes
-import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
@@ -40,6 +43,7 @@ import com.instalogger.app.ui.components.languageTransitionBlur
 import com.instalogger.app.ui.screens.*
 import com.instalogger.app.ui.theme.InstaLoggerTheme
 import com.instalogger.app.util.LanguageManager
+import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: ImageVector) {
     object Dashboard : Screen("dashboard", R.string.nav_dashboard, Icons.Default.Dashboard)
@@ -51,7 +55,7 @@ sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: I
     }
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -66,6 +70,22 @@ class MainActivity : ComponentActivity() {
 
         LanguageManager.init(this)
         val app = application as InstaLoggerApp
+
+        // Dynamic FLAG_SECURE management to block screenshots and recents previews
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                app.appLockManager.isSecureScreenEnabled.collect { isSecure ->
+                    if (isSecure) {
+                        window.setFlags(
+                            WindowManager.LayoutParams.FLAG_SECURE,
+                            WindowManager.LayoutParams.FLAG_SECURE
+                        )
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    }
+                }
+            }
+        }
 
         // Request notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -84,6 +104,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val currentLanguage by LanguageManager.currentLanguage.collectAsState()
             val themeMode by app.settingsManager.themeMode.collectAsState()
+            val isAppLocked by app.appLockManager.isAppLocked.collectAsStateWithLifecycle()
+            val isLockConfigured = remember(isAppLocked) { app.appLockManager.isLockConfigured() }
+
             val localizedContext = remember(currentLanguage) {
                 LanguageManager.getLocalizedContext(this@MainActivity, currentLanguage)
             }
@@ -96,167 +119,181 @@ class MainActivity : ComponentActivity() {
                 LocalConfiguration provides localizedConfiguration
             ) {
                 InstaLoggerTheme(themeMode = themeMode) {
-                    val navController = rememberNavController()
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val currentDestination = navBackStackEntry?.destination
-                    val currentRoute = currentDestination?.route
+                    if (isAppLocked && isLockConfigured) {
+                        AppLockScreen(appLockManager = app.appLockManager)
+                    } else {
+                        val navController = rememberNavController()
+                        val navBackStackEntry by navController.currentBackStackEntryAsState()
+                        val currentDestination = navBackStackEntry?.destination
+                        val currentRoute = currentDestination?.route
 
-                    val isLanguageTransitioning by LanguageManager.isTransitioning.collectAsState()
-                    val isThemeTransitioning by app.settingsManager.isTransitioning.collectAsState()
-                    val isSettingsTransitionActive = isLanguageTransitioning || isThemeTransitioning
+                        val isLanguageTransitioning by LanguageManager.isTransitioning.collectAsState()
+                        val isThemeTransitioning by app.settingsManager.isTransitioning.collectAsState()
+                        val isSettingsTransitionActive = isLanguageTransitioning || isThemeTransitioning
 
-                    // Transition safety watchdog: guaranteed release within 600ms
-                    LaunchedEffect(isSettingsTransitionActive) {
-                        if (isSettingsTransitionActive) {
-                            kotlinx.coroutines.delay(600)
-                            LanguageManager.resetTransition()
+                        // Transition safety watchdog: guaranteed release within 600ms
+                        LaunchedEffect(isSettingsTransitionActive) {
+                            if (isSettingsTransitionActive) {
+                                kotlinx.coroutines.delay(600)
+                                LanguageManager.resetTransition()
+                            }
                         }
-                    }
 
-                    val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
+                        val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
 
-                    // Check battery optimization
-                    LaunchedEffect(Unit) {
-                        if (!BatteryHelper.isBatteryOptimizationIgnored(this@MainActivity)) {
-                            BatteryHelper.requestIgnoreBatteryOptimization(this@MainActivity)
+                        // Check battery optimization
+                        LaunchedEffect(Unit) {
+                            if (!BatteryHelper.isBatteryOptimizationIgnored(this@MainActivity)) {
+                                BatteryHelper.requestIgnoreBatteryOptimization(this@MainActivity)
+                            }
                         }
-                    }
 
-                    val bottomNavItems = listOf(
-                        Screen.Dashboard,
-                        Screen.Notifications,
-                        Screen.Session,
-                        Screen.Settings
-                    )
+                        val bottomNavItems = listOf(
+                            Screen.Dashboard,
+                            Screen.Notifications,
+                            Screen.Session,
+                            Screen.Settings
+                        )
 
-                    val showBottomBar = currentRoute in bottomNavItems.map { it.route }
+                        val showBottomBar = currentRoute in bottomNavItems.map { it.route }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .languageTransitionBlur(isSettingsTransitionActive)
-                    ) {
-                        Scaffold(
-                            modifier = Modifier.fillMaxSize(),
-                            bottomBar = {
-                                if (showBottomBar) {
-                                    AnimatedBottomBar(
-                                        items = bottomNavItems,
-                                        currentRoute = currentRoute,
-                                        unreadCount = unreadCount,
-                                        onItemSelected = { screen ->
-                                            if (currentRoute != screen.route) {
-                                                navController.navigate(screen.route) {
-                                                    popUpTo(navController.graph.findStartDestination().id) {
-                                                        saveState = true
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .languageTransitionBlur(isSettingsTransitionActive)
+                        ) {
+                            Scaffold(
+                                modifier = Modifier.fillMaxSize(),
+                                bottomBar = {
+                                    if (showBottomBar) {
+                                        AnimatedBottomBar(
+                                            items = bottomNavItems,
+                                            currentRoute = currentRoute,
+                                            unreadCount = unreadCount,
+                                            onItemSelected = { screen ->
+                                                if (currentRoute != screen.route) {
+                                                    navController.navigate(screen.route) {
+                                                        popUpTo(navController.graph.findStartDestination().id) {
+                                                            saveState = true
+                                                        }
+                                                        launchSingleTop = true
+                                                        restoreState = true
                                                     }
-                                                    launchSingleTop = true
-                                                    restoreState = true
                                                 }
                                             }
+                                        )
+                                    }
+                                }
+                            ) { innerPadding ->
+                                NavHost(
+                                    navController = navController,
+                                    startDestination = Screen.Dashboard.route,
+                                    modifier = Modifier.padding(innerPadding),
+                                    enterTransition = {
+                                        val fromRoute = initialState.destination.route
+                                        val toRoute = targetState.destination.route
+                                        val fromIdx = getTabRouteIndex(fromRoute)
+                                        val toIdx = getTabRouteIndex(toRoute)
+
+                                        when {
+                                            toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushEnter
+                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
+                                            fromIdx != -1 && toIdx != -1 -> {
+                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
+                                            }
+                                            else -> MotionSpecs.NavEnterTransition
                                         }
-                                    )
+                                    },
+                                    exitTransition = {
+                                        val fromRoute = initialState.destination.route
+                                        val toRoute = targetState.destination.route
+                                        val fromIdx = getTabRouteIndex(fromRoute)
+                                        val toIdx = getTabRouteIndex(toRoute)
+
+                                        when {
+                                            toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushExit
+                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
+                                            fromIdx != -1 && toIdx != -1 -> {
+                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
+                                            }
+                                            else -> MotionSpecs.NavExitTransition
+                                        }
+                                    },
+                                    popEnterTransition = {
+                                        val fromRoute = initialState.destination.route
+                                        val toRoute = targetState.destination.route
+                                        val fromIdx = getTabRouteIndex(fromRoute)
+                                        val toIdx = getTabRouteIndex(toRoute)
+
+                                        when {
+                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
+                                            fromIdx != -1 && toIdx != -1 -> {
+                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
+                                            }
+                                            else -> MotionSpecs.NavPopEnterTransition
+                                        }
+                                    },
+                                    popExitTransition = {
+                                        val fromRoute = initialState.destination.route
+                                        val toRoute = targetState.destination.route
+                                        val fromIdx = getTabRouteIndex(fromRoute)
+                                        val toIdx = getTabRouteIndex(toRoute)
+
+                                        when {
+                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
+                                            fromIdx != -1 && toIdx != -1 -> {
+                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
+                                            }
+                                            else -> MotionSpecs.NavPopExitTransition
+                                        }
+                                    }
+                                ) {
+                                    composable(Screen.Dashboard.route) {
+                                        DashboardScreen(
+                                            onNavigateToDetail = { username ->
+                                                navController.navigate(Screen.TargetDetail.createRoute(username))
+                                            }
+                                        )
+                                    }
+                                    composable(Screen.Notifications.route) {
+                                        NotificationCenterScreen()
+                                    }
+                                    composable(Screen.Session.route) {
+                                        InstagramSessionScreen()
+                                    }
+                                    composable(Screen.Settings.route) {
+                                        SettingsScreen()
+                                    }
+                                    composable(
+                                        route = Screen.TargetDetail.route,
+                                        arguments = listOf(navArgument("username") { type = NavType.StringType })
+                                    ) { backStackEntry ->
+                                        val username = backStackEntry.arguments?.getString("username") ?: ""
+                                        ProfileDetailScreen(
+                                            username = username,
+                                            onBack = { navController.popBackStack() }
+                                        )
+                                    }
                                 }
                             }
-                        ) { innerPadding ->
-                            NavHost(
-                                navController = navController,
-                                startDestination = Screen.Dashboard.route,
-                                modifier = Modifier.padding(innerPadding),
-                                enterTransition = {
-                                    val fromRoute = initialState.destination.route
-                                    val toRoute = targetState.destination.route
-                                    val fromIdx = getTabRouteIndex(fromRoute)
-                                    val toIdx = getTabRouteIndex(toRoute)
 
-                                    when {
-                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushEnter
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
-                                        fromIdx != -1 && toIdx != -1 -> {
-                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
-                                        }
-                                        else -> MotionSpecs.NavEnterTransition
-                                    }
-                                },
-                                exitTransition = {
-                                    val fromRoute = initialState.destination.route
-                                    val toRoute = targetState.destination.route
-                                    val fromIdx = getTabRouteIndex(fromRoute)
-                                    val toIdx = getTabRouteIndex(toRoute)
-
-                                    when {
-                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushExit
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
-                                        fromIdx != -1 && toIdx != -1 -> {
-                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
-                                        }
-                                        else -> MotionSpecs.NavExitTransition
-                                    }
-                                },
-                                popEnterTransition = {
-                                    val fromRoute = initialState.destination.route
-                                    val toRoute = targetState.destination.route
-                                    val fromIdx = getTabRouteIndex(fromRoute)
-                                    val toIdx = getTabRouteIndex(toRoute)
-
-                                    when {
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
-                                        fromIdx != -1 && toIdx != -1 -> {
-                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
-                                        }
-                                        else -> MotionSpecs.NavPopEnterTransition
-                                    }
-                                },
-                                popExitTransition = {
-                                    val fromRoute = initialState.destination.route
-                                    val toRoute = targetState.destination.route
-                                    val fromIdx = getTabRouteIndex(fromRoute)
-                                    val toIdx = getTabRouteIndex(toRoute)
-
-                                    when {
-                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
-                                        fromIdx != -1 && toIdx != -1 -> {
-                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
-                                        }
-                                        else -> MotionSpecs.NavPopExitTransition
-                                    }
-                                }
-                            ) {
-                                composable(Screen.Dashboard.route) {
-                                    DashboardScreen(
-                                        onNavigateToDetail = { username ->
-                                            navController.navigate(Screen.TargetDetail.createRoute(username))
-                                        }
-                                    )
-                                }
-                                composable(Screen.Notifications.route) {
-                                    NotificationCenterScreen()
-                                }
-                                composable(Screen.Session.route) {
-                                    InstagramSessionScreen()
-                                }
-                                composable(Screen.Settings.route) {
-                                    SettingsScreen()
-                                }
-                                composable(
-                                    route = Screen.TargetDetail.route,
-                                    arguments = listOf(navArgument("username") { type = NavType.StringType })
-                                ) { backStackEntry ->
-                                    val username = backStackEntry.arguments?.getString("username") ?: ""
-                                    ProfileDetailScreen(
-                                        username = username,
-                                        onBack = { navController.popBackStack() }
-                                    )
-                                }
-                            }
+                            LanguageBlurOverlay(isBlurActive = isSettingsTransitionActive)
                         }
-
-                        LanguageBlurOverlay(isBlurActive = isSettingsTransitionActive)
                     }
+                }
             }
         }
     }
-}
+
+    override fun onStop() {
+        super.onStop()
+        (application as? InstaLoggerApp)?.appLockManager?.onAppBackgrounded()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        (application as? InstaLoggerApp)?.appLockManager?.onAppForegrounded()
+    }
 
     private fun getTabRouteIndex(route: String?): Int {
         return when (route) {

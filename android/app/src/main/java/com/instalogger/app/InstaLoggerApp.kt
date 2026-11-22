@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.instalogger.app.data.local.AppDatabase
 import com.instalogger.app.data.repository.NotificationRepository
 import com.instalogger.app.engine.InstagramEngine
@@ -12,8 +14,11 @@ import com.instalogger.app.engine.ProfileInspector
 import com.instalogger.app.engine.SessionManager
 import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
+import com.instalogger.app.util.AppLockManager
+import com.instalogger.app.util.VaultMediaFetcher
+import com.instalogger.app.util.VaultStorageManager
 
-class InstaLoggerApp : Application() {
+class InstaLoggerApp : Application(), ImageLoaderFactory {
 
     lateinit var database: AppDatabase
         private set
@@ -33,9 +38,26 @@ class InstaLoggerApp : Application() {
     lateinit var settingsManager: AppSettingsManager
         private set
 
+    lateinit var appLockManager: AppLockManager
+        private set
+
+    lateinit var vaultStorageManager: VaultStorageManager
+        private set
+
+    override fun newImageLoader(): ImageLoader {
+        return ImageLoader.Builder(this)
+            .components {
+                add(VaultMediaFetcher.Factory(this@InstaLoggerApp))
+            }
+            .crossfade(true)
+            .build()
+    }
+
     override fun onCreate() {
         super.onCreate()
 
+        appLockManager = AppLockManager.getInstance(this)
+        vaultStorageManager = VaultStorageManager.getInstance(this)
         settingsManager = AppSettingsManager.getInstance(this)
         database = AppDatabase.getInstance(this)
         sessionManager = SessionManager(this)

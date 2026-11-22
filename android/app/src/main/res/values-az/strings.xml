@@ -185,4 +185,45 @@
     <string name="notif_settings_sheet_title">Bildiriş Tənzimləmələri</string>
     <string name="btn_battery_opt_active">İstisna Aktivdir • Ayarları Aç</string>
     <string name="badge_active_count_format">%1$d aktiv</string>
+
+    <!-- Security & App Lock -->
+    <string name="lock_biometric_title">Biometrik Doğrulama</string>
+    <string name="lock_biometric_desc">InstaLogger kilidini açmaq üçün barmaq izi və ya üzünüzü təsdiqləyin</string>
+    <string name="lock_use_pin">PIN istifadə et</string>
+    <string name="lock_enter_pin_desc">4-rəqəmli təhlükəsizlik PIN kodunu daxil edin</string>
+    <string name="lock_lockout_warning">Həddindən artıq cəhd. %1$d saniyəlik bloklandı</string>
+    <string name="lock_enter_pin_title">Təhlükəsizlik PIN-ini Daxil Edin</string>
+    <string name="lock_confirm_pin_title">PIN Kodunu Təsdiq Edin</string>
+    <string name="lock_pin_mismatch">PIN kodlar uyğun gəlmir. Yenidən cəhd edin.</string>
+    <string name="lock_pin_set_success">Tətbiq kilidi uğurla quraşdırıldı</string>
+    <string name="lock_disabled_success">Tətbiq kilidi deaktiv edildi</string>
+    <string name="lock_pin_incorrect">Yanlış PIN kodu</string>
+    <string name="sec_card_title">Təhlükəsizlik və Tətbiq Kilidi</string>
+    <string name="sec_card_desc">InstaLogger-ə girişi aparat-dəstəkli biometrik və PIN qalxanı ilə qoruyun.</string>
+    <string name="sec_app_lock">Tətbiq Kilidi</string>
+    <string name="sec_app_lock_desc">Tətbiq açılarkən PIN və ya biometrika tələb edilsin</string>
+    <string name="sec_change_pin">PIN Kodunu Dəyiş</string>
+    <string name="sec_biometric">Biometrik Giriş</string>
+    <string name="sec_biometric_desc">Barmaq izi və ya üz tanıma ilə anında giriş</string>
+    <string name="sec_secure_screen">Skrinşot və Son Tətbiqlər Mühafizəsi</string>
+    <string name="sec_secure_screen_desc">Skrinşotları bloklayır və son tətbiqlərdə önbaxışı gizlədir</string>
+    <string name="sec_autolock">Avtomatik Kilidləmə</string>
+    <string name="sec_autolock_desc">Arxa fona keçdikdə kilidlənsin</string>
+    <string name="autolock_immediately">Dərhal</string>
+    <string name="autolock_15s">15 saniyə</string>
+    <string name="autolock_30s">30 saniyə</string>
+    <string name="autolock_1m">1 dəqiqə</string>
+    <string name="autolock_5m">5 dəqiqə</string>
+
+    <!-- Encrypted Vault Storage -->
+    <string name="vault_card_title">Aparat-Dəstəkli Şifrəli Saxlama</string>
+    <string name="vault_card_desc">Media, avatar və postlar AES-256-GCM ilə diskdə şifrələnir və Qalareyaya qətiyyən düşmür.</string>
+    <string name="vault_status_engine">Şifrələmə Mühərriki</string>
+    <string name="vault_engine_val">AES-256-GCM (Aparat KeyStore)</string>
+    <string name="vault_gallery_isolation">Qalareya və MediaStore Təcridi</string>
+    <string name="vault_gallery_isolation_val">Təmin Edilir (.nomedia və Sandbox)</string>
+    <string name="vault_storage_usage">Şifrəli Yaddaş Həcmi</string>
+    <string name="vault_storage_size_format">%1$s (Diskdə sıfır açıq mətn)</string>
+    <string name="vault_badge_secure">Aparatla Qorunur</string>
+    <string name="vault_badge_isolated">100% Gizli</string>
 </resources>

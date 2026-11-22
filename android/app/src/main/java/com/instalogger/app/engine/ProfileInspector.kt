@@ -8,6 +8,7 @@ import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.data.local.*
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.util.ArchiveDirectoryManager
+import com.instalogger.app.util.VaultStorageManager
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -1112,8 +1113,11 @@ class ProfileInspector(
 
                     val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
                     archiveDir.mkdirs()
+                    ArchiveDirectoryManager.ensureNoMedia(archiveDir)
                     val internalDir = File(context.filesDir, "highlights/$cleanUser")
                     internalDir.mkdirs()
+                    ArchiveDirectoryManager.ensureNoMedia(internalDir)
+                    val vaultManager = VaultStorageManager.getInstance(context)
 
                     for (hl in highlights) {
                         var localCover: String? = null
@@ -1123,9 +1127,9 @@ class ProfileInspector(
                                 instagramEngine.downloadMedia(hl.coverUrl, coverFile)
                             }
                             if (coverFile.exists() && coverFile.length() > 0L) {
-                                val internalCover = File(internalDir, coverFile.name)
-                                try { coverFile.copyTo(internalCover, overwrite = true) } catch (_: Exception) {}
-                                localCover = internalCover.absolutePath
+                                val bytes = coverFile.readBytes()
+                                val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", coverFile.name, bytes)
+                                localCover = encCover.absolutePath
                             }
                         }
 
@@ -1147,15 +1151,15 @@ class ProfileInspector(
                             val ext = if (story.mediaType == "video") "mp4" else "jpg"
                             val fileName = "${hl.id.replace(":", "_")}_${story.id}.$ext"
                             val mediaFile = File(archiveDir, fileName)
-                            val internalMedia = File(internalDir, fileName)
 
                             if (!mediaFile.exists() || mediaFile.length() == 0L) {
                                 instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
                             }
 
                             val localPath = if (mediaFile.exists() && mediaFile.length() > 0L) {
-                                try { mediaFile.copyTo(internalMedia, overwrite = true) } catch (_: Exception) {}
-                                internalMedia.absolutePath
+                                val bytes = mediaFile.readBytes()
+                                val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, bytes)
+                                encMedia.absolutePath
                             } else {
                                 story.mediaUrl
                             }
@@ -1191,14 +1195,16 @@ class ProfileInspector(
 
                 val postDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/posts")
                 postDir.mkdirs()
+                ArchiveDirectoryManager.ensureNoMedia(postDir)
                 val internalPostDir = File(context.filesDir, "posts/$cleanUser")
                 internalPostDir.mkdirs()
+                ArchiveDirectoryManager.ensureNoMedia(internalPostDir)
+                val vaultManager = VaultStorageManager.getInstance(context)
 
                 for (p in posts) {
                     var localPath: String? = null
                     val ext = if (p.mediaType == "video") "mp4" else "jpg"
                     val file = File(postDir, "${p.shortcode}.$ext")
-                    val internalFile = File(internalPostDir, "${p.shortcode}.$ext")
 
                     val downloadUrl = if (p.mediaType == "video" && !p.videoUrl.isNullOrBlank()) p.videoUrl else p.displayUrl
                     if (!downloadUrl.isNullOrBlank()) {
@@ -1206,8 +1212,9 @@ class ProfileInspector(
                             instagramEngine.downloadMedia(downloadUrl, file)
                         }
                         if (file.exists() && file.length() > 0L) {
-                            try { file.copyTo(internalFile, overwrite = true) } catch (_: Exception) {}
-                            localPath = internalFile.absolutePath
+                            val bytes = file.readBytes()
+                            val encPost = vaultManager.saveEncryptedFile(cleanUser, "posts", "${p.shortcode}.$ext", bytes)
+                            localPath = encPost.absolutePath
                         }
                     }
 

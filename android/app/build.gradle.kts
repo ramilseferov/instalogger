@@ -13,8 +13,8 @@ android {
         applicationId = "com.instalogger.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.0.12"
+        versionCode = 14
+        versionName = "1.0.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -88,6 +88,10 @@ dependencies {
 
     // WebKit for Instagram WebView
     implementation("androidx.webkit:webkit:1.12.1")
+
+    // Biometric & Security Crypto
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

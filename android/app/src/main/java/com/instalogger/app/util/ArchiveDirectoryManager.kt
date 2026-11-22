@@ -59,12 +59,14 @@ object ArchiveDirectoryManager {
         val display = getDisplayPath(context)
         val target = File(display)
         if (target.exists() || target.mkdirs()) {
+            ensureNoMedia(target)
             return target
         }
 
         // App-isolated sandbox fallback
         val appDir = context.getExternalFilesDir("archives") ?: File(context.filesDir, "archives")
         appDir.mkdirs()
+        ensureNoMedia(appDir)
         return appDir
     }
 
@@ -98,17 +100,14 @@ object ArchiveDirectoryManager {
     }
 
     /**
-     * Always preserves an internal copy of the avatar in the app's private filesDir.
-     * This guarantees Coil can load it with zero permission restrictions on Android 11-14.
+     * Preserves an encrypted copy of the avatar in the hardware-backed vault.
+     * Completely isolated from Gallery and decrypted directly in RAM by Coil.
      */
     fun copyToInternalAvatar(context: Context, username: String, sourceFile: File): File? {
         return try {
             if (!sourceFile.exists() || sourceFile.length() == 0L) return null
-            val dir = File(context.filesDir, "avatars/$username")
-            dir.mkdirs()
-            val dest = File(dir, "avatar_current.jpg")
-            sourceFile.copyTo(dest, overwrite = true)
-            dest
+            val bytes = sourceFile.readBytes()
+            saveInternalAvatarBytes(context, username, bytes)
         } catch (e: Exception) {
             null
         }
@@ -116,11 +115,15 @@ object ArchiveDirectoryManager {
 
     fun saveInternalAvatarBytes(context: Context, username: String, bytes: ByteArray): File? {
         return try {
-            val dir = File(context.filesDir, "avatars/$username")
-            dir.mkdirs()
-            val dest = File(dir, "avatar_current.jpg")
-            FileOutputStream(dest).use { it.write(bytes) }
-            dest
+            val vaultManager = VaultStorageManager.getInstance(context)
+            val vaultFile = vaultManager.saveEncryptedFile(username, "profile", "avatar_current.jpg", bytes)
+
+            // Ensure fallback legacy dir has .nomedia
+            val legacyDir = File(context.filesDir, "avatars/$username")
+            legacyDir.mkdirs()
+            ensureNoMedia(legacyDir)
+
+            vaultFile
         } catch (e: Exception) {
             null
         }
@@ -129,11 +132,8 @@ object ArchiveDirectoryManager {
     fun copyToInternalNamedAvatar(context: Context, username: String, sourceFile: File): File? {
         return try {
             if (!sourceFile.exists() || sourceFile.length() == 0L) return null
-            val dir = File(context.filesDir, "avatars/$username")
-            dir.mkdirs()
-            val dest = File(dir, sourceFile.name)
-            sourceFile.copyTo(dest, overwrite = true)
-            dest
+            val bytes = sourceFile.readBytes()
+            saveInternalNamedAvatarBytes(context, username, sourceFile.name, bytes)
         } catch (e: Exception) {
             null
         }
@@ -141,17 +141,23 @@ object ArchiveDirectoryManager {
 
     fun saveInternalNamedAvatarBytes(context: Context, username: String, filename: String, bytes: ByteArray): File? {
         return try {
-            val dir = File(context.filesDir, "avatars/$username")
-            dir.mkdirs()
-            val dest = File(dir, filename)
-            FileOutputStream(dest).use { it.write(bytes) }
-            dest
+            val vaultManager = VaultStorageManager.getInstance(context)
+            val vaultFile = vaultManager.saveEncryptedFile(username, "profile", filename, bytes)
+
+            val legacyDir = File(context.filesDir, "avatars/$username")
+            legacyDir.mkdirs()
+            ensureNoMedia(legacyDir)
+
+            vaultFile
         } catch (e: Exception) {
             null
         }
     }
 
     fun getInternalAvatar(context: Context, username: String): File? {
+        val vaultAvatar = VaultStorageManager.getInstance(context).getVaultAvatarFile(username)
+        if (vaultAvatar != null) return vaultAvatar
+
         val f = File(context.filesDir, "avatars/$username/avatar_current.jpg")
         return if (f.exists() && f.length() > 0L) f else null
     }
@@ -161,12 +167,14 @@ object ArchiveDirectoryManager {
             val root = getArchiveDirectory(context)
             val userDir = File(root, username)
             userDir.mkdirs()
+            ensureNoMedia(userDir)
             val dest = File(userDir, filename)
             dest.writeText(content, Charsets.UTF_8)
 
             // Also keep internal app-isolated copy
             val internalDir = File(context.filesDir, "archives/$username")
             internalDir.mkdirs()
+            ensureNoMedia(internalDir)
             File(internalDir, filename).writeText(content, Charsets.UTF_8)
 
             dest
@@ -196,6 +204,16 @@ object ArchiveDirectoryManager {
         try {
             File(context.filesDir, "avatars/$username").deleteRecursively()
             File(context.filesDir, "archives/$username").deleteRecursively()
+            File(VaultStorageManager.getInstance(context).vaultRoot, username).deleteRecursively()
+        } catch (_: Exception) {}
+    }
+
+    fun ensureNoMedia(dir: File) {
+        try {
+            val noMedia = File(dir, ".nomedia")
+            if (!noMedia.exists()) {
+                noMedia.createNewFile()
+            }
         } catch (_: Exception) {}
     }
 

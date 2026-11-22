@@ -46,8 +46,10 @@ import com.instalogger.app.ui.components.ReachabilityHeader
 import com.instalogger.app.ui.components.SettingSwitchRow
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.theme.*
+import com.instalogger.app.util.AppLockManager
 import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.LanguageManager
+import com.instalogger.app.util.VaultStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,6 +81,24 @@ fun SettingsScreen() {
     var showClearLogsDialog by remember { mutableStateOf(false) }
     var showLogsExpanded by remember { mutableStateOf(false) }
 
+    val appLockManager = app.appLockManager
+    val isBiometricEnabled by appLockManager.isBiometricEnabled.collectAsStateWithLifecycle()
+    val isSecureScreenEnabled by appLockManager.isSecureScreenEnabled.collectAsStateWithLifecycle()
+    val autoLockTimeout by appLockManager.autoLockTimeoutSeconds.collectAsStateWithLifecycle()
+    var isLockConfigured by remember { mutableStateOf(appLockManager.isLockConfigured()) }
+
+    var showSetPinDialog by remember { mutableStateOf(false) }
+    var showChangePinDialog by remember { mutableStateOf(false) }
+    var showDisableLockDialog by remember { mutableStateOf(false) }
+    var showTimeoutDialog by remember { mutableStateOf(false) }
+
+    val vaultManager = remember { VaultStorageManager.getInstance(context) }
+    var vaultSizeFormatted by remember {
+        mutableStateOf(formatVaultBytes(vaultManager.getVaultSizeBytes()))
+    }
+
+    val pinSetSuccessMsg = stringResource(R.string.lock_pin_set_success)
+    val pinDisabledSuccessMsg = stringResource(R.string.lock_disabled_success)
     val serviceRestartedMsg = stringResource(R.string.msg_service_restarted)
     val dataClearedMsg = stringResource(R.string.msg_data_cleared)
     val pathSavedMsg = stringResource(R.string.msg_archive_dir_saved)
@@ -208,7 +228,194 @@ fun SettingsScreen() {
                 }
             }
 
-            // 3. Notification Settings Card
+            // 3. Security & App Lock Card
+            SettingsGroupCard(
+                icon = Icons.Default.Security,
+                title = stringResource(R.string.sec_card_title),
+                description = stringResource(R.string.sec_card_desc)
+            ) {
+                SettingSwitchRow(
+                    title = stringResource(R.string.sec_app_lock),
+                    description = stringResource(R.string.sec_app_lock_desc),
+                    checked = isLockConfigured,
+                    onCheckedChange = { enable ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (enable) {
+                            showSetPinDialog = true
+                        } else {
+                            showDisableLockDialog = true
+                        }
+                    }
+                )
+
+                if (isLockConfigured) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+
+                    // Change PIN button row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .bouncyClickable(pressScale = 0.96f) { showChangePinDialog = true }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Pin,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = stringResource(R.string.sec_change_pin),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+
+                    SettingSwitchRow(
+                        title = stringResource(R.string.sec_biometric),
+                        description = stringResource(R.string.sec_biometric_desc),
+                        checked = isBiometricEnabled,
+                        onCheckedChange = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            appLockManager.setBiometricEnabled(it)
+                        }
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+
+                    SettingSwitchRow(
+                        title = stringResource(R.string.sec_secure_screen),
+                        description = stringResource(R.string.sec_secure_screen_desc),
+                        checked = isSecureScreenEnabled,
+                        onCheckedChange = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            appLockManager.setSecureScreenEnabled(it)
+                        }
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+
+                    val timeoutLabel = when (autoLockTimeout) {
+                        0 -> stringResource(R.string.autolock_immediately)
+                        15 -> stringResource(R.string.autolock_15s)
+                        30 -> stringResource(R.string.autolock_30s)
+                        60 -> stringResource(R.string.autolock_1m)
+                        300 -> stringResource(R.string.autolock_5m)
+                        else -> "${autoLockTimeout}s"
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .bouncyClickable(pressScale = 0.96f) { showTimeoutDialog = true }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.sec_autolock),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = stringResource(R.string.sec_autolock_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = timeoutLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. Hardware-Backed Encrypted Vault Card
+            SettingsGroupCard(
+                icon = Icons.Default.EnhancedEncryption,
+                title = stringResource(R.string.vault_card_title),
+                description = stringResource(R.string.vault_card_desc)
+            ) {
+                VaultInfoRow(
+                    icon = Icons.Default.VpnKey,
+                    title = stringResource(R.string.vault_status_engine),
+                    value = stringResource(R.string.vault_engine_val),
+                    badgeText = stringResource(R.string.vault_badge_secure),
+                    badgeColor = StatusGreen
+                )
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+
+                VaultInfoRow(
+                    icon = Icons.Default.HideImage,
+                    title = stringResource(R.string.vault_gallery_isolation),
+                    value = stringResource(R.string.vault_gallery_isolation_val),
+                    badgeText = stringResource(R.string.vault_badge_isolated),
+                    badgeColor = AccentBlue
+                )
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+
+                VaultInfoRow(
+                    icon = Icons.Default.Storage,
+                    title = stringResource(R.string.vault_storage_usage),
+                    value = stringResource(R.string.vault_storage_size_format, vaultSizeFormatted),
+                    badgeText = null,
+                    badgeColor = AccentBlue
+                )
+            }
+
+            // 5. Notification Settings Card
             SettingsGroupCard(
                 icon = Icons.Default.NotificationsActive,
                 title = stringResource(R.string.section_notifications),
@@ -690,6 +897,59 @@ fun SettingsScreen() {
         )
     }
 
+    if (showSetPinDialog) {
+        PinSetupDialog(
+            onDismiss = { showSetPinDialog = false },
+            onPinConfirmed = { newPin ->
+                appLockManager.setPin(newPin)
+                isLockConfigured = true
+                showSetPinDialog = false
+                scope.launch {
+                    snackbarHostState.showSnackbar(pinSetSuccessMsg)
+                }
+            }
+        )
+    }
+
+    if (showChangePinDialog) {
+        PinVerifyDialog(
+            title = stringResource(R.string.sec_change_pin),
+            appLockManager = appLockManager,
+            onDismiss = { showChangePinDialog = false },
+            onVerified = {
+                showChangePinDialog = false
+                showSetPinDialog = true
+            }
+        )
+    }
+
+    if (showDisableLockDialog) {
+        PinVerifyDialog(
+            title = stringResource(R.string.sec_app_lock),
+            appLockManager = appLockManager,
+            onDismiss = { showDisableLockDialog = false },
+            onVerified = {
+                appLockManager.removeLock()
+                isLockConfigured = false
+                showDisableLockDialog = false
+                scope.launch {
+                    snackbarHostState.showSnackbar(pinDisabledSuccessMsg)
+                }
+            }
+        )
+    }
+
+    if (showTimeoutDialog) {
+        AutoLockTimeoutDialog(
+            currentTimeout = autoLockTimeout,
+            onSelect = { seconds ->
+                appLockManager.setAutoLockTimeoutSeconds(seconds)
+                showTimeoutDialog = false
+            },
+            onDismiss = { showTimeoutDialog = false }
+        )
+    }
+
     if (showNotifSettingsSheet) {
         NotificationSettingsBottomSheet(onDismissRequest = { showNotifSettingsSheet = false })
     }
@@ -972,5 +1232,447 @@ private fun ThemeOptionCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun VaultInfoRow(
+    icon: ImageVector,
+    title: String,
+    value: String,
+    badgeText: String? = null,
+    badgeColor: Color = AccentBlue
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(badgeColor.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = badgeColor,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (badgeText != null) {
+            StatusBadge(
+                text = badgeText,
+                containerColor = badgeColor.copy(alpha = 0.15f),
+                contentColor = badgeColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun PinSetupDialog(
+    onDismiss: () -> Unit,
+    onPinConfirmed: (String) -> Unit
+) {
+    var step by remember { mutableStateOf(0) } // 0 = enter pin, 1 = confirm pin
+    var firstPin by remember { mutableStateOf("") }
+    var secondPin by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val haptic = LocalHapticFeedback.current
+
+    val currentPin = if (step == 0) firstPin else secondPin
+    val title = if (step == 0) stringResource(R.string.lock_enter_pin_title) else stringResource(R.string.lock_confirm_pin_title)
+    val subtitle = if (step == 0) stringResource(R.string.lock_enter_pin_desc) else stringResource(R.string.lock_confirm_pin_title)
+    val mismatchError = stringResource(R.string.lock_pin_mismatch)
+
+    fun onNumber(digit: String) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        errorMessage = null
+        if (step == 0) {
+            if (firstPin.length < 4) {
+                val next = firstPin + digit
+                firstPin = next
+                if (next.length == 4) {
+                    step = 1
+                }
+            }
+        } else {
+            if (secondPin.length < 4) {
+                val next = secondPin + digit
+                secondPin = next
+                if (next.length == 4) {
+                    if (next == firstPin) {
+                        onPinConfirmed(next)
+                    } else {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        errorMessage = mismatchError
+                        firstPin = ""
+                        secondPin = ""
+                        step = 0
+                    }
+                }
+            }
+        }
+    }
+
+    fun onBackspace() {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        errorMessage = null
+        if (step == 0) {
+            if (firstPin.isNotEmpty()) firstPin = firstPin.dropLast(1)
+        } else {
+            if (secondPin.isNotEmpty()) secondPin = secondPin.dropLast(1) else step = 0
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = errorMessage ?: subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (errorMessage != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                // 4 PIN Dots
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    for (i in 0 until 4) {
+                        val isFilled = i < currentPin.length
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(
+                                    if (isFilled) AccentBlue else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
+                        )
+                    }
+                }
+
+                // Numeric Keypad
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val rows = listOf(
+                        listOf("1", "2", "3"),
+                        listOf("4", "5", "6"),
+                        listOf("7", "8", "9"),
+                        listOf("", "0", "DEL")
+                    )
+                    for (row in rows) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (cell in row) {
+                                when (cell) {
+                                    "" -> Spacer(modifier = Modifier.weight(1f))
+                                    "DEL" -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(50.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .bouncyClickable(pressScale = 0.92f) { onBackspace() },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Backspace,
+                                                contentDescription = "Backspace",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                    else -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(50.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                                .bouncyClickable(pressScale = 0.92f) { onNumber(cell) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = cell,
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.dialog_cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun PinVerifyDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    onVerified: () -> Unit,
+    appLockManager: AppLockManager
+) {
+    var enteredPin by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+
+    fun onDigit(d: String) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        isError = false
+        if (enteredPin.length < 4) {
+            val next = enteredPin + d
+            enteredPin = next
+            if (next.length == 4) {
+                if (appLockManager.verifyPin(next)) {
+                    onVerified()
+                } else {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    isError = true
+                    enteredPin = ""
+                }
+            }
+        }
+    }
+
+    fun onBack() {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        if (enteredPin.isNotEmpty()) enteredPin = enteredPin.dropLast(1)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = if (isError) stringResource(R.string.lock_pin_incorrect) else stringResource(R.string.lock_enter_pin_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+
+                // 4 PIN Dots
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    for (i in 0 until 4) {
+                        val isFilled = i < enteredPin.length
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(
+                                    if (isFilled) AccentBlue else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                )
+                        )
+                    }
+                }
+
+                // Numeric Keypad
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val rows = listOf(
+                        listOf("1", "2", "3"),
+                        listOf("4", "5", "6"),
+                        listOf("7", "8", "9"),
+                        listOf("", "0", "DEL")
+                    )
+                    for (row in rows) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (cell in row) {
+                                when (cell) {
+                                    "" -> Spacer(modifier = Modifier.weight(1f))
+                                    "DEL" -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(50.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .bouncyClickable(pressScale = 0.92f) { onBack() },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Backspace,
+                                                contentDescription = "Backspace",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                    else -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(50.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                                .bouncyClickable(pressScale = 0.92f) { onDigit(cell) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = cell,
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.dialog_cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun AutoLockTimeoutDialog(
+    currentTimeout: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val options = listOf(
+        0 to stringResource(R.string.autolock_immediately),
+        15 to stringResource(R.string.autolock_15s),
+        30 to stringResource(R.string.autolock_30s),
+        60 to stringResource(R.string.autolock_1m),
+        300 to stringResource(R.string.autolock_5m)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(stringResource(R.string.sec_autolock), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                options.forEach { (seconds, label) ->
+                    val isSelected = currentTimeout == seconds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isSelected) AccentBlue.copy(alpha = 0.12f) else Color.Transparent)
+                            .bouncyClickable(pressScale = 0.96f) { onSelect(seconds) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) AccentBlue else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (isSelected) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.dialog_close))
+            }
+        }
+    )
+}
+
+private fun formatVaultBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 KB"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return if (mb >= 1.0) {
+        String.format(Locale.US, "%.1f MB", mb)
+    } else {
+        String.format(Locale.US, "%.1f KB", kb)
     }
 }

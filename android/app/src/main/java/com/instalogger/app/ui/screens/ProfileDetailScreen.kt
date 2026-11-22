@@ -465,10 +465,12 @@ fun ProfileDetailScreen(
                             ) {
                                 items(avatars, key = { it.id }) { avatar ->
                                     val file = File(avatar.localPath)
+                                    val vaultFile = File(context.filesDir, "vault/${avatar.username}/profile/${file.name}.enc")
                                     val internalCandidate = File(context.filesDir, "avatars/${avatar.username}/${file.name}")
                                     val imageModel: Any = when {
-                                        internalCandidate.exists() && internalCandidate.length() > 0 -> internalCandidate
                                         file.exists() && file.canRead() && file.length() > 0 -> file
+                                        vaultFile.exists() && vaultFile.length() > 0 -> vaultFile
+                                        internalCandidate.exists() && internalCandidate.length() > 0 -> internalCandidate
                                         else -> "http://127.0.0.1:3000/archives/${avatar.username}/profile/${file.name}"
                                     }
                                     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())

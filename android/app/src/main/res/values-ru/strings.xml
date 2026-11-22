@@ -185,4 +185,45 @@
     <string name="notif_settings_sheet_title">Настройки уведомлений</string>
     <string name="btn_battery_opt_active">Исключение активно • Открыть настройки</string>
     <string name="badge_active_count_format">%1$d активных</string>
+
+    <!-- Security & App Lock -->
+    <string name="lock_biometric_title">Биометрическая проверка</string>
+    <string name="lock_biometric_desc">Подтвердите отпечаток пальца или лицо для разблокировки InstaLogger</string>
+    <string name="lock_use_pin">Использовать PIN</string>
+    <string name="lock_enter_pin_desc">Введите ваш 4-значный защитный PIN-код</string>
+    <string name="lock_lockout_warning">Слишком много попыток. Заблокировано на %1$d сек.</string>
+    <string name="lock_enter_pin_title">Введите защитный PIN</string>
+    <string name="lock_confirm_pin_title">Подтвердите защитный PIN</string>
+    <string name="lock_pin_mismatch">PIN-коды не совпадают. Попробуйте снова.</string>
+    <string name="lock_pin_set_success">Блокировка приложения успешно настроена</string>
+    <string name="lock_disabled_success">Блокировка приложения отключена</string>
+    <string name="lock_pin_incorrect">Неверный PIN-код</string>
+    <string name="sec_card_title">Безопасность и блокировка</string>
+    <string name="sec_card_desc">Защитите доступ к InstaLogger аппаратным биометрическим и PIN-экраном.</string>
+    <string name="sec_app_lock">Блокировка приложения</string>
+    <string name="sec_app_lock_desc">Требовать PIN или биометрию при открытии приложения</string>
+    <string name="sec_change_pin">Изменить PIN-код</string>
+    <string name="sec_biometric">Разблокировка по биометрии</string>
+    <string name="sec_biometric_desc">Отпечаток пальца или сканирование лица</string>
+    <string name="sec_secure_screen">Защита от снимков и переключателя</string>
+    <string name="sec_secure_screen_desc">Блокирует скриншоты и скрывает окно в недавних приложениях</string>
+    <string name="sec_autolock">Автоблокировка</string>
+    <string name="sec_autolock_desc">Блокировать при сворачивании приложения</string>
+    <string name="autolock_immediately">Немедленно</string>
+    <string name="autolock_15s">15 секунд</string>
+    <string name="autolock_30s">30 секунд</string>
+    <string name="autolock_1m">1 минута</string>
+    <string name="autolock_5m">5 минут</string>
+
+    <!-- Encrypted Vault Storage -->
+    <string name="vault_card_title">Аппаратно зашифрованное хранилище</string>
+    <string name="vault_card_desc">Медиа, аватары и посты шифруются на диске AES-256-GCM и полностью скрыты от Галереи.</string>
+    <string name="vault_status_engine">Механизм шифрования</string>
+    <string name="vault_engine_val">AES-256-GCM (Аппаратный KeyStore)</string>
+    <string name="vault_gallery_isolation">Изоляция от Галереи и MediaStore</string>
+    <string name="vault_gallery_isolation_val">Активна (.nomedia и песочница)</string>
+    <string name="vault_storage_usage">Объем зашифрованного хранилища</string>
+    <string name="vault_storage_size_format">%1$s (Ноль открытого текста на диске)</string>
+    <string name="vault_badge_secure">Аппаратная защита</string>
+    <string name="vault_badge_isolated">100% Скрыто</string>
 </resources>

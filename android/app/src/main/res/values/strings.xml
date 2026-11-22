@@ -185,4 +185,45 @@
     <string name="notif_settings_sheet_title">Notification Settings</string>
     <string name="btn_battery_opt_active">Exemption Active • Open Settings</string>
     <string name="badge_active_count_format">%1$d active</string>
+
+    <!-- Security & App Lock -->
+    <string name="lock_biometric_title">Biometric Verification</string>
+    <string name="lock_biometric_desc">Confirm fingerprint or face to unlock InstaLogger</string>
+    <string name="lock_use_pin">Use PIN</string>
+    <string name="lock_enter_pin_desc">Enter your 4-digit security PIN</string>
+    <string name="lock_lockout_warning">Too many attempts. Locked for %1$d seconds</string>
+    <string name="lock_enter_pin_title">Enter Security PIN</string>
+    <string name="lock_confirm_pin_title">Confirm Security PIN</string>
+    <string name="lock_pin_mismatch">PINs do not match. Try again.</string>
+    <string name="lock_pin_set_success">App Lock configured successfully</string>
+    <string name="lock_disabled_success">App Lock has been disabled</string>
+    <string name="lock_pin_incorrect">Incorrect PIN</string>
+    <string name="sec_card_title">Security &amp; App Lock</string>
+    <string name="sec_card_desc">Protect access to InstaLogger with hardware-backed biometric and PIN shield.</string>
+    <string name="sec_app_lock">App Lock</string>
+    <string name="sec_app_lock_desc">Require PIN or biometric when opening app</string>
+    <string name="sec_change_pin">Change PIN</string>
+    <string name="sec_biometric">Biometric Unlock</string>
+    <string name="sec_biometric_desc">Fingerprint or Face authentication</string>
+    <string name="sec_secure_screen">Screenshot &amp; Recents Shield</string>
+    <string name="sec_secure_screen_desc">Blocks screenshots and hides screen preview in recent apps</string>
+    <string name="sec_autolock">Auto-Lock</string>
+    <string name="sec_autolock_desc">Lock when sent to background</string>
+    <string name="autolock_immediately">Immediately</string>
+    <string name="autolock_15s">15 seconds</string>
+    <string name="autolock_30s">30 seconds</string>
+    <string name="autolock_1m">1 minute</string>
+    <string name="autolock_5m">5 minutes</string>
+
+    <!-- Encrypted Vault Storage -->
+    <string name="vault_card_title">Hardware-Backed Encrypted Vault</string>
+    <string name="vault_card_desc">Media, avatars and posts are encrypted on disk with AES-256-GCM and completely excluded from Android Gallery.</string>
+    <string name="vault_status_engine">Encryption Engine</string>
+    <string name="vault_engine_val">AES-256-GCM (Hardware KeyStore)</string>
+    <string name="vault_gallery_isolation">Gallery &amp; MediaStore Isolation</string>
+    <string name="vault_gallery_isolation_val">Enforced (.nomedia &amp; Sandbox)</string>
+    <string name="vault_storage_usage">Vault Storage Size</string>
+    <string name="vault_storage_size_format">%1$s (Zero Plaintext on Disk)</string>
+    <string name="vault_badge_secure">Hardware Protected</string>
+    <string name="vault_badge_isolated">100% Hidden</string>
 </resources>
