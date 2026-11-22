@@ -6,6 +6,11 @@ web/dist/
 run/*.pid
 logs/*.log
 *.log
+*.apk
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
 
 # Sensitive user session data and local media
 sessions/*.json
