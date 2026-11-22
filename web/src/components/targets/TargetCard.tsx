@@ -30,7 +30,7 @@ export const TargetCard: React.FC<TargetCardProps> = ({
           <div className="w-12 h-12 rounded-full bg-[#E5E8EC] flex items-center justify-center text-gray-600 font-bold text-lg overflow-hidden border border-gray-100 group-hover:scale-105 transition-transform duration-200">
             {target.profile_pic_path ? (
               <img
-                src={target.profile_pic_path}
+                src={target.profile_pic_path.startsWith('/') ? target.profile_pic_path : `/${target.profile_pic_path}`}
                 alt={target.username}
                 className="w-full h-full object-cover"
               />

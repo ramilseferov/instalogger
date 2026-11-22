@@ -22,6 +22,8 @@ pub struct ProfileSnapshot {
     pub followed_by_viewer: bool,
     pub media_count: i64,
     pub profile_pic_url: String,
+    #[serde(default)]
+    pub profile_pic_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +73,17 @@ pub fn detect_changes(old: &Target, new: &ProfileSnapshot) -> Vec<DetectedChange
             event_type: "post_count_change".to_string(),
             old_value: old.media_count.to_string(),
             new_value: new.media_count.to_string(),
+        });
+    }
+
+    if old.profile_pic_path.is_some()
+        && new.profile_pic_path.is_some()
+        && old.profile_pic_path != new.profile_pic_path
+    {
+        changes.push(DetectedChange {
+            event_type: "avatar_change".to_string(),
+            old_value: old.profile_pic_path.clone().unwrap_or_default(),
+            new_value: new.profile_pic_path.clone().unwrap_or_default(),
         });
     }
 
@@ -186,12 +199,28 @@ impl Scheduler {
                 .await?;
         }
 
+        let has_avatar_change = changes.iter().any(|c| c.event_type == "avatar_change");
+        if has_avatar_change {
+            let _ = self
+                .notify
+                .send(
+                    "🖼️ Profil Şəkli Dəyişdi",
+                    &format!("@{} profil şəklini yenilədi.", target.username),
+                    false,
+                )
+                .await;
+        }
+
         target_updated.username = snapshot.username;
         target_updated.full_name = snapshot.full_name;
         target_updated.biography = snapshot.biography;
         target_updated.is_private = snapshot.is_private;
         target_updated.followed_by_viewer = snapshot.followed_by_viewer;
         target_updated.media_count = snapshot.media_count;
+        target_updated.profile_pic_path = snapshot
+            .profile_pic_path
+            .clone()
+            .or(target_updated.profile_pic_path);
 
         self.db.update_target_profile(&target_updated)?;
         Ok(())

@@ -81,6 +81,24 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ logs }) => {
             </div>
           </div>
         );
+      case 'avatar_change': {
+        const oldSrc = log.old_value.startsWith('/') ? log.old_value : `/${log.old_value}`;
+        const newSrc = log.new_value.startsWith('/') ? log.new_value : `/${log.new_value}`;
+        return (
+          <div className="flex flex-col gap-2 text-xs">
+            <span className="font-bold text-gray-800">Profil şəkli yeniləndi</span>
+            <div className="flex items-center gap-3 bg-gray-50 p-2.5 rounded-2xl border border-gray-100 w-fit">
+              <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-300 opacity-60">
+                <img src={oldSrc} alt="Köhnə" className="w-full h-full object-cover" />
+              </div>
+              <span className="text-gray-400 font-bold">→</span>
+              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#0C7FF2] shadow-xs">
+                <img src={newSrc} alt="Yeni" className="w-full h-full object-cover" />
+              </div>
+            </div>
+          </div>
+        );
+      }
       case 'post_count_change': {
         const oldNum = parseInt(log.old_value) || 0;
         const newNum = parseInt(log.new_value) || 0;

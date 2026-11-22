@@ -12,7 +12,7 @@ fn test_state_machine_transition_detection() {
         is_private: true,
         followed_by_viewer: false,
         media_count: 10,
-        profile_pic_path: None,
+        profile_pic_path: Some("archives/12345678/profile/avatar_old.jpg".to_string()),
         status: "active".to_string(),
         turbo_mode: false,
         check_interval_seconds: 300,
@@ -30,6 +30,7 @@ fn test_state_machine_transition_detection() {
         followed_by_viewer: false,
         media_count: 15,
         profile_pic_url: "https://example.com/pic2.jpg".to_string(),
+        profile_pic_path: Some("archives/12345678/profile/avatar_new.jpg".to_string()),
     };
 
     let events = detect_changes(&old_target, &new_profile);
@@ -45,4 +46,7 @@ fn test_state_machine_transition_detection() {
     assert!(events
         .iter()
         .any(|e| e.event_type == "post_count_change" && e.new_value == "15"));
+    assert!(events
+        .iter()
+        .any(|e| e.event_type == "avatar_change" && e.new_value == "archives/12345678/profile/avatar_new.jpg"));
 }

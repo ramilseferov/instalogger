@@ -6,6 +6,7 @@ import { StatusBadge } from '../common/StatusBadge';
 import { Button } from '../common/Button';
 import { TimelineView } from './TimelineView';
 import { MediaGallery } from './MediaGallery';
+import { AvatarHistoryModal } from './AvatarHistoryModal';
 import {
   ArrowLeft,
   RefreshCw,
@@ -32,6 +33,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   const [media, setMedia] = useState<ArchivedMedia[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -116,12 +118,16 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
       {/* Profile Overview Card */}
       <Card className="space-y-4 hover:shadow-md transition-shadow">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-[#E5E8EC] overflow-hidden flex items-center justify-center border-2 border-gray-100 shrink-0">
+          <div
+            onClick={() => setIsAvatarModalOpen(true)}
+            className="w-16 h-16 rounded-full bg-[#E5E8EC] overflow-hidden flex items-center justify-center border-2 border-gray-100 shrink-0 cursor-pointer hover:border-[#0C7FF2] hover:scale-105 active:scale-95 transition-all shadow-xs group"
+            title="Bütün arxivlənmiş profil şəkillərinə bax"
+          >
             {target.profile_pic_path ? (
               <img
-                src={target.profile_pic_path}
+                src={target.profile_pic_path.startsWith('/') ? target.profile_pic_path : `/${target.profile_pic_path}`}
                 alt={target.username}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover group-hover:opacity-90"
               />
             ) : (
               <User size={30} className="text-gray-400" />
@@ -190,6 +196,14 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
       ) : (
         <TimelineView logs={logs} />
       )}
+
+      {/* Avatar History Modal */}
+      <AvatarHistoryModal
+        isOpen={isAvatarModalOpen}
+        onClose={() => setIsAvatarModalOpen(false)}
+        targetId={target.id}
+        username={target.username}
+      />
     </div>
   );
 };

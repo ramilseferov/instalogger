@@ -46,6 +46,7 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         .route("/targets/{id}/turbo", post(targets::toggle_turbo))
         .route("/targets/{id}/check-now", post(targets::check_target_now))
         .route("/targets/{id}/logs", get(targets::get_target_logs))
+        .route("/targets/{id}/avatars", get(targets::get_target_avatars))
         .route("/targets/{id}/media", get(media::list_media))
         .route(
             "/settings",

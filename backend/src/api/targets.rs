@@ -88,6 +88,7 @@ pub async fn add_target(
                 followed_by_viewer: false,
                 media_count: 0,
                 profile_pic_url: "".to_string(),
+                profile_pic_path: None,
             }
         }
     };
@@ -100,7 +101,7 @@ pub async fn add_target(
         is_private: snapshot.is_private,
         followed_by_viewer: snapshot.followed_by_viewer,
         media_count: snapshot.media_count,
-        profile_pic_path: None,
+        profile_pic_path: snapshot.profile_pic_path.clone(),
         status: "active".to_string(),
         turbo_mode: payload.turbo.unwrap_or(false),
         check_interval_seconds: 300,
@@ -199,3 +200,49 @@ pub async fn get_target_logs(
         ),
     }
 }
+
+pub async fn get_target_avatars(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let target = match state.db.get_target(&id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "error", "message": "Target not found" })),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error", "message": e.to_string() })),
+            );
+        }
+    };
+
+    let profile_dir = format!("archives/{}/profile", target.id);
+    let mut avatars = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&profile_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with("avatar_") && file_name.ends_with(".jpg") && file_name != "avatar_current.jpg" {
+                avatars.push(format!("archives/{}/profile/{}", target.id, file_name));
+            }
+        }
+    }
+
+    avatars.sort();
+    avatars.reverse();
+
+    if avatars.is_empty() && std::path::Path::new(&format!("{}/avatar_current.jpg", profile_dir)).exists() {
+        avatars.push(format!("archives/{}/profile/avatar_current.jpg", target.id));
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({ "status": "ok", "avatars": avatars })),
+    )
+}
+

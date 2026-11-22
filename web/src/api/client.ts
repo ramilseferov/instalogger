@@ -50,6 +50,12 @@ export const api = {
     return data.logs || [];
   },
 
+  async getAvatars(id: string): Promise<string[]> {
+    const res = await fetch(`${BASE_URL}/targets/${id}/avatars`);
+    const data = await res.json();
+    return data.avatars || [];
+  },
+
   async getMedia(id: string, type?: string): Promise<ArchivedMedia[]> {
     const query = type && type !== 'all' ? `?type=${type}` : '';
     const res = await fetch(`${BASE_URL}/targets/${id}/media${query}`);

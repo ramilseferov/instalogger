@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import requests
@@ -14,6 +15,68 @@ try:
     from engine.instagram_client import InstagramClient
 except ImportError:
     from instagram_client import InstagramClient
+
+
+def extract_avatar_asset_key(url: str) -> str:
+    """Extract asset path from CDN URL stripping query parameters."""
+    if not url:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return parsed.path
+    except Exception:
+        return url.split("?")[0]
+
+
+def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Session] = None) -> Optional[str]:
+    """Download avatar and preserve historical copies."""
+    url = profile.get("profile_pic_url")
+    target_id = profile.get("id")
+    if not url or not target_id:
+        return None
+
+    profile_dir = os.path.join("archives", str(target_id), "profile")
+    os.makedirs(profile_dir, exist_ok=True)
+    key_file = os.path.join(profile_dir, ".avatar_key")
+    asset_key = extract_avatar_asset_key(url)
+
+    # Check existing key and file
+    if os.path.exists(key_file):
+        try:
+            with open(key_file, "r", encoding="utf-8") as kf:
+                saved_key, saved_rel = kf.read().strip().split("||", 1)
+                if saved_key == asset_key and os.path.exists(saved_rel):
+                    return saved_rel
+        except Exception:
+            pass
+
+    # Download new avatar
+    sess = session or requests.Session()
+    try:
+        r = sess.get(url, timeout=15)
+        if r.status_code == 200 and len(r.content) > 0:
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+            history_filename = f"avatar_{now_str}.jpg"
+            history_path = os.path.join(profile_dir, history_filename)
+            current_path = os.path.join(profile_dir, "avatar_current.jpg")
+
+            with open(history_path, "wb") as f:
+                f.write(r.content)
+            with open(current_path, "wb") as f:
+                f.write(r.content)
+
+            rel_path = f"archives/{target_id}/profile/{history_filename}"
+            with open(key_file, "w", encoding="utf-8") as kf:
+                kf.write(f"{asset_key}||{rel_path}")
+
+            return rel_path
+    except Exception as e:
+        sys.stderr.write(f"Avatar sync error: {e}\n")
+
+    current_path = os.path.join(profile_dir, "avatar_current.jpg")
+    if os.path.exists(current_path):
+        return f"archives/{target_id}/profile/avatar_current.jpg"
+    return None
 
 
 def parse_profile_metadata(user_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -78,6 +141,8 @@ def action_check_profile(target: str, session_path: Optional[str]):
         return
 
     profile = parse_profile_metadata(user_data)
+    avatar_rel = sync_profile_avatar(profile, client.session)
+    profile["profile_pic_path"] = avatar_rel
     print(json.dumps({"status": "ok", "profile": profile}))
 
 
@@ -91,6 +156,8 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
 
     user_data = res.get("data", {}).get("user", {})
     profile = parse_profile_metadata(user_data)
+    avatar_rel = sync_profile_avatar(profile, client.session)
+    profile["profile_pic_path"] = avatar_rel
 
     media_edges = user_data.get("edge_owner_to_timeline_media", {}).get("edges", [])
     items = []
@@ -125,7 +192,7 @@ def action_hydrate_assets(target_id: str, input_json: str, output_dir: str):
     total_bytes = 0
 
     session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S928B)"})
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"})
 
     for idx, item in enumerate(items, 1):
         cdn_url = item.get("cdn_url")
