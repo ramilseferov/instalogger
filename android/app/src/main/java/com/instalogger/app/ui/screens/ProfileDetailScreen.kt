@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
@@ -72,6 +73,7 @@ fun ProfileDetailScreen(
     var activeHighlight by remember { mutableStateOf<HighlightEntity?>(null) }
     var activeHighlightMedia by remember { mutableStateOf<List<HighlightMediaEntity>>(emptyList()) }
     var showAuditSheet by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     var auditInitialFilter by remember { mutableStateOf("follower_lost") }
     val noneStr = stringResource(R.string.none_value)
 
@@ -98,19 +100,37 @@ fun ProfileDetailScreen(
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                 onNavigationClick = onBack,
                 actions = {
-                    val refreshShape = RoundedCornerShape(12.dp)
+                    val actionBtnShape = RoundedCornerShape(12.dp)
                     Box(
                         modifier = Modifier
-                            .padding(end = 12.dp)
+                            .padding(end = 8.dp)
                             .size(38.dp)
-                            .clip(refreshShape)
+                            .clip(actionBtnShape)
                             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, refreshShape),
+                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, actionBtnShape),
                         contentAlignment = Alignment.Center
                     ) {
                         RotatingRefreshButton(
                             isRefreshing = isRefreshing,
                             onClick = { refreshTargetData() }
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .size(38.dp)
+                            .clip(actionBtnShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, actionBtnShape)
+                            .bouncyClickable(pressScale = 0.90f, onClick = { showDeleteDialog = true }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = stringResource(R.string.action_delete),
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -534,6 +554,51 @@ fun ProfileDetailScreen(
             initialFilter = auditInitialFilter,
             audits = audits,
             onDismiss = { showAuditSheet = false }
+        )
+    }
+
+    // Delete Target Confirmation Dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.dialog_delete_confirm_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.dialog_delete_confirm_desc, username),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteDialog = false
+                        scope.launch {
+                            app.profileInspector.deleteTarget(username, target?.instagramId)
+                            onBack()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = ShapeTokens.SmallShape
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteDialog = false },
+                    shape = ShapeTokens.SmallShape
+                ) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            },
+            shape = ShapeTokens.LargeShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }
 }

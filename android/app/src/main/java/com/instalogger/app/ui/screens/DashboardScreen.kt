@@ -246,6 +246,7 @@ fun DashboardScreen(
                 showAddDialog = false
                 val cleanUser = username.trim().trimStart('@')
                 scope.launch {
+                    app.profileInspector.unmarkDeleted(cleanUser)
                     val result = app.profileInspector.inspectTarget(cleanUser)
                     if (result.isSuccess) {
                         val newTarget = result.getOrThrow().copy(isTurbo = turbo)
@@ -293,11 +294,7 @@ fun DashboardScreen(
                         targetToDelete = null
                         targets = targets.filter { it.username != t.username }
                         scope.launch {
-                            withContext(Dispatchers.IO) {
-                                app.database.targetDao().deleteTarget(t.username)
-                                app.database.changeLogDao().deleteLogsForTarget(t.username)
-                                app.database.avatarHistoryDao().deleteAvatarsForTarget(t.username)
-                            }
+                            app.profileInspector.deleteTarget(t.username, t.instagramId)
                             snackbarHostState.showSnackbar(context.getString(R.string.msg_target_deleted, t.username))
                         }
                     },

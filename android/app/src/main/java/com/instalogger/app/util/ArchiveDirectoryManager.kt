@@ -192,6 +192,13 @@ object ArchiveDirectoryManager {
         }
     }
 
+    fun deleteInternalTargetFiles(context: Context, username: String) {
+        try {
+            File(context.filesDir, "avatars/$username").deleteRecursively()
+            File(context.filesDir, "archives/$username").deleteRecursively()
+        } catch (_: Exception) {}
+    }
+
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }

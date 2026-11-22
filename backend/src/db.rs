@@ -280,9 +280,24 @@ impl Database {
         Ok(())
     }
 
-    pub fn delete_target(&self, id: &str) -> Result<()> {
+    pub fn delete_target(&self, id_or_username: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM targets WHERE id = ?1", params![id])?;
+        let mut stmt = conn.prepare("SELECT id, username FROM targets WHERE id = ?1 OR username = ?1 LIMIT 1")?;
+        let maybe_target = stmt.query_row(params![id_or_username], |row| {
+            let id: String = row.get(0)?;
+            let username: String = row.get(1)?;
+            Ok((id, username))
+        });
+
+        if let Ok((id, username)) = maybe_target {
+            conn.execute("DELETE FROM targets WHERE id = ?1 OR username = ?2", params![id, username])?;
+            let _ = conn.execute("DELETE FROM change_logs WHERE target_id = ?1 OR target_id = ?2", params![id, username]);
+            let _ = conn.execute("DELETE FROM archived_media WHERE target_id = ?1 OR target_id = ?2", params![id, username]);
+        } else {
+            conn.execute("DELETE FROM targets WHERE id = ?1 OR username = ?1", params![id_or_username])?;
+            let _ = conn.execute("DELETE FROM change_logs WHERE target_id = ?1", params![id_or_username]);
+            let _ = conn.execute("DELETE FROM archived_media WHERE target_id = ?1", params![id_or_username]);
+        }
         Ok(())
     }
 

@@ -508,6 +508,73 @@ class ProfileInspector(
         return null
     }
 
+    fun unmarkDeleted(username: String) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
+        val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
+        if (current.remove(cleanUser)) {
+            prefs.edit().putStringSet("deleted_usernames", current).apply()
+        }
+    }
+
+    private fun isTargetDeleted(usernameOrId: String): Boolean {
+        val clean = usernameOrId.trim().trimStart('@').lowercase()
+        val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
+        return prefs.getStringSet("deleted_usernames", emptySet())?.contains(clean) == true
+    }
+
+    suspend fun deleteTarget(username: String, instagramId: String? = null): Boolean = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val targetEntity = database.targetDao().getTarget(cleanUser)
+        val idToDelete = instagramId ?: targetEntity?.instagramId
+
+        // Record in persistent tombstones immediately to prevent resurrection under race conditions
+        val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
+        val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(cleanUser)
+        if (!idToDelete.isNullOrBlank()) current.add(idToDelete.lowercase())
+        prefs.edit().putStringSet("deleted_usernames", current).apply()
+
+        // 1. Delete from local Rust daemon (port 3000)
+        val candidates = mutableListOf<String>()
+        if (!idToDelete.isNullOrBlank()) candidates.add(idToDelete)
+        candidates.add(cleanUser)
+
+        for (targetKey in candidates.distinct()) {
+            try {
+                val req = Request.Builder()
+                    .url("http://127.0.0.1:3000/api/targets/$targetKey")
+                    .delete()
+                    .build()
+                httpClient.newCall(req).execute().close()
+            } catch (_: Exception) {
+                // Ignore if daemon is offline
+            }
+        }
+
+        // 2. Comprehensive Room database clean up across all entities
+        try {
+            database.targetDao().deleteTarget(cleanUser)
+            database.changeLogDao().deleteLogsForTarget(cleanUser)
+            database.avatarHistoryDao().deleteAvatarsForTarget(cleanUser)
+            database.highlightDao().deleteHighlightsForUser(cleanUser)
+            database.highlightDao().deleteMediaForUser(cleanUser)
+            database.postDao().deletePostsForUser(cleanUser)
+            database.followerAuditDao().deleteAuditsForTarget(cleanUser)
+            database.followerHistoryDao().deleteHistoryForTarget(cleanUser)
+            database.notificationDao().deleteNotificationsForTarget(cleanUser)
+        } catch (e: Exception) {
+            android.util.Log.e("ProfileInspector", "Error deleting target $cleanUser from Room", e)
+        }
+
+        // 3. Clean up internal avatar and archive files
+        try {
+            ArchiveDirectoryManager.deleteInternalTargetFiles(context, cleanUser)
+        } catch (_: Exception) {}
+
+        true
+    }
+
     suspend fun syncAllFromDaemon(): List<String> = withContext(Dispatchers.IO) {
         val synced = mutableListOf<String>()
         try {
@@ -525,6 +592,21 @@ class ProfileInspector(
                 for (item in targets) {
                     val obj = item.asJsonObject ?: continue
                     val u = obj.get("username")?.asString ?: continue
+                    val cleanUser = u.trim().trimStart('@').lowercase()
+                    val targetId = obj.get("id")?.asString
+
+                    // If previously marked as deleted, ensure daemon removes it and do NOT re-import
+                    if (isTargetDeleted(cleanUser) || (!targetId.isNullOrBlank() && isTargetDeleted(targetId))) {
+                        try {
+                            val delReq = Request.Builder()
+                                .url("http://127.0.0.1:3000/api/targets/${targetId ?: cleanUser}")
+                                .delete()
+                                .build()
+                            httpClient.newCall(delReq).execute().close()
+                        } catch (_: Exception) {}
+                        continue
+                    }
+
                     inspectTarget(u)
                     synced.add(u)
                 }
