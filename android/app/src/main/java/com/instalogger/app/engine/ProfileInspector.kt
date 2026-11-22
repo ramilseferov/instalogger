@@ -77,6 +77,11 @@ class ProfileInspector(
         val notificationDao = database.notificationDao()
         val cleanUser = username.trim().trimStart('@').lowercase()
 
+        // Fast-path guard: Abort immediately if target has been deleted
+        if (isTargetDeleted(cleanUser)) {
+            return@withContext Result.failure(Exception("Target was deleted"))
+        }
+
         // 1. Live Instagram inspection (obtains live follower & following count)
         val cookie = sessionManager.getCookieString()
         var directSnapshot: InstagramProfileSnapshot? = null
@@ -397,6 +402,10 @@ class ProfileInspector(
             createdAt = freshInDb?.createdAt ?: existing?.createdAt ?: now
         )
 
+        if (isTargetDeleted(cleanUser)) {
+            return@withContext Result.failure(Exception("Target was deleted"))
+        }
+
         targetDao.insertTarget(updatedTarget)
         Result.success(updatedTarget)
     }
@@ -691,11 +700,11 @@ class ProfileInspector(
         val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
         val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
         if (current.remove(cleanUser)) {
-            prefs.edit().putStringSet("deleted_usernames", current).apply()
+            prefs.edit().putStringSet("deleted_usernames", current).commit()
         }
     }
 
-    private fun isTargetDeleted(usernameOrId: String): Boolean {
+    fun isTargetDeleted(usernameOrId: String): Boolean {
         val clean = usernameOrId.trim().trimStart('@').lowercase()
         val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
         return prefs.getStringSet("deleted_usernames", emptySet())?.contains(clean) == true
@@ -711,7 +720,7 @@ class ProfileInspector(
         val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
         current.add(cleanUser)
         if (!idToDelete.isNullOrBlank()) current.add(idToDelete.lowercase())
-        prefs.edit().putStringSet("deleted_usernames", current).apply()
+        prefs.edit().putStringSet("deleted_usernames", current).commit()
 
         // 1. Delete from local Rust daemon (port 3000)
         val candidates = mutableListOf<String>()
@@ -1235,6 +1244,10 @@ class ProfileInspector(
 
                 if (postEntities.isNotEmpty()) {
                     postDao.insertPosts(postEntities)
+                    val cur = database.targetDao().getTarget(cleanUser)
+                    if (cur != null && (cur.mediaCount == 0L || cur.mediaCount < postEntities.size)) {
+                        database.targetDao().insertTarget(cur.copy(mediaCount = postEntities.size.toLong()))
+                    }
                 }
             }
 

@@ -894,11 +894,16 @@ class InstagramEngine {
             val htmlUrl = "https://www.instagram.com/$username/"
             val htmlReq = Request.Builder()
                 .url(htmlUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                .header("User-Agent", USER_AGENT)
+                .header("X-IG-App-ID", APP_ID)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "en-US,en;q=0.9")
-                .build()
-            clientWithRedirects.newCall(htmlReq).execute().use { resp ->
+
+            if (!cookieString.isNullOrBlank()) {
+                htmlReq.header("Cookie", cookieString)
+            }
+
+            clientWithRedirects.newCall(htmlReq.build()).execute().use { resp ->
                 if (resp.isSuccessful) {
                     val html = resp.body?.string() ?: ""
                     val scPattern = Pattern.compile("\"shortcode\":\\s*\"([A-Za-z0-9_-]+)\"")
@@ -910,13 +915,22 @@ class InstagramEngine {
                             shortcodes.add(sc)
                         }
                     }
+
                     for (sc in shortcodes) {
+                        // Check if direct display_url exists near this shortcode
+                        var directUrl: String? = null
+                        val directPattern = Pattern.compile("\"shortcode\":\\s*\"" + Pattern.quote(sc) + "\"[^}]*?\"display_url\":\\s*\"([^\"]+)\"")
+                        val directMatcher = directPattern.matcher(html)
+                        if (directMatcher.find()) {
+                            directUrl = unescapeJson(directMatcher.group(1) ?: "")
+                        }
+
                         list.add(
                             InstagramPostItem(
                                 id = sc,
                                 shortcode = sc,
                                 mediaType = "image",
-                                displayUrl = "https://instagram.com/p/$sc/media/?size=l",
+                                displayUrl = directUrl ?: "https://instagram.com/p/$sc/media/?size=l",
                                 videoUrl = null,
                                 caption = "",
                                 timestamp = System.currentTimeMillis(),

@@ -7,6 +7,7 @@ run/*.pid
 logs/*.log
 *.log
 *.apk
+*.db
 android/.gradle/
 android/app/build/
 android/build/

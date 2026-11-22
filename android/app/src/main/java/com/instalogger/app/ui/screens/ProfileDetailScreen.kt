@@ -1,9 +1,6 @@
 package com.instalogger.app.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -31,19 +28,23 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
+import com.instalogger.app.data.local.AvatarHistoryEntity
+import com.instalogger.app.data.local.ChangeLogEntity
 import com.instalogger.app.data.local.HighlightEntity
 import com.instalogger.app.data.local.HighlightMediaEntity
-import com.instalogger.app.util.cleanDisplayText
-import com.instalogger.app.ui.animation.MotionSpecs
+import com.instalogger.app.data.local.PostEntity
+import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
+import com.instalogger.app.util.ArchiveDirectoryManager
+import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -71,13 +72,14 @@ fun ProfileDetailScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
+    var selectedPostForViewer by remember { mutableStateOf<PostEntity?>(null) }
     var activeHighlight by remember { mutableStateOf<HighlightEntity?>(null) }
     var activeHighlightMedia by remember { mutableStateOf<List<HighlightMediaEntity>>(emptyList()) }
     var showAuditSheet by remember { mutableStateOf(false) }
+    var auditInitialTab by remember { mutableIntStateOf(0) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var auditInitialFilter by remember { mutableStateOf("follower_lost") }
-    val noneStr = stringResource(R.string.none_value)
 
+    // Auto-fetch posts & highlights immediately upon opening screen
     LaunchedEffect(username) {
         app.profileInspector.inspectHighlightsAndPosts(username)
     }
@@ -150,384 +152,171 @@ fun ProfileDetailScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Profile Hero Card
-                target?.let { t ->
-                    val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, t.username)
-                    val localFile = t.localAvatarPath?.let { File(it) }
-                    val resolvedFile = when {
-                        internalFile != null && internalFile.exists() && internalFile.length() > 0 -> internalFile
-                        localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
-                        else -> null
-                    }
-
-                    val heroShape = ShapeTokens.LargeShape
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .clip(heroShape)
-                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, heroShape),
-                        shape = heroShape,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        tonalElevation = 2.dp
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(18.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                val topImageSource: Any? = when {
-                                    resolvedFile != null -> resolvedFile
-                                    !t.avatarUrl.isNullOrBlank() -> t.avatarUrl
-                                    !t.instagramId.isNullOrBlank() -> "http://127.0.0.1:3000/archives/${t.instagramId}/profile/avatar_current.jpg"
-                                    else -> "http://127.0.0.1:3000/archives/${t.username}/profile/avatar_current.jpg"
-                                }
-
-                                if (topImageSource != null) {
-                                    AsyncImage(
-                                        model = topImageSource,
-                                        contentDescription = t.username,
-                                        modifier = Modifier
-                                            .size(66.dp)
-                                            .clip(CircleShape)
-                                            .border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape)
-                                            .bouncyClickable(pressScale = 0.92f) {
-                                                previewImagePath = (topImageSource as? File)?.absolutePath ?: topImageSource.toString()
-                                            },
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(66.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Person,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                    }
-                                }
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "@${t.username}",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-
-                                    if (t.fullName.isNotBlank()) {
-                                        Text(
-                                            text = t.fullName,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        PrivacyBadge(isPrivate = t.isPrivate)
-                                        AnimatedVisibility(visible = t.isTurbo) {
-                                            TurboBadge(isTurbo = true)
-                                        }
-                                    }
-                                }
+            // UNIFIED SEAMLESS SCROLLABLE CONTAINER
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 36.dp)
+            ) {
+                // 1. Profile Hero Card
+                item(key = "hero_card") {
+                    target?.let { t ->
+                        ProfileHeroSection(
+                            target = t,
+                            onAvatarClick = { previewImagePath = it },
+                            onFollowersClick = {
+                                auditInitialTab = 0
+                                showAuditSheet = true
+                            },
+                            onFollowingClick = {
+                                auditInitialTab = 1
+                                showAuditSheet = true
                             }
-
-                            if (t.biography.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = t.biography.cleanDisplayText(),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 6,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // Grouped stats pod
-                            val statsPodShape = ShapeTokens.MediumShape
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(statsPodShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, statsPodShape)
-                                    .padding(vertical = 10.dp, horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(ShapeTokens.SmallShape)
-                                        .bouncyClickable(pressScale = 0.94f) {
-                                            auditInitialFilter = "follower_lost"
-                                            showAuditSheet = true
-                                        }
-                                        .padding(vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(text = "${t.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(text = stringResource(R.string.followers), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(ShapeTokens.SmallShape)
-                                        .bouncyClickable(pressScale = 0.94f) {
-                                            auditInitialFilter = "following_lost"
-                                            showAuditSheet = true
-                                        }
-                                        .padding(vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(text = "${t.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(text = "${t.mediaCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(text = stringResource(R.string.posts), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
+                        )
                     }
                 }
 
-                // Instagram Highlights Horizontal Row
+                // 2. Instagram Highlights Row (if available)
                 if (highlights.isNotEmpty()) {
-                    InstagramHighlightRow(
-                        highlights = highlights,
-                        onHighlightClick = { hl ->
-                            scope.launch {
-                                activeHighlightMedia = app.database.highlightDao().getMediaListForHighlight(hl.id)
-                                activeHighlight = hl
-                            }
-                        },
-                        modifier = Modifier.padding(vertical = 4.dp)
+                    item(key = "highlights_row") {
+                        InstagramHighlightRow(
+                            highlights = highlights,
+                            onHighlightClick = { hl ->
+                                scope.launch {
+                                    activeHighlightMedia = app.database.highlightDao().getMediaListForHighlight(hl.id)
+                                    activeHighlight = hl
+                                }
+                            },
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // 3. Follower Growth Trend Chart Card
+                item(key = "growth_chart") {
+                    FollowerGrowthChart(
+                        history = history,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
                 }
 
-                // Interactive Followers & Following Growth Chart
-                FollowerGrowthChart(
-                    history = history,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
-
-                // Standardized Sliding Pill Tab Row
-                SlidingPillTabRow(
-                    tabs = listOf(
-                        TabItem(
-                            title = stringResource(R.string.tab_audit_logs, logs.size),
-                            icon = Icons.Default.History
+                // 4. Sliding Pill Tab Selector
+                item(key = "tab_selector") {
+                    SlidingPillTabRow(
+                        tabs = listOf(
+                            TabItem(
+                                title = stringResource(R.string.tab_audit_logs, logs.size),
+                                icon = Icons.Default.History
+                            ),
+                            TabItem(
+                                title = stringResource(R.string.tab_posts, posts.size),
+                                icon = Icons.Default.GridOn
+                            ),
+                            TabItem(
+                                title = stringResource(R.string.tab_avatar_history, avatars.size),
+                                icon = Icons.Default.Image
+                            )
                         ),
-                        TabItem(
-                            title = stringResource(R.string.tab_posts, posts.size),
-                            icon = Icons.Default.GridOn
-                        ),
-                        TabItem(
-                            title = stringResource(R.string.tab_avatar_history, avatars.size),
-                            icon = Icons.Default.Image
-                        )
-                    ),
-                    selectedIndex = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
+                        selectedIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
 
+                // 5. Selected Tab Content Items
                 when (selectedTab) {
                     0 -> {
+                        // Audit Logs Tab
                         if (logs.isEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.empty_target_logs),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            item(key = "empty_logs") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.empty_target_logs),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(logs, key = { it.id }) { log ->
+                            items(logs, key = { "log_${it.id}" }) { log ->
+                                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                                     if (log.eventType == "avatar_change") {
                                         AvatarComparisonCard(
                                             log = log,
                                             modifier = Modifier.animateItem()
                                         )
                                     } else {
-                                        val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
-                                        val formattedTime = timeFormat.format(Date(log.timestamp))
-
-                                        val itemShape = RoundedCornerShape(20.dp)
-                                        Surface(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(itemShape)
-                                                .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, itemShape)
-                                                .animateItem(),
-                                            shape = itemShape,
-                                            color = MaterialTheme.colorScheme.surfaceContainer,
-                                            tonalElevation = 1.dp
-                                        ) {
-                                            Column(modifier = Modifier.padding(16.dp)) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        text = log.title,
-                                                        style = MaterialTheme.typography.titleMedium,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = AccentBlue,
-                                                        modifier = Modifier.weight(1f, fill = false),
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        text = formattedTime,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                                if (!log.oldValue.isNullOrBlank() || !log.newValue.isNullOrBlank()) {
-                                                    Spacer(modifier = Modifier.height(8.dp))
-                                                    Text(
-                                                        text = "${log.oldValue?.cleanDisplayText() ?: noneStr}  ->  ${log.newValue?.cleanDisplayText() ?: noneStr}",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        AuditLogCard(log = log)
                                     }
                                 }
                             }
                         }
                     }
                     1 -> {
-                        InstagramPostGrid(
-                            posts = posts,
-                            onPostClick = { post ->
-                                val localFile = post.localPath?.let { File(it) }
-                                previewImagePath = if (localFile != null && localFile.exists()) localFile.absolutePath else post.displayUrl
-                            }
-                        )
-                    }
-                    2 -> {
-                        if (avatars.isEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.empty_target_avatars),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                        // Posts Tab (Chunked into 3-column rows for smooth unified scrolling)
+                        if (posts.isEmpty()) {
+                            item(key = "empty_posts") {
+                                UnifiedEmptyState(
+                                    title = stringResource(R.string.empty_target_posts),
+                                    description = "",
+                                    icon = Icons.Default.GridOn,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 40.dp)
                                 )
                             }
                         } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(avatars, key = { it.id }) { avatar ->
-                                    val file = File(avatar.localPath)
-                                    val vaultFile = File(context.filesDir, "vault/${avatar.username}/profile/${file.name}.enc")
-                                    val internalCandidate = File(context.filesDir, "avatars/${avatar.username}/${file.name}")
-                                    val imageModel: Any = when {
-                                        file.exists() && file.canRead() && file.length() > 0 -> file
-                                        vaultFile.exists() && vaultFile.length() > 0 -> vaultFile
-                                        internalCandidate.exists() && internalCandidate.length() > 0 -> internalCandidate
-                                        else -> "http://127.0.0.1:3000/archives/${avatar.username}/profile/${file.name}"
-                                    }
-                                    val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
-                                    val formattedDate = timeFormat.format(Date(avatar.archivedAt))
-
-                                    val itemShape = RoundedCornerShape(20.dp)
-                                    Surface(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(itemShape)
-                                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, itemShape)
-                                            .bouncyClickable(pressScale = 0.97f) {
-                                                previewImagePath = (imageModel as? File)?.absolutePath ?: avatar.localPath
-                                            }
-                                            .animateItem(),
-                                        shape = itemShape,
-                                        color = MaterialTheme.colorScheme.surfaceContainer,
-                                        tonalElevation = 1.dp
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(14.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            AsyncImage(
-                                                model = imageModel,
-                                                contentDescription = null,
-                                                modifier = Modifier
-                                                    .size(64.dp)
-                                                    .clip(RoundedCornerShape(16.dp))
-                                                    .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
-                                                contentScale = ContentScale.Crop
+                            val postChunks = posts.chunked(3)
+                            items(postChunks, key = { chunk -> "chunk_${chunk.first().id}" }) { chunk ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    for (post in chunk) {
+                                        Box(modifier = Modifier.weight(1f)) {
+                                            PostGridItem(
+                                                post = post,
+                                                onClick = { selectedPostForViewer = post }
                                             )
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = file.name,
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Text(
-                                                    text = stringResource(R.string.avatar_archived_format, formattedDate),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.avatar_size_format, (avatar.fileSize / 1024)),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
                                         }
                                     }
+                                    repeat(3 - chunk.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    2 -> {
+                        // Avatar History Tab
+                        if (avatars.isEmpty()) {
+                            item(key = "empty_avatars") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.empty_target_avatars),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(avatars, key = { "avatar_${it.id}" }) { avatar ->
+                                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                                    AvatarHistoryCard(
+                                        avatar = avatar,
+                                        onAvatarClick = { previewImagePath = it }
+                                    )
                                 }
                             }
                         }
@@ -535,6 +324,15 @@ fun ProfileDetailScreen(
                 }
             }
         }
+    }
+
+    // Full-screen post detail viewer dialog
+    selectedPostForViewer?.let { post ->
+        InstagramPostViewerDialog(
+            post = post,
+            targetAvatarModel = target?.let { resolveAvatarSource(context, it) },
+            onDismiss = { selectedPostForViewer = null }
+        )
     }
 
     // Standardized full screen image preview dialog
@@ -554,11 +352,11 @@ fun ProfileDetailScreen(
         )
     }
 
-    // Followers & Following Audit Bottom Sheet
+    // Followers & Following Audit Bottom Sheet (3-Tab Viewer)
     if (showAuditSheet) {
         FollowerAuditBottomSheet(
             targetUsername = username,
-            initialFilter = auditInitialFilter,
+            initialTab = auditInitialTab,
             audits = audits,
             onDismiss = { showAuditSheet = false }
         )
@@ -607,5 +405,289 @@ fun ProfileDetailScreen(
             shape = ShapeTokens.LargeShape,
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
+    }
+}
+
+private fun resolveAvatarSource(context: android.content.Context, t: TargetEntity): Any? {
+    val internalFile = ArchiveDirectoryManager.getInternalAvatar(context, t.username)
+    val localFile = t.localAvatarPath?.let { File(it) }
+    return when {
+        internalFile != null && internalFile.exists() && internalFile.length() > 0 -> internalFile
+        localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
+        !t.avatarUrl.isNullOrBlank() -> t.avatarUrl
+        !t.instagramId.isNullOrBlank() -> "http://127.0.0.1:3000/archives/${t.instagramId}/profile/avatar_current.jpg"
+        else -> "http://127.0.0.1:3000/archives/${t.username}/profile/avatar_current.jpg"
+    }
+}
+
+@Composable
+private fun ProfileHeroSection(
+    target: TargetEntity,
+    onAvatarClick: (String) -> Unit,
+    onFollowersClick: () -> Unit,
+    onFollowingClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val topImageSource = resolveAvatarSource(context, target)
+    val heroShape = ShapeTokens.LargeShape
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(heroShape)
+            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, heroShape),
+        shape = heroShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (topImageSource != null) {
+                    AsyncImage(
+                        model = topImageSource,
+                        contentDescription = target.username,
+                        modifier = Modifier
+                            .size(66.dp)
+                            .clip(CircleShape)
+                            .border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape)
+                            .bouncyClickable(pressScale = 0.92f) {
+                                val path = (topImageSource as? File)?.absolutePath ?: topImageSource.toString()
+                                onAvatarClick(path)
+                            },
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(66.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "@${target.username}",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    if (target.fullName.isNotBlank()) {
+                        Text(
+                            text = target.fullName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PrivacyBadge(isPrivate = target.isPrivate)
+                        AnimatedVisibility(visible = target.isTurbo) {
+                            TurboBadge(isTurbo = true)
+                        }
+                    }
+                }
+            }
+
+            if (target.biography.isNotBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = target.biography.cleanDisplayText(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Interactive stats pod
+            val statsPodShape = ShapeTokens.MediumShape
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(statsPodShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, statsPodShape)
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(ShapeTokens.SmallShape)
+                        .bouncyClickable(pressScale = 0.94f, onClick = onFollowersClick)
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(text = "${target.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = stringResource(R.string.followers), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(ShapeTokens.SmallShape)
+                        .bouncyClickable(pressScale = 0.94f, onClick = onFollowingClick)
+                        .padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(text = "${target.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = "${target.mediaCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = stringResource(R.string.posts), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuditLogCard(log: ChangeLogEntity) {
+    val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+    val formattedTime = timeFormat.format(Date(log.timestamp))
+    val itemShape = RoundedCornerShape(20.dp)
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(itemShape)
+            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, itemShape),
+        shape = itemShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 1.dp
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = log.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = AccentBlue,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (!log.oldValue.isNullOrBlank() || !log.newValue.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "${log.oldValue?.cleanDisplayText() ?: "-"}  ->  ${log.newValue?.cleanDisplayText() ?: "-"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvatarHistoryCard(
+    avatar: AvatarHistoryEntity,
+    onAvatarClick: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val file = File(avatar.localPath)
+    val vaultFile = File(context.filesDir, "vault/${avatar.username}/profile/${file.name}.enc")
+    val internalCandidate = File(context.filesDir, "avatars/${avatar.username}/${file.name}")
+    val imageModel: Any = when {
+        file.exists() && file.canRead() && file.length() > 0 -> file
+        vaultFile.exists() && vaultFile.length() > 0 -> vaultFile
+        internalCandidate.exists() && internalCandidate.length() > 0 -> internalCandidate
+        else -> "http://127.0.0.1:3000/archives/${avatar.username}/profile/${file.name}"
+    }
+    val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
+    val formattedDate = timeFormat.format(Date(avatar.archivedAt))
+
+    val itemShape = RoundedCornerShape(20.dp)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(itemShape)
+            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, itemShape)
+            .bouncyClickable(pressScale = 0.97f) {
+                val path = (imageModel as? File)?.absolutePath ?: avatar.localPath
+                onAvatarClick(path)
+            },
+        shape = itemShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 1.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            AsyncImage(
+                model = imageModel,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+                contentScale = ContentScale.Crop
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = file.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.avatar_archived_format, formattedDate),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = stringResource(R.string.avatar_size_format, (avatar.fileSize / 1024)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }

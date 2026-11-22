@@ -114,10 +114,11 @@ class MainActivity : FragmentActivity() {
                 LanguageManager.getLocalizedConfiguration(resources.configuration, currentLanguage)
             }
 
-            CompositionLocalProvider(
-                LocalContext provides localizedContext,
-                LocalConfiguration provides localizedConfiguration
-            ) {
+            key(currentLanguage) {
+                CompositionLocalProvider(
+                    LocalContext provides localizedContext,
+                    LocalConfiguration provides localizedConfiguration
+                ) {
                 InstaLoggerTheme(themeMode = themeMode) {
                     if (isAppLocked && isLockConfigured) {
                         AppLockScreen(
@@ -286,6 +287,7 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
     }
 
     override fun onStop() {

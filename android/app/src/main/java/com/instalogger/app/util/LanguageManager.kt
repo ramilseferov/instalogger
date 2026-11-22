@@ -62,7 +62,7 @@ object LanguageManager {
         if (_currentLanguage.value == languageCode) return
         if (SUPPORTED_LANGUAGES.none { it.code == languageCode }) return
 
-        getPrefs(context).edit().putString(KEY_LANGUAGE, languageCode).apply()
+        getPrefs(context).edit().putString(KEY_LANGUAGE, languageCode).commit()
         applyLocale(context, languageCode)
         _currentLanguage.value = languageCode
     }
@@ -71,14 +71,7 @@ object LanguageManager {
         if (_currentLanguage.value == languageCode) return
         if (SUPPORTED_LANGUAGES.none { it.code == languageCode }) return
 
-        try {
-            _isTransitioning.value = true
-            kotlinx.coroutines.delay(180) // Silky smooth blur & frosted veil flows in
-            setLanguage(context, languageCode)
-            kotlinx.coroutines.delay(200) // Recomposition settles cleanly under blur
-        } finally {
-            _isTransitioning.value = false
-        }
+        setLanguage(context, languageCode)
     }
 
     fun resetTransition() {
@@ -89,16 +82,33 @@ object LanguageManager {
         try {
             val locale = getLocale(languageCode)
             Locale.setDefault(locale)
-            val config = context.resources.configuration
+
+            val appCtx = context.applicationContext ?: context
+            val appConfig = Configuration(appCtx.resources.configuration)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                config.setLocales(LocaleList(locale))
+                appConfig.setLocales(LocaleList(locale))
             } else {
-                config.setLocale(locale)
+                appConfig.setLocale(locale)
             }
-            config.setLayoutDirection(locale)
-            context.createConfigurationContext(config)
+            appConfig.setLayoutDirection(locale)
             @Suppress("DEPRECATION")
-            context.resources.updateConfiguration(config, context.resources.displayMetrics)
+            appCtx.resources.updateConfiguration(appConfig, appCtx.resources.displayMetrics)
+
+            var currentContext: Context? = context
+            while (currentContext is ContextWrapper) {
+                try {
+                    val actConfig = Configuration(currentContext.resources.configuration)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        actConfig.setLocales(LocaleList(locale))
+                    } else {
+                        actConfig.setLocale(locale)
+                    }
+                    actConfig.setLayoutDirection(locale)
+                    @Suppress("DEPRECATION")
+                    currentContext.resources.updateConfiguration(actConfig, currentContext.resources.displayMetrics)
+                } catch (_: Exception) {}
+                currentContext = currentContext.baseContext
+            }
         } catch (_: Exception) {
             // Graceful fallback
         }

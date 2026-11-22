@@ -147,7 +147,7 @@ fun SettingsScreen() {
                         flagResId = R.drawable.ic_flag_az,
                         isSelected = currentLanguage == "az",
                         onClick = {
-                            scope.launch { LanguageManager.changeLanguageWithAnimation(context, "az") }
+                            LanguageManager.setLanguage(context, "az")
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -157,7 +157,7 @@ fun SettingsScreen() {
                         flagResId = R.drawable.ic_flag_en,
                         isSelected = currentLanguage == "en",
                         onClick = {
-                            scope.launch { LanguageManager.changeLanguageWithAnimation(context, "en") }
+                            LanguageManager.setLanguage(context, "en")
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -167,7 +167,7 @@ fun SettingsScreen() {
                         flagResId = R.drawable.ic_flag_ru,
                         isSelected = currentLanguage == "ru",
                         onClick = {
-                            scope.launch { LanguageManager.changeLanguageWithAnimation(context, "ru") }
+                            LanguageManager.setLanguage(context, "ru")
                         },
                         modifier = Modifier.weight(1f)
                     )

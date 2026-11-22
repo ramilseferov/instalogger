@@ -67,7 +67,7 @@ fun DashboardScreen(
     // Instant real-time Flow observation from Room Database
     LaunchedEffect(Unit) {
         app.database.targetDao().getAllTargets().collect { list ->
-            targets = list
+            targets = list.filter { !app.profileInspector.isTargetDeleted(it.username) }
         }
     }
 
@@ -75,7 +75,7 @@ fun DashboardScreen(
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             app.profileInspector.syncAllFromDaemon()
-            val current = app.database.targetDao().getActiveTargets()
+            val current = app.database.targetDao().getActiveTargets().filter { !app.profileInspector.isTargetDeleted(it.username) }
             for (t in current) {
                 try {
                     app.profileInspector.inspectTarget(t.username)
@@ -92,14 +92,14 @@ fun DashboardScreen(
             isGlobalRefreshing = true
             withContext(Dispatchers.IO) {
                 app.profileInspector.syncAllFromDaemon()
-                val activeTargets = app.database.targetDao().getActiveTargets()
+                val activeTargets = app.database.targetDao().getActiveTargets().filter { !app.profileInspector.isTargetDeleted(it.username) }
                 for (t in activeTargets) {
                     try {
                         val result = app.profileInspector.inspectTarget(t.username)
                         app.profileInspector.inspectHighlightsAndPosts(t.username)
                         result.onSuccess { updated ->
-                            val preservedTurbo = targets.find { it.username == t.username }?.isTurbo ?: updated.isTurbo
-                            targets = targets.map { if (it.username == t.username) updated.copy(isTurbo = preservedTurbo) else it }
+                            val preservedTurbo = targets.find { it.username.equals(t.username, ignoreCase = true) }?.isTurbo ?: updated.isTurbo
+                            targets = targets.map { if (it.username.equals(t.username, ignoreCase = true)) updated.copy(isTurbo = preservedTurbo) else it }
                         }
                     } catch (e: Exception) {
                         // Continue to next target
@@ -295,7 +295,7 @@ fun DashboardScreen(
                     onClick = {
                         val t = targetToDelete ?: return@Button
                         targetToDelete = null
-                        targets = targets.filter { it.username != t.username }
+                        targets = targets.filter { !it.username.equals(t.username, ignoreCase = true) }
                         scope.launch {
                             app.profileInspector.deleteTarget(t.username, t.instagramId)
                             snackbarHostState.showSnackbar(context.getString(R.string.msg_target_deleted, t.username))
