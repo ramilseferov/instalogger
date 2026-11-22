@@ -20,7 +20,7 @@ class TargetRepository(private var apiService: ApiService) {
         }
     }
 
-    suspend fun getTarget(id: Long): Result<TargetDto?> = withContext(Dispatchers.IO) {
+    suspend fun getTarget(id: String): Result<TargetDto?> = withContext(Dispatchers.IO) {
         try {
             val res = apiService.getTarget(id)
             Result.success(res.target)
@@ -31,14 +31,14 @@ class TargetRepository(private var apiService: ApiService) {
 
     suspend fun addTarget(username: String, turbo: Boolean): Result<TargetDto?> = withContext(Dispatchers.IO) {
         try {
-            val res = apiService.addTarget(CreateTargetRequest(username = username, isTurbo = turbo))
+            val res = apiService.addTarget(CreateTargetRequest(username = username, turbo = turbo))
             Result.success(res.target)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun deleteTarget(id: Long): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun deleteTarget(id: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val res = apiService.deleteTarget(id)
             Result.success(res.status == "ok")
@@ -47,7 +47,7 @@ class TargetRepository(private var apiService: ApiService) {
         }
     }
 
-    suspend fun toggleTurbo(id: Long, turbo: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun toggleTurbo(id: String, turbo: Boolean): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val res = apiService.toggleTurbo(id, mapOf("turbo" to turbo))
             Result.success(res.isTurbo)
@@ -56,7 +56,7 @@ class TargetRepository(private var apiService: ApiService) {
         }
     }
 
-    suspend fun checkTargetNow(id: Long): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun checkTargetNow(id: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val res = apiService.checkTargetNow(id)
             Result.success(res.status == "ok")
@@ -65,7 +65,7 @@ class TargetRepository(private var apiService: ApiService) {
         }
     }
 
-    suspend fun getTargetLogs(id: Long): Result<List<ChangeLogDto>> = withContext(Dispatchers.IO) {
+    suspend fun getTargetLogs(id: String): Result<List<ChangeLogDto>> = withContext(Dispatchers.IO) {
         try {
             val res = apiService.getTargetLogs(id)
             Result.success(res.logs)
@@ -74,7 +74,7 @@ class TargetRepository(private var apiService: ApiService) {
         }
     }
 
-    suspend fun getTargetAvatars(id: Long): Result<List<AvatarItemDto>> = withContext(Dispatchers.IO) {
+    suspend fun getTargetAvatars(id: String): Result<List<String>> = withContext(Dispatchers.IO) {
         try {
             val res = apiService.getTargetAvatars(id)
             Result.success(res.avatars)

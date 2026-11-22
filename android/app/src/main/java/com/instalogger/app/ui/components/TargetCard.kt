@@ -26,6 +26,7 @@ import com.instalogger.app.ui.theme.StatusRed
 @Composable
 fun TargetCard(
     target: TargetDto,
+    serverUrl: String,
     onClick: () -> Unit,
     onCheckNow: () -> Unit,
     onToggleTurbo: (Boolean) -> Unit,
@@ -33,6 +34,7 @@ fun TargetCard(
     modifier: Modifier = Modifier
 ) {
     val cardShape = RoundedCornerShape(26.dp)
+    val avatarUrl = target.getResolvedAvatarUrl(serverUrl)
 
     Card(
         modifier = modifier
@@ -56,9 +58,9 @@ fun TargetCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (!target.profilePicUrl.isNullOrEmpty()) {
+                if (!avatarUrl.isNullOrEmpty()) {
                     AsyncImage(
-                        model = target.profilePicUrl,
+                        model = avatarUrl,
                         contentDescription = target.username,
                         modifier = Modifier
                             .size(54.dp)
@@ -84,15 +86,18 @@ fun TargetCard(
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Text(
+                        text = "@${target.username}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    if (!target.fullName.isNullOrBlank()) {
                         Text(
-                            text = "@${target.username}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = target.fullName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -103,7 +108,7 @@ fun TargetCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         PrivacyBadge(isPrivate = target.isPrivate)
-                        if (target.isTurbo) {
+                        if (target.isTurboActive) {
                             TurboBadge(isTurbo = true)
                         }
                     }
@@ -119,9 +124,9 @@ fun TargetCard(
                     .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                StatItem(label = "İzləyici", value = target.followersCount.toString())
-                StatItem(label = "İzlənilən", value = target.followingCount.toString())
-                StatItem(label = "Paylaşım", value = target.postsCount.toString())
+                StatItem(label = "Status", value = target.status ?: "aktiv")
+                StatItem(label = "Paylaşım", value = target.mediaCount.toString())
+                StatItem(label = "İnterval", value = "${target.checkIntervalSeconds}s")
             }
 
             HorizontalDivider(
@@ -137,7 +142,7 @@ fun TargetCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = if (target.lastCheckedAt != null) "Yoxlanış: ${target.lastCheckedAt.take(19)}" else "Yoxlanmayıb",
+                    text = target.lastCheckedAt?.take(19)?.replace("T", " ")?.let { "Yoxlanış: $it" } ?: "Yoxlanmayıb",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -156,13 +161,13 @@ fun TargetCard(
                     }
 
                     IconButton(
-                        onClick = { onToggleTurbo(!target.isTurbo) },
+                        onClick = { onToggleTurbo(!target.isTurboActive) },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Bolt,
                             contentDescription = "Turbo",
-                            tint = if (target.isTurbo) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (target.isTurboActive) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
                     }

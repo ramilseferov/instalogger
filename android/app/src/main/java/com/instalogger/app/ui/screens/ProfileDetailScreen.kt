@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,10 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.instalogger.app.data.remote.dto.AvatarItemDto
+import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.data.remote.dto.ChangeLogDto
 import com.instalogger.app.data.remote.dto.TargetDto
 import com.instalogger.app.data.repository.TargetRepository
@@ -32,14 +34,17 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ProfileDetailScreen(
-    targetId: Long,
+    targetId: String,
     targetRepository: TargetRepository,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val app = context.applicationContext as InstaLoggerApp
     val scope = rememberCoroutineScope()
+
     var target by remember { mutableStateOf<TargetDto?>(null) }
     var logs by remember { mutableStateOf<List<ChangeLogDto>>(emptyList()) }
-    var avatars by remember { mutableStateOf<List<AvatarItemDto>>(emptyList()) }
+    var avatars by remember { mutableStateOf<List<String>>(emptyList()) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -92,6 +97,8 @@ fun ProfileDetailScreen(
                     .padding(padding)
             ) {
                 target?.let { t ->
+                    val resolvedAvatar = t.getResolvedAvatarUrl(app.getServerUrl())
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -109,15 +116,32 @@ fun ProfileDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                AsyncImage(
-                                    model = t.profilePicUrl,
-                                    contentDescription = t.username,
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(CircleShape)
-                                        .border(2.dp, AccentBlue, CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
+                                if (!resolvedAvatar.isNullOrEmpty()) {
+                                    AsyncImage(
+                                        model = resolvedAvatar,
+                                        contentDescription = t.username,
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(CircleShape)
+                                            .border(2.dp, AccentBlue, CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(CircleShape)
+                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    }
+                                }
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -125,14 +149,30 @@ fun ProfileDetailScreen(
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    if (!t.fullName.isNullOrBlank()) {
+                                        Text(
+                                            text = t.fullName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         PrivacyBadge(isPrivate = t.isPrivate)
-                                        if (t.isTurbo) {
+                                        if (t.isTurboActive) {
                                             TurboBadge(isTurbo = true)
                                         }
                                     }
                                 }
+                            }
+
+                            if (!t.biography.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = t.biography,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -142,16 +182,16 @@ fun ProfileDetailScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
-                                    Text(text = "${t.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Text(text = "İzləyici", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(text = t.status ?: "aktiv", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(text = "Status", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 Column {
-                                    Text(text = "${t.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                    Text(text = "İzlənilən", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Column {
-                                    Text(text = "${t.postsCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(text = "${t.mediaCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     Text(text = "Paylaşım", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Column {
+                                    Text(text = "${t.checkIntervalSeconds}s", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(text = "İnterval", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -211,19 +251,19 @@ fun ProfileDetailScreen(
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Text(
-                                                    text = log.fieldName.uppercase(),
+                                                    text = log.displayEventName,
                                                     style = MaterialTheme.typography.labelLarge,
                                                     color = AccentBlue
                                                 )
                                                 Text(
-                                                    text = log.detectedAt.take(19),
+                                                    text = log.displayTime,
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
                                             Spacer(modifier = Modifier.height(6.dp))
                                             Text(
-                                                text = "${log.oldValue ?: "Yoxdur"}  ->  ${log.newValue ?: "Yoxdur"}",
+                                                text = "${log.oldValue ?: "-"}  ->  ${log.newValue ?: "-"}",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
@@ -253,7 +293,16 @@ fun ProfileDetailScreen(
                                 contentPadding = PaddingValues(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(avatars, key = { it.filename }) { avatar ->
+                                items(avatars, key = { it }) { avatarPath ->
+                                    val resolvedUrl = if (avatarPath.startsWith("http://") || avatarPath.startsWith("https://")) {
+                                        avatarPath
+                                    } else {
+                                        val cleanBase = app.getServerUrl().trimEnd('/')
+                                        val cleanPath = avatarPath.removePrefix("/")
+                                        "$cleanBase/$cleanPath"
+                                    }
+                                    val fileName = avatarPath.substringAfterLast("/")
+
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(20.dp),
@@ -268,7 +317,7 @@ fun ProfileDetailScreen(
                                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                                         ) {
                                             AsyncImage(
-                                                model = avatar.url,
+                                                model = resolvedUrl,
                                                 contentDescription = null,
                                                 modifier = Modifier
                                                     .size(60.dp)
@@ -277,18 +326,13 @@ fun ProfileDetailScreen(
                                             )
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
-                                                    text = avatar.filename,
+                                                    text = fileName,
                                                     style = MaterialTheme.typography.bodyLarge,
                                                     fontWeight = FontWeight.Medium
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Text(
-                                                    text = "Tarix: ${avatar.archivedAt.take(19)}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                                Text(
-                                                    text = "Həcm: ${(avatar.fileSize / 1024)} KB",
+                                                    text = avatarPath,
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )

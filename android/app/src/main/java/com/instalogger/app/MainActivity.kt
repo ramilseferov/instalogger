@@ -36,7 +36,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Session : Screen("session", "Sessiya", Icons.Default.AccountCircle)
     object Settings : Screen("settings", "Tənzimləmələr", Icons.Default.Settings)
     object TargetDetail : Screen("target/{targetId}", "Təfərrüat", Icons.Default.Dashboard) {
-        fun createRoute(targetId: Long) = "target/$targetId"
+        fun createRoute(targetId: String) = "target/$targetId"
     }
 }
 
@@ -172,9 +172,9 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(
                             route = Screen.TargetDetail.route,
-                            arguments = listOf(navArgument("targetId") { type = NavType.LongType })
+                            arguments = listOf(navArgument("targetId") { type = NavType.StringType })
                         ) { backStackEntry ->
-                            val targetId = backStackEntry.arguments?.getLong("targetId") ?: 0L
+                            val targetId = backStackEntry.arguments?.getString("targetId") ?: ""
                             ProfileDetailScreen(
                                 targetId = targetId,
                                 targetRepository = app.targetRepository,

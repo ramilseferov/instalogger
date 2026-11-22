@@ -13,28 +13,28 @@ interface ApiService {
     suspend fun getTargets(): TargetsResponse
 
     @GET("api/targets/{id}")
-    suspend fun getTarget(@Path("id") id: Long): TargetResponse
+    suspend fun getTarget(@Path("id") id: String): TargetResponse
 
     @POST("api/targets")
     suspend fun addTarget(@Body request: CreateTargetRequest): TargetResponse
 
     @DELETE("api/targets/{id}")
-    suspend fun deleteTarget(@Path("id") id: Long): GenericStatusResponse
+    suspend fun deleteTarget(@Path("id") id: String): GenericStatusResponse
 
     @POST("api/targets/{id}/turbo")
     suspend fun toggleTurbo(
-        @Path("id") id: Long,
+        @Path("id") id: String,
         @Body request: Map<String, Boolean>
     ): TurboResponse
 
     @POST("api/targets/{id}/check-now")
-    suspend fun checkTargetNow(@Path("id") id: Long): GenericStatusResponse
+    suspend fun checkTargetNow(@Path("id") id: String): GenericStatusResponse
 
     @GET("api/targets/{id}/logs")
-    suspend fun getTargetLogs(@Path("id") id: Long): LogsResponse
+    suspend fun getTargetLogs(@Path("id") id: String): LogsResponse
 
     @GET("api/targets/{id}/avatars")
-    suspend fun getTargetAvatars(@Path("id") id: Long): AvatarsResponse
+    suspend fun getTargetAvatars(@Path("id") id: String): AvatarsResponse
 
     @GET("api/settings")
     suspend fun getSettings(): SettingsResponse

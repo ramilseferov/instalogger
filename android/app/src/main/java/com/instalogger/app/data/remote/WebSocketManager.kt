@@ -12,14 +12,14 @@ import java.util.concurrent.TimeUnit
 
 sealed class WsEvent {
     data class ChangeDetected(
-        val targetId: Long,
+        val targetId: String,
         val username: String,
         val fieldName: String,
         val oldValue: String?,
         val newValue: String?
     ) : WsEvent()
 
-    data class TargetChecked(val targetId: Long, val username: String) : WsEvent()
+    data class TargetChecked(val targetId: String, val username: String) : WsEvent()
     data class Connected(val url: String) : WsEvent()
     data class Disconnected(val reason: String?) : WsEvent()
 }
@@ -91,9 +91,9 @@ class WebSocketManager(
 
             when (type) {
                 "change_detected" -> {
-                    val targetId = payload.get("target_id")?.asLong ?: 0L
+                    val targetId = payload.get("target_id")?.asString ?: ""
                     val username = payload.get("username")?.asString ?: ""
-                    val fieldName = payload.get("field_name")?.asString ?: ""
+                    val fieldName = payload.get("event_type")?.asString ?: payload.get("field_name")?.asString ?: ""
                     val oldValue = if (payload.has("old_value") && !payload.get("old_value").isJsonNull) payload.get("old_value").asString else null
                     val newValue = if (payload.has("new_value") && !payload.get("new_value").isJsonNull) payload.get("new_value").asString else null
 
@@ -102,7 +102,7 @@ class WebSocketManager(
                     }
                 }
                 "target_checked" -> {
-                    val targetId = payload.get("target_id")?.asLong ?: 0L
+                    val targetId = payload.get("target_id")?.asString ?: ""
                     val username = payload.get("username")?.asString ?: ""
                     scope.launch {
                         _events.emit(WsEvent.TargetChecked(targetId, username))

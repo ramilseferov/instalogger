@@ -12,7 +12,7 @@ class NotificationRepository(private val notificationDao: NotificationDao) {
     val unreadCount: Flow<Int> = notificationDao.getUnreadCount()
 
     suspend fun insertNotification(
-        targetId: Long?,
+        targetId: String?,
         username: String,
         eventType: String,
         title: String,

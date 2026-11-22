@@ -12,9 +12,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.data.remote.dto.TargetDto
 import com.instalogger.app.data.repository.TargetRepository
 import com.instalogger.app.ui.components.AddTargetDialog
@@ -25,8 +27,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun DashboardScreen(
     targetRepository: TargetRepository,
-    onNavigateToDetail: (Long) -> Unit
+    onNavigateToDetail: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    val app = context.applicationContext as InstaLoggerApp
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -142,6 +146,7 @@ fun DashboardScreen(
                     items(targets, key = { it.id }) { target ->
                         TargetCard(
                             target = target,
+                            serverUrl = app.getServerUrl(),
                             onClick = { onNavigateToDetail(target.id) },
                             onCheckNow = {
                                 scope.launch {
