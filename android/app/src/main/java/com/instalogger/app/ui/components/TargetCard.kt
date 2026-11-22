@@ -85,7 +85,18 @@ fun TargetCard(
 
                 if (imageSource != null) {
                     AsyncImage(
-                        model = imageSource,
+                        model = coil.request.ImageRequest.Builder(context)
+                            .data(imageSource)
+                            .crossfade(true)
+                            .listener(
+                                onError = { _, result ->
+                                    android.util.Log.e("TargetCard", "Coil failed to load: $imageSource", result.throwable)
+                                },
+                                onSuccess = { _, _ ->
+                                    android.util.Log.i("TargetCard", "Coil successfully loaded: $imageSource")
+                                }
+                            )
+                            .build(),
                         contentDescription = target.username,
                         modifier = Modifier
                             .size(54.dp)
@@ -149,9 +160,9 @@ fun TargetCard(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Stats row (No overflow, equal distribution)
-            val followersVal = if (target.followersCount > 0) target.followersCount.toString() else if (target.isPrivate) "—" else "0"
-            val followingVal = if (target.followingCount > 0) target.followingCount.toString() else if (target.isPrivate) "—" else "0"
-            val postsVal = if (target.mediaCount > 0) target.mediaCount.toString() else "0"
+            val followersVal = target.followersCount.toString()
+            val followingVal = target.followingCount.toString()
+            val postsVal = target.mediaCount.toString()
 
             Row(
                 modifier = Modifier

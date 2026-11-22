@@ -202,9 +202,9 @@ fun ProfileDetailScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            val followersDisplay = if (t.followersCount > 0) "${t.followersCount}" else if (t.isPrivate) "—" else "0"
-                            val followingDisplay = if (t.followingCount > 0) "${t.followingCount}" else if (t.isPrivate) "—" else "0"
-                            val postsDisplay = if (t.mediaCount > 0) "${t.mediaCount}" else "0"
+                            val followersDisplay = "${t.followersCount}"
+                            val followingDisplay = "${t.followingCount}"
+                            val postsDisplay = "${t.mediaCount}"
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),

@@ -39,27 +39,44 @@ class ProfileInspector(
         val notificationDao = database.notificationDao()
         val cleanUser = username.trim().trimStart('@').lowercase()
 
-        // 1. First priority: Check local daemon at http://127.0.0.1:3000 (same source powering website)
+        // 1. Live Instagram inspection (obtains live follower & following count)
+        val cookie = sessionManager.getCookieString()
+        var directSnapshot: InstagramProfileSnapshot? = null
+        val engineResult = instagramEngine.fetchProfile(cleanUser, cookie)
+        if (engineResult.isSuccess) {
+            directSnapshot = engineResult.getOrNull()
+        }
+
+        // 2. Local daemon snapshot at http://127.0.0.1:3000
         val daemonSnapshot = fetchFromLocalDaemon(cleanUser)
 
-        val snapshot = if (daemonSnapshot != null) {
-            daemonSnapshot
-        } else {
-            // 2. Fallback to direct Instagram engine
-            val cookie = sessionManager.getCookieString()
-            val engineResult = instagramEngine.fetchProfile(cleanUser, cookie)
-            if (engineResult.isSuccess) {
-                engineResult.getOrThrow()
+        val snapshot = if (directSnapshot != null && (directSnapshot.followersCount > 0 || daemonSnapshot == null)) {
+            if (daemonSnapshot != null) {
+                directSnapshot.copy(
+                    instagramId = directSnapshot.instagramId ?: daemonSnapshot.instagramId,
+                    profilePicUrl = daemonSnapshot.profilePicUrl ?: directSnapshot.profilePicUrl
+                )
             } else {
-                val existing = targetDao.getTarget(cleanUser)
-                if (existing != null) {
-                    // Update check timestamp even if network failed
-                    val updated = existing.copy(lastCheckedAt = System.currentTimeMillis())
-                    targetDao.insertTarget(updated)
-                    return@withContext Result.success(updated)
-                }
-                return@withContext Result.failure(engineResult.exceptionOrNull() ?: Exception("Failed to fetch target data"))
+                directSnapshot
             }
+        } else if (daemonSnapshot != null) {
+            if (directSnapshot != null) {
+                daemonSnapshot.copy(
+                    followersCount = if (directSnapshot.followersCount > 0) directSnapshot.followersCount else daemonSnapshot.followersCount,
+                    followingCount = if (directSnapshot.followingCount > 0) directSnapshot.followingCount else daemonSnapshot.followingCount,
+                    mediaCount = if (directSnapshot.mediaCount > 0) directSnapshot.mediaCount else daemonSnapshot.mediaCount
+                )
+            } else {
+                daemonSnapshot
+            }
+        } else {
+            val existing = targetDao.getTarget(cleanUser)
+            if (existing != null) {
+                val updated = existing.copy(lastCheckedAt = System.currentTimeMillis())
+                targetDao.insertTarget(updated)
+                return@withContext Result.success(updated)
+            }
+            return@withContext Result.failure(engineResult.exceptionOrNull() ?: Exception("Failed to fetch target data"))
         }
 
         val existing = targetDao.getTarget(cleanUser)
@@ -289,14 +306,17 @@ class ProfileInspector(
                             }
                         }
 
+                        val daemonFollowers = obj.get("followers_count")?.asLong ?: 0L
+                        val daemonFollowing = obj.get("following_count")?.asLong ?: 0L
+
                         return InstagramProfileSnapshot(
                             username = username,
                             instagramId = id,
                             fullName = fullName,
                             biography = bio,
                             isPrivate = isPrivate,
-                            followersCount = 0L,
-                            followingCount = 0L,
+                            followersCount = daemonFollowers,
+                            followingCount = daemonFollowing,
                             mediaCount = mediaCount,
                             profilePicUrl = localPic ?: avatarUrlString
                         )

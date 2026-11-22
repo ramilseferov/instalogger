@@ -83,6 +83,10 @@ def parse_profile_metadata(user_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract normalized profile fields from Instagram user object."""
     media_edge = user_data.get("edge_owner_to_timeline_media") or {}
     media_count = media_edge.get("count", 0)
+    followed_by = user_data.get("edge_followed_by") or {}
+    followers_count = followed_by.get("count", 0)
+    follow = user_data.get("edge_follow") or {}
+    following_count = follow.get("count", 0)
     profile_pic = user_data.get("profile_pic_url_hd") or user_data.get("profile_pic_url") or ""
 
     return {
@@ -93,6 +97,8 @@ def parse_profile_metadata(user_data: Dict[str, Any]) -> Dict[str, Any]:
         "is_private": bool(user_data.get("is_private", False)),
         "followed_by_viewer": bool(user_data.get("followed_by_viewer", False)),
         "media_count": int(media_count),
+        "followers_count": int(followers_count),
+        "following_count": int(following_count),
         "profile_pic_url": str(profile_pic),
     }
 

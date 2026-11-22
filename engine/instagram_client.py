@@ -84,6 +84,8 @@ class InstagramClient:
         try:
             profile = instaloader.Profile.from_username(self.il.context, username)
             media_count = profile.mediacount if profile.mediacount is not None else 0
+            followers = profile.followers if profile.followers is not None else 0
+            followees = profile.followees if profile.followees is not None else 0
             return {
                 "status": "ok",
                 "data": {
@@ -94,6 +96,8 @@ class InstagramClient:
                         "biography": profile.biography or "",
                         "is_private": bool(profile.is_private),
                         "followed_by_viewer": bool(getattr(profile, "followed_by_viewer", False)),
+                        "edge_followed_by": {"count": followers},
+                        "edge_follow": {"count": followees},
                         "edge_owner_to_timeline_media": {"count": media_count},
                         "profile_pic_url_hd": profile.profile_pic_url or "",
                     }
