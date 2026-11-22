@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArchivedMedia } from '../../types';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 interface InstagramStoryViewerModalProps {
   title: string;
@@ -13,6 +14,7 @@ export const InstagramStoryViewerModal: React.FC<InstagramStoryViewerModalProps>
   items,
   onClose,
 }) => {
+  const { t } = useI18n();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const STORY_DURATION = 5000; // 5 seconds per story
@@ -137,12 +139,12 @@ export const InstagramStoryViewerModal: React.FC<InstagramStoryViewerModalProps>
           <div
             onClick={handlePrev}
             className="absolute left-0 inset-y-0 w-1/3 z-20 cursor-pointer"
-            title="Əvvəlki"
+            title={t.previous}
           />
           <div
             onClick={handleNext}
             className="absolute right-0 inset-y-0 w-1/3 z-20 cursor-pointer"
-            title="Növbəti"
+            title={t.next}
           />
         </div>
 

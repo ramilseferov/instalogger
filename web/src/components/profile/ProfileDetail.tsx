@@ -9,6 +9,7 @@ import { MediaGallery } from './MediaGallery';
 import { AvatarHistoryModal } from './AvatarHistoryModal';
 import { HighlightCirclesRow } from './HighlightCirclesRow';
 import { InstagramStoryViewerModal } from './InstagramStoryViewerModal';
+import { useI18n } from '../../i18n';
 import {
   ArrowLeft,
   RefreshCw,
@@ -30,6 +31,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   onBack,
   onTargetUpdated,
 }) => {
+  const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<'gallery' | 'timeline'>('gallery');
   const [logs, setLogs] = useState<ChangeLog[]>([]);
   const [media, setMedia] = useState<ArchivedMedia[]>([]);
@@ -98,20 +100,20 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
             icon={<Zap size={15} />}
             onClick={handleToggleTurbo}
           >
-            {target.turbo_mode ? 'Turbo Aktivdir' : 'Turbo Rejim'}
+            {target.turbo_mode ? t.turbo_active : t.turbo_mode}
           </Button>
           <button
             onClick={handleCheckNow}
             disabled={refreshing}
             className="p-2.5 rounded-full bg-white text-gray-700 shadow-xs hover:text-[#0C7FF2] active:scale-90 transition-all duration-200 disabled:opacity-50"
-            title="Dərhal Yoxla"
+            title={t.check_now}
           >
             <RefreshCw size={18} className={refreshing ? 'animate-spin text-[#0C7FF2]' : ''} />
           </button>
           <button
             onClick={handleDelete}
             className="p-2.5 rounded-full bg-white text-rose-600 shadow-xs hover:bg-rose-50 active:scale-90 transition-all duration-200"
-            title="Sil"
+            title={t.delete}
           >
             <Trash2 size={18} />
           </button>
@@ -144,7 +146,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
               <StatusBadge status={target.is_private ? 'private' : 'public'} />
             </div>
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              {target.full_name || 'Ad qeyd edilməyib'}
+              {target.full_name || t.no_name}
             </p>
           </div>
         </div>
@@ -158,11 +160,11 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
         <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100 text-center">
           <div className="bg-[#F8F9FA] py-2.5 rounded-2xl border border-gray-100">
             <span className="text-lg font-extrabold text-gray-900">{target.media_count}</span>
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Instagram Postları</p>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{t.instagram_posts}</p>
           </div>
           <div className="bg-[#F8F9FA] py-2.5 rounded-2xl border border-gray-100">
             <span className="text-lg font-extrabold text-[#0C7FF2]">{media.length}</span>
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Lokal Arxiv Faylı</p>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{t.local_archive_files}</p>
           </div>
         </div>
       </Card>
@@ -184,7 +186,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
           }`}
         >
           <Layers size={16} />
-          Arxiv Qalereyası ({media.length})
+          {t.archive_gallery} ({media.length})
         </button>
         <button
           onClick={() => setActiveTab('timeline')}
@@ -195,7 +197,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
           }`}
         >
           <History size={16} />
-          Audit Xronologiyası ({logs.length})
+          {t.audit_timeline} ({logs.length})
         </button>
       </div>
 

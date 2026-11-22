@@ -32,6 +32,14 @@ export interface Translations {
   following: string;
   save: string;
   session_settings: string;
+  archive_gallery: string;
+  instagram_posts: string;
+  local_archive_files: string;
+  turbo_active: string;
+  highlights: string;
+  previous: string;
+  next: string;
+  delete: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -64,7 +72,15 @@ const translations: Record<Language, Translations> = {
     followers: 'Followers',
     following: 'Following',
     save: 'Save',
-    session_settings: 'Instagram Session & System Settings'
+    session_settings: 'Instagram Session & System Settings',
+    archive_gallery: 'Archive Gallery',
+    instagram_posts: 'Instagram Posts',
+    local_archive_files: 'Local Archive Files',
+    turbo_active: 'Turbo Active',
+    highlights: 'Highlights',
+    previous: 'Previous',
+    next: 'Next',
+    delete: 'Delete'
   },
   az: {
     app_title: 'InstaLogger',
@@ -95,7 +111,15 @@ const translations: Record<Language, Translations> = {
     followers: 'İzləyici',
     following: 'İzlənilən',
     save: 'Yadda Saxla',
-    session_settings: 'Instagram Sessiyası və Sistem Tənzimləmələri'
+    session_settings: 'Instagram Sessiyası və Sistem Tənzimləmələri',
+    archive_gallery: 'Arxiv Qalereyası',
+    instagram_posts: 'Instagram Postları',
+    local_archive_files: 'Lokal Arxiv Faylı',
+    turbo_active: 'Turbo Aktivdir',
+    highlights: 'Önə Çıxarılanlar',
+    previous: 'Əvvəlki',
+    next: 'Növbəti',
+    delete: 'Sil'
   },
   ru: {
     app_title: 'InstaLogger',
@@ -126,7 +150,15 @@ const translations: Record<Language, Translations> = {
     followers: 'Подписчики',
     following: 'Подписки',
     save: 'Сохранить',
-    session_settings: 'Сессия Instagram и системные настройки'
+    session_settings: 'Сессия Instagram и системные настройки',
+    archive_gallery: 'Галерея архива',
+    instagram_posts: 'Публикации Instagram',
+    local_archive_files: 'Локальные файлы',
+    turbo_active: 'Турбо активен',
+    highlights: 'Актуальное',
+    previous: 'Предыдущее',
+    next: 'Следующее',
+    delete: 'Удалить'
   }
 };
 
