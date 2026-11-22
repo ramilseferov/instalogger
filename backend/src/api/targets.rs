@@ -103,6 +103,8 @@ pub async fn add_target(
                 media_count: 0,
                 profile_pic_url: "".to_string(),
                 profile_pic_path: None,
+                avatar_hash: None,
+                profile_hash: None,
             }
         }
     };
@@ -116,6 +118,8 @@ pub async fn add_target(
         followed_by_viewer: snapshot.followed_by_viewer,
         media_count: snapshot.media_count,
         profile_pic_path: snapshot.profile_pic_path.clone(),
+        avatar_hash: snapshot.avatar_hash.clone(),
+        profile_hash: snapshot.profile_hash.clone(),
         status: "active".to_string(),
         turbo_mode: payload.turbo.unwrap_or(false),
         check_interval_seconds: 300,

@@ -13,6 +13,8 @@ fn test_db_init_and_target_lifecycle() {
         followed_by_viewer: false,
         media_count: 10,
         profile_pic_path: None,
+        avatar_hash: None,
+        profile_hash: None,
         status: "active".to_string(),
         turbo_mode: false,
         check_interval_seconds: 300,

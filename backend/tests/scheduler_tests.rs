@@ -13,6 +13,8 @@ fn test_state_machine_transition_detection() {
         followed_by_viewer: false,
         media_count: 10,
         profile_pic_path: Some("archives/12345678/profile/avatar_old.jpg".to_string()),
+        avatar_hash: Some("hash_old_123".to_string()),
+        profile_hash: Some("profile_old_hash".to_string()),
         status: "active".to_string(),
         turbo_mode: false,
         check_interval_seconds: 300,
@@ -31,6 +33,8 @@ fn test_state_machine_transition_detection() {
         media_count: 15,
         profile_pic_url: "https://example.com/pic2.jpg".to_string(),
         profile_pic_path: Some("archives/12345678/profile/avatar_new.jpg".to_string()),
+        avatar_hash: Some("hash_new_456".to_string()),
+        profile_hash: Some("profile_new_hash".to_string()),
     };
 
     let events = detect_changes(&old_target, &new_profile);

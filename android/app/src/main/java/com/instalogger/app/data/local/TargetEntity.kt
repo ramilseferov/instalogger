@@ -16,6 +16,8 @@ data class TargetEntity(
     val mediaCount: Long = 0,
     val avatarUrl: String? = null,
     val localAvatarPath: String? = null,
+    val avatarHash: String? = null,
+    val profileHash: String? = null,
     val isTurbo: Boolean = false,
     val isActive: Boolean = true,
     val checkIntervalSeconds: Long = 60,

@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -117,8 +118,14 @@ class ProfileInspector(
         val existing = targetDao.getTarget(cleanUser)
         val now = System.currentTimeMillis()
         var localAvatarPath = existing?.localAvatarPath
+        var currentAvatarHash = existing?.avatarHash
 
-        // 1. Check avatar change
+        // If existing record has local file but no stored hash, compute it lazily
+        if (currentAvatarHash == null && localAvatarPath != null) {
+            currentAvatarHash = computeFileSha256(File(localAvatarPath))
+        }
+
+        // 1. Check avatar change (Dual check: URL diff + second-pass SHA-256 binary hash verification)
         val avatarUrl = snapshot.profilePicUrl
         if (!avatarUrl.isNullOrBlank()) {
             if (avatarUrl.startsWith("/")) {
@@ -126,45 +133,59 @@ class ProfileInspector(
                 if (f.exists()) {
                     val internal = ArchiveDirectoryManager.copyToInternalAvatar(context, cleanUser, f)
                     localAvatarPath = internal?.absolutePath ?: f.absolutePath
+                    currentAvatarHash = computeFileSha256(File(localAvatarPath))
                 }
             } else if (localAvatarPath == null || avatarUrl != existing?.avatarUrl) {
                 val downloadedPath = downloadAndArchiveAvatar(cleanUser, avatarUrl)
                 if (downloadedPath != null) {
-                    val oldPath = localAvatarPath
-                    localAvatarPath = downloadedPath
-
                     val file = File(downloadedPath)
-                    avatarHistoryDao.insertAvatar(
-                        AvatarHistoryEntity(
-                            username = cleanUser,
-                            localPath = downloadedPath,
-                            archivedAt = now,
-                            fileSize = file.length()
-                        )
-                    )
+                    val newHash = computeFileSha256(file)
 
-                    if (existing != null && oldPath != null) {
-                        val title = "@$cleanUser profile picture updated"
-                        val desc = "New profile picture archived successfully"
-                        changeLogDao.insertLog(
-                            ChangeLogEntity(
+                    // SECOND-PASS HASH CHECK:
+                    // Compare cryptographic SHA-256 byte digest with existing avatar
+                    if (currentAvatarHash != null && newHash != null && currentAvatarHash == newHash) {
+                        // Byte content is 100% IDENTICAL (Instagram CDN token rotation false-positive)
+                        // Update reference quietly without creating duplicate log or alert
+                        localAvatarPath = downloadedPath
+                    } else {
+                        // Hashes genuinely differ -> Genuine avatar change confirmed!
+                        val oldPath = localAvatarPath
+                        localAvatarPath = downloadedPath
+                        currentAvatarHash = newHash
+
+                        avatarHistoryDao.insertAvatar(
+                            AvatarHistoryEntity(
+                                username = cleanUser,
+                                localPath = downloadedPath,
+                                archivedAt = now,
+                                fileSize = file.length(),
+                                fileHash = newHash
+                            )
+                        )
+
+                        if (existing != null && oldPath != null) {
+                            val title = "@$cleanUser profile picture updated"
+                            val desc = "New profile picture archived successfully [SHA-256 verified]"
+                            changeLogDao.insertLog(
+                                ChangeLogEntity(
+                                    targetUsername = cleanUser,
+                                    eventType = "avatar_change",
+                                    title = title,
+                                    oldValue = existing.avatarHash ?: oldPath,
+                                    newValue = newHash ?: downloadedPath,
+                                    oldAvatarPath = oldPath,
+                                    newAvatarPath = downloadedPath,
+                                    timestamp = now
+                                )
+                            )
+                            dispatchAlert(
                                 targetUsername = cleanUser,
                                 eventType = "avatar_change",
                                 title = title,
-                                oldValue = oldPath,
-                                newValue = downloadedPath,
-                                oldAvatarPath = oldPath,
-                                newAvatarPath = downloadedPath,
+                                message = desc,
                                 timestamp = now
                             )
-                        )
-                        dispatchAlert(
-                            targetUsername = cleanUser,
-                            eventType = "avatar_change",
-                            title = title,
-                            message = desc,
-                            timestamp = now
-                        )
+                        }
                     }
                 }
             }
@@ -249,6 +270,18 @@ class ProfileInspector(
         val resolvedActive = freshInDb?.isActive ?: existing?.isActive ?: true
         val resolvedInterval = freshInDb?.checkIntervalSeconds ?: existing?.checkIntervalSeconds ?: 60
 
+        // Holistic second-layer state hash calculation
+        val newProfileHash = computeProfileStateHash(
+            username = cleanUser,
+            fullName = snapshot.fullName,
+            biography = snapshot.biography,
+            isPrivate = snapshot.isPrivate,
+            followersCount = snapshot.followersCount,
+            followingCount = snapshot.followingCount,
+            mediaCount = snapshot.mediaCount,
+            avatarHash = currentAvatarHash
+        )
+
         val updatedTarget = TargetEntity(
             username = cleanUser,
             instagramId = snapshot.instagramId ?: freshInDb?.instagramId ?: existing?.instagramId,
@@ -260,6 +293,8 @@ class ProfileInspector(
             mediaCount = if (snapshot.mediaCount > 0) snapshot.mediaCount else (freshInDb?.mediaCount ?: existing?.mediaCount ?: 0L),
             avatarUrl = snapshot.profilePicUrl ?: freshInDb?.avatarUrl ?: existing?.avatarUrl,
             localAvatarPath = localAvatarPath,
+            avatarHash = currentAvatarHash ?: freshInDb?.avatarHash ?: existing?.avatarHash,
+            profileHash = newProfileHash,
             isTurbo = resolvedTurbo,
             isActive = resolvedActive,
             checkIntervalSeconds = resolvedInterval,
@@ -350,6 +385,8 @@ class ProfileInspector(
 
                         val daemonFollowers = obj.get("followers_count")?.asLong ?: 0L
                         val daemonFollowing = obj.get("following_count")?.asLong ?: 0L
+                        val daemonAvatarHash = obj.get("avatar_hash")?.asString
+                        val daemonProfileHash = obj.get("profile_hash")?.asString
 
                         return InstagramProfileSnapshot(
                             username = username,
@@ -360,7 +397,9 @@ class ProfileInspector(
                             followersCount = daemonFollowers,
                             followingCount = daemonFollowing,
                             mediaCount = mediaCount,
-                            profilePicUrl = localPic ?: avatarUrlString
+                            profilePicUrl = localPic ?: avatarUrlString,
+                            avatarHash = daemonAvatarHash,
+                            profileHash = daemonProfileHash
                         )
                     }
                 }
@@ -493,5 +532,37 @@ class ProfileInspector(
             Log.e("ProfileInspector", "Failed to download avatar: ${e.message}")
             null
         }
+    }
+
+    private fun computeFileSha256(file: File): String? {
+        if (!file.exists() || file.length() == 0L) return null
+        return try {
+            val md = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buf = ByteArray(8192)
+                var read: Int
+                while (input.read(buf).also { read = it } != -1) {
+                    md.update(buf, 0, read)
+                }
+            }
+            md.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun computeProfileStateHash(
+        username: String,
+        fullName: String,
+        biography: String,
+        isPrivate: Boolean,
+        followersCount: Long,
+        followingCount: Long,
+        mediaCount: Long,
+        avatarHash: String?
+    ): String {
+        val raw = "${username.lowercase()}|${fullName.trim()}|${biography.trim()}|$isPrivate|$followersCount|$followingCount|$mediaCount|${avatarHash ?: ""}"
+        val md = MessageDigest.getInstance("SHA-256")
+        return md.digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 }

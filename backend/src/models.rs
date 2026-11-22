@@ -11,6 +11,10 @@ pub struct Target {
     pub followed_by_viewer: bool,
     pub media_count: i64,
     pub profile_pic_path: Option<String>,
+    #[serde(default)]
+    pub avatar_hash: Option<String>,
+    #[serde(default)]
+    pub profile_hash: Option<String>,
     pub status: String, // 'active', 'paused', 'error'
     pub turbo_mode: bool,
     pub check_interval_seconds: i64,

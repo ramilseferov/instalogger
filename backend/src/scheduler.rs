@@ -24,6 +24,10 @@ pub struct ProfileSnapshot {
     pub profile_pic_url: String,
     #[serde(default)]
     pub profile_pic_path: Option<String>,
+    #[serde(default)]
+    pub avatar_hash: Option<String>,
+    #[serde(default)]
+    pub profile_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,14 +80,20 @@ pub fn detect_changes(old: &Target, new: &ProfileSnapshot) -> Vec<DetectedChange
         });
     }
 
-    if old.profile_pic_path.is_some()
+    // Second-layer hash-based validation for avatar
+    let hash_changed = match (&old.avatar_hash, &new.avatar_hash) {
+        (Some(oh), Some(nh)) => oh != nh,
+        _ => false,
+    };
+    let path_changed = old.profile_pic_path.is_some()
         && new.profile_pic_path.is_some()
-        && old.profile_pic_path != new.profile_pic_path
-    {
+        && old.profile_pic_path != new.profile_pic_path;
+
+    if hash_changed || path_changed {
         changes.push(DetectedChange {
             event_type: "avatar_change".to_string(),
-            old_value: old.profile_pic_path.clone().unwrap_or_default(),
-            new_value: new.profile_pic_path.clone().unwrap_or_default(),
+            old_value: old.profile_pic_path.clone().or_else(|| old.avatar_hash.clone()).unwrap_or_default(),
+            new_value: new.profile_pic_path.clone().or_else(|| new.avatar_hash.clone()).unwrap_or_default(),
         });
     }
 
@@ -221,6 +231,8 @@ impl Scheduler {
             .profile_pic_path
             .clone()
             .or(target_updated.profile_pic_path);
+        target_updated.avatar_hash = snapshot.avatar_hash.clone().or(target_updated.avatar_hash);
+        target_updated.profile_hash = snapshot.profile_hash.clone().or(target_updated.profile_hash);
 
         self.db.update_target_profile(&target_updated)?;
         Ok(())

@@ -54,6 +54,8 @@ impl Database {
                 followed_by_viewer BOOLEAN NOT NULL DEFAULT 0,
                 media_count INTEGER NOT NULL DEFAULT 0,
                 profile_pic_path TEXT,
+                avatar_hash TEXT,
+                profile_hash TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 turbo_mode BOOLEAN NOT NULL DEFAULT 0,
                 check_interval_seconds INTEGER NOT NULL DEFAULT 300,
@@ -99,6 +101,8 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_archived_media_type ON archived_media(target_id, media_type);
             CREATE INDEX IF NOT EXISTS idx_archived_media_vanished ON archived_media(target_id, is_vanished);",
         )?;
+        let _ = conn.execute("ALTER TABLE targets ADD COLUMN avatar_hash TEXT", []);
+        let _ = conn.execute("ALTER TABLE targets ADD COLUMN profile_hash TEXT", []);
         Ok(())
     }
 
@@ -109,9 +113,9 @@ impl Database {
         conn.execute(
             "INSERT INTO targets (
                 id, username, full_name, biography, is_private, followed_by_viewer,
-                media_count, profile_pic_path, status, turbo_mode,
+                media_count, profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
                 check_interval_seconds, last_checked_at, last_status_change_at, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 target.id,
                 target.username,
@@ -121,6 +125,8 @@ impl Database {
                 target.followed_by_viewer,
                 target.media_count,
                 target.profile_pic_path,
+                target.avatar_hash,
+                target.profile_hash,
                 target.status,
                 target.turbo_mode,
                 target.check_interval_seconds,
@@ -136,7 +142,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, username, full_name, biography, is_private, followed_by_viewer,
-                    media_count, profile_pic_path, status, turbo_mode,
+                    media_count, profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
                     check_interval_seconds, last_checked_at, last_status_change_at, created_at
              FROM targets WHERE id = ?1 OR username = ?1 LIMIT 1",
         )?;
@@ -152,18 +158,20 @@ impl Database {
                     followed_by_viewer: row.get(5)?,
                     media_count: row.get(6)?,
                     profile_pic_path: row.get(7)?,
-                    status: row.get(8)?,
-                    turbo_mode: row.get(9)?,
-                    check_interval_seconds: row.get(10)?,
+                    avatar_hash: row.get(8)?,
+                    profile_hash: row.get(9)?,
+                    status: row.get(10)?,
+                    turbo_mode: row.get(11)?,
+                    check_interval_seconds: row.get(12)?,
                     last_checked_at: row
-                        .get::<_, Option<String>>(11)?
+                        .get::<_, Option<String>>(13)?
                         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                         .map(|dt| dt.with_timezone(&Utc)),
                     last_status_change_at: row
-                        .get::<_, Option<String>>(12)?
+                        .get::<_, Option<String>>(14)?
                         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                         .map(|dt| dt.with_timezone(&Utc)),
-                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(13)?)
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(15)?)
                         .map(|dt| dt.with_timezone(&Utc))
                         .unwrap_or_else(|_| Utc::now()),
                 })
@@ -177,7 +185,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, username, full_name, biography, is_private, followed_by_viewer,
-                    media_count, profile_pic_path, status, turbo_mode,
+                    media_count, profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
                     check_interval_seconds, last_checked_at, last_status_change_at, created_at
              FROM targets ORDER BY created_at DESC",
         )?;
@@ -192,18 +200,20 @@ impl Database {
                 followed_by_viewer: row.get(5)?,
                 media_count: row.get(6)?,
                 profile_pic_path: row.get(7)?,
-                status: row.get(8)?,
-                turbo_mode: row.get(9)?,
-                check_interval_seconds: row.get(10)?,
+                avatar_hash: row.get(8)?,
+                profile_hash: row.get(9)?,
+                status: row.get(10)?,
+                turbo_mode: row.get(11)?,
+                check_interval_seconds: row.get(12)?,
                 last_checked_at: row
-                    .get::<_, Option<String>>(11)?
+                    .get::<_, Option<String>>(13)?
                     .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                     .map(|dt| dt.with_timezone(&Utc)),
                 last_status_change_at: row
-                    .get::<_, Option<String>>(12)?
+                    .get::<_, Option<String>>(14)?
                     .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                     .map(|dt| dt.with_timezone(&Utc)),
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(13)?)
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(15)?)
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),
             })
@@ -227,10 +237,12 @@ impl Database {
                 followed_by_viewer = ?5,
                 media_count = ?6,
                 profile_pic_path = ?7,
-                status = ?8,
-                last_checked_at = ?9,
-                last_status_change_at = ?10
-             WHERE id = ?11",
+                avatar_hash = ?8,
+                profile_hash = ?9,
+                status = ?10,
+                last_checked_at = ?11,
+                last_status_change_at = ?12
+             WHERE id = ?13",
             params![
                 target.username,
                 target.full_name,
@@ -239,6 +251,8 @@ impl Database {
                 target.followed_by_viewer,
                 target.media_count,
                 target.profile_pic_path,
+                target.avatar_hash,
+                target.profile_hash,
                 target.status,
                 target.last_checked_at.map(|t| t.to_rfc3339()),
                 target.last_status_change_at.map(|t| t.to_rfc3339()),

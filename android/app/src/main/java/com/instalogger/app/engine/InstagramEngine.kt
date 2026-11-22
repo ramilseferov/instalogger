@@ -19,7 +19,9 @@ data class InstagramProfileSnapshot(
     val followersCount: Long = 0,
     val followingCount: Long = 0,
     val mediaCount: Long = 0,
-    val profilePicUrl: String? = null
+    val profilePicUrl: String? = null,
+    val avatarHash: String? = null,
+    val profileHash: String? = null
 )
 
 class InstagramEngine {
@@ -61,6 +63,16 @@ class InstagramEngine {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Web API attempt failed for @$cleanUsername: ${e.message}")
+        }
+
+        // 3. Third attempt: GraphQL Hash-based Query Fallback
+        try {
+            val hashSnapshot = fetchViaGraphQLHash(cleanUsername, cookieString)
+            if (hashSnapshot != null) {
+                return Result.success(hashSnapshot)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "GraphQL Hash attempt failed for @$cleanUsername: ${e.message}")
         }
 
         return Result.failure(Exception("Profil məlumatları alına bilmədi. İnternet əlaqəsini və ya Instagram sessiyasını yoxlayın."))
@@ -235,6 +247,54 @@ class InstagramEngine {
                 mediaCount = mediaCount,
                 profilePicUrl = picUrl
             )
+        }
+    }
+
+    private fun fetchViaGraphQLHash(username: String, cookieString: String?): InstagramProfileSnapshot? {
+        val url = "https://www.instagram.com/graphql/query/?query_hash=69cba40317214236af40e7efa697781d&variables=%7B%22user_name%22%3A%22$username%22%7D"
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+            .header("X-IG-App-ID", APP_ID)
+            .header("Referer", "https://www.instagram.com/$username/")
+            .header("Accept", "*/*")
+
+        if (!cookieString.isNullOrBlank()) {
+            requestBuilder.header("Cookie", cookieString)
+        }
+
+        return try {
+            clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                val root = gson.fromJson(body, JsonObject::class.java) ?: return null
+                val data = root.getAsJsonObject("data") ?: return null
+                val user = data.getAsJsonObject("user") ?: return null
+
+                val id = user.get("id")?.asString
+                val fullName = user.get("full_name")?.asString ?: ""
+                val bio = user.get("biography")?.asString ?: ""
+                val isPrivate = user.get("is_private")?.asBoolean ?: false
+                val followers = user.getAsJsonObject("edge_followed_by")?.get("count")?.asLong ?: 0L
+                val following = user.getAsJsonObject("edge_follow")?.get("count")?.asLong ?: 0L
+                val mediaCount = user.getAsJsonObject("edge_owner_to_timeline_media")?.get("count")?.asLong ?: 0L
+                val picUrl = user.get("profile_pic_url_hd")?.asString ?: user.get("profile_pic_url")?.asString
+
+                InstagramProfileSnapshot(
+                    username = username,
+                    instagramId = id,
+                    fullName = fullName,
+                    biography = bio,
+                    isPrivate = isPrivate,
+                    followersCount = followers,
+                    followingCount = following,
+                    mediaCount = mediaCount,
+                    profilePicUrl = picUrl
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "GraphQL hash query failed for @$username: ${e.message}")
+            null
         }
     }
 

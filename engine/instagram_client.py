@@ -66,6 +66,20 @@ class InstagramClient:
         except Exception as e:
             logger.warning(f"Failed to load session cookies from {self.session_path}: {e}")
 
+    def fetch_via_graphql_hash(self, username: str) -> Optional[Dict[str, Any]]:
+        """Fetch profile using Instagram persistent GraphQL query hash."""
+        url = f"https://www.instagram.com/graphql/query/?query_hash=69cba40317214236af40e7efa697781d&variables={json.dumps({'user_name': username})}"
+        self.session.headers["Referer"] = f"https://www.instagram.com/{username}/"
+        try:
+            resp = self.session.get(url, timeout=15)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("data", {}).get("user"):
+                    return {"status": "ok", "data": data.get("data", {})}
+        except Exception as e:
+            logger.debug(f"GraphQL hash query failed for @{username}: {e}")
+        return None
+
     def fetch_web_profile(self, username: str) -> Dict[str, Any]:
         """Fetch profile metadata via Instagram API with fallback."""
         url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={username}"
@@ -79,6 +93,11 @@ class InstagramClient:
                     return {"status": "ok", "data": data.get("data", {})}
         except Exception:
             pass
+
+        # Second attempt: GraphQL persistent query hash
+        hash_res = self.fetch_via_graphql_hash(username)
+        if hash_res:
+            return hash_res
 
         # Fallback to Instaloader context
         try:

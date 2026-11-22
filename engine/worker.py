@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -52,9 +53,13 @@ def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Sess
     if os.path.exists(key_file):
         try:
             with open(key_file, "r", encoding="utf-8") as kf:
-                saved_key, saved_rel = kf.read().strip().split("||", 1)
-                if saved_key == asset_key and os.path.exists(saved_rel):
-                    return saved_rel
+                parts = kf.read().strip().split("||")
+                if len(parts) >= 2 and parts[0] == asset_key:
+                    saved_rel = parts[-1]
+                    if os.path.exists(saved_rel):
+                        if len(parts) >= 3:
+                            profile["avatar_hash"] = parts[1]
+                        return saved_rel
         except Exception:
             pass
 
@@ -73,9 +78,12 @@ def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Sess
             with open(current_path, "wb") as f:
                 f.write(r.content)
 
+            avatar_hash = hashlib.sha256(r.content).hexdigest()
+            profile["avatar_hash"] = avatar_hash
+
             rel_path = f"archives/{safe_target_id}/profile/{history_filename}"
             with open(key_file, "w", encoding="utf-8") as kf:
-                kf.write(f"{asset_key}||{rel_path}")
+                kf.write(f"{asset_key}||{avatar_hash}||{rel_path}")
 
             return rel_path
     except Exception as e:
@@ -97,7 +105,7 @@ def parse_profile_metadata(user_data: Dict[str, Any]) -> Dict[str, Any]:
     following_count = follow.get("count", 0)
     profile_pic = user_data.get("profile_pic_url_hd") or user_data.get("profile_pic_url") or ""
 
-    return {
+    prof = {
         "id": str(user_data.get("id", "")),
         "username": str(user_data.get("username", "")),
         "full_name": str(user_data.get("full_name", "")),
@@ -109,6 +117,10 @@ def parse_profile_metadata(user_data: Dict[str, Any]) -> Dict[str, Any]:
         "following_count": int(following_count),
         "profile_pic_url": str(profile_pic),
     }
+
+    raw_state = f"{prof['username']}|{prof['full_name']}|{prof['biography']}|{prof['is_private']}|{followers_count}|{following_count}|{media_count}"
+    prof["profile_hash"] = hashlib.sha256(raw_state.encode("utf-8")).hexdigest()
+    return prof
 
 
 def parse_posts_blitz(node: Dict[str, Any]) -> Dict[str, Any]:

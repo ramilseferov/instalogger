@@ -10,5 +10,6 @@ data class AvatarHistoryEntity(
     val username: String,
     val localPath: String,
     val archivedAt: Long = System.currentTimeMillis(),
-    val fileSize: Long = 0
+    val fileSize: Long = 0,
+    val fileHash: String? = null
 )
