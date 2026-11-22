@@ -1,6 +1,10 @@
 package com.instalogger.app.ui.screens
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -28,7 +32,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -50,11 +53,16 @@ import kotlinx.coroutines.launch
 @Composable
 fun AppLockScreen(
     appLockManager: AppLockManager,
+    activity: FragmentActivity? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+
+    val targetActivity = remember(context, activity) {
+        activity ?: context.findFragmentActivity()
+    }
 
     val isBiometricEnabled by appLockManager.isBiometricEnabled.collectAsStateWithLifecycle()
     val lockoutSeconds by appLockManager.lockoutRemainingSeconds.collectAsStateWithLifecycle()
@@ -64,7 +72,7 @@ fun AppLockScreen(
 
     // Intercept hardware and gesture back button to strictly exit app while locked
     BackHandler {
-        (context as? Activity)?.finishAffinity()
+        targetActivity?.finishAffinity() ?: (context as? Activity)?.finishAffinity()
     }
 
     // Shake animation offset
@@ -85,62 +93,74 @@ fun AppLockScreen(
     }
 
     fun promptBiometric() {
-        val activity = context as? FragmentActivity ?: return
-        val biometricManager = BiometricManager.from(context)
-        val canAuth = biometricManager.canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
-        )
+        val act = targetActivity
+        if (act == null) {
+            Log.e("AppLockScreen", "No FragmentActivity available for BiometricPrompt")
+            return
+        }
+
+        val biometricManager = BiometricManager.from(act)
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
+        val canAuth = biometricManager.canAuthenticate(authenticators)
 
         if (canAuth == BiometricManager.BIOMETRIC_SUCCESS) {
-            val executor = ContextCompat.getMainExecutor(context)
-            val prompt = BiometricPrompt(
-                activity,
-                executor,
-                object : BiometricPrompt.AuthenticationCallback() {
-                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                        super.onAuthenticationSucceeded(result)
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        appLockManager.unlockBiometric()
+            try {
+                val executor = ContextCompat.getMainExecutor(act)
+                val prompt = BiometricPrompt(
+                    act,
+                    executor,
+                    object : BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                            super.onAuthenticationSucceeded(result)
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            appLockManager.unlockBiometric()
+                        }
+
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                            super.onAuthenticationError(errorCode, errString)
+                        }
+
+                        override fun onAuthenticationFailed() {
+                            super.onAuthenticationFailed()
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
                     }
+                )
 
-                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                        super.onAuthenticationError(errorCode, errString)
-                    }
-                }
-            )
+                val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                    .setTitle(context.getString(R.string.lock_biometric_title))
+                    .setSubtitle(context.getString(R.string.lock_biometric_desc))
+                    .setNegativeButtonText(context.getString(R.string.lock_use_pin))
+                    .setAllowedAuthenticators(authenticators)
+                    .build()
 
-            val promptInfo = BiometricPrompt.PromptInfo.Builder()
-                .setTitle(context.getString(R.string.lock_biometric_title))
-                .setSubtitle(context.getString(R.string.lock_biometric_desc))
-                .setNegativeButtonText(context.getString(R.string.lock_use_pin))
-                .build()
-
-            prompt.authenticate(promptInfo)
+                prompt.authenticate(promptInfo)
+            } catch (e: Exception) {
+                Log.e("AppLockScreen", "Biometric exception: ${e.message}", e)
+            }
+        } else {
+            Log.w("AppLockScreen", "Biometric not available: canAuth=$canAuth")
+            Toast.makeText(
+                context,
+                context.getString(R.string.lock_biometric_desc),
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
     // Auto-prompt biometric on launch if enabled
     LaunchedEffect(Unit) {
         if (isBiometricEnabled && !appLockManager.isLockedOut()) {
-            delay(250L)
+            delay(300L)
             promptBiometric()
         }
     }
 
-    // Full-screen impenetrable shield (consumes all pointer events)
+    // Full-screen impenetrable shield
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .pointerInput(Unit) {
-                // Absorb any stray touches
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { it.consume() }
-                    }
-                }
-            },
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -340,4 +360,13 @@ fun AppLockScreen(
             Spacer(modifier = Modifier.height(8.dp))
         }
     }
+}
+
+private fun Context.findFragmentActivity(): FragmentActivity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is FragmentActivity) return ctx
+        ctx = ctx.baseContext
+    }
+    return ctx as? FragmentActivity
 }

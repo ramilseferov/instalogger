@@ -92,11 +92,6 @@ fun SettingsScreen() {
     var showDisableLockDialog by remember { mutableStateOf(false) }
     var showTimeoutDialog by remember { mutableStateOf(false) }
 
-    val vaultManager = remember { VaultStorageManager.getInstance(context) }
-    var vaultSizeFormatted by remember {
-        mutableStateOf(formatVaultBytes(vaultManager.getVaultSizeBytes()))
-    }
-
     val pinSetSuccessMsg = stringResource(R.string.lock_pin_set_success)
     val pinDisabledSuccessMsg = stringResource(R.string.lock_disabled_success)
     val serviceRestartedMsg = stringResource(R.string.msg_service_restarted)
@@ -374,48 +369,7 @@ fun SettingsScreen() {
                 }
             }
 
-            // 4. Hardware-Backed Encrypted Vault Card
-            SettingsGroupCard(
-                icon = Icons.Default.EnhancedEncryption,
-                title = stringResource(R.string.vault_card_title),
-                description = stringResource(R.string.vault_card_desc)
-            ) {
-                VaultInfoRow(
-                    icon = Icons.Default.VpnKey,
-                    title = stringResource(R.string.vault_status_engine),
-                    value = stringResource(R.string.vault_engine_val),
-                    badgeText = stringResource(R.string.vault_badge_secure),
-                    badgeColor = StatusGreen
-                )
-
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                )
-
-                VaultInfoRow(
-                    icon = Icons.Default.HideImage,
-                    title = stringResource(R.string.vault_gallery_isolation),
-                    value = stringResource(R.string.vault_gallery_isolation_val),
-                    badgeText = stringResource(R.string.vault_badge_isolated),
-                    badgeColor = AccentBlue
-                )
-
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                )
-
-                VaultInfoRow(
-                    icon = Icons.Default.Storage,
-                    title = stringResource(R.string.vault_storage_usage),
-                    value = stringResource(R.string.vault_storage_size_format, vaultSizeFormatted),
-                    badgeText = null,
-                    badgeColor = AccentBlue
-                )
-            }
-
-            // 5. Notification Settings Card
+            // 4. Notification Settings Card
             SettingsGroupCard(
                 icon = Icons.Default.NotificationsActive,
                 title = stringResource(R.string.section_notifications),
@@ -1236,64 +1190,6 @@ private fun ThemeOptionCard(
 }
 
 @Composable
-private fun VaultInfoRow(
-    icon: ImageVector,
-    title: String,
-    value: String,
-    badgeText: String? = null,
-    badgeColor: Color = AccentBlue
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(badgeColor.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = badgeColor,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        if (badgeText != null) {
-            StatusBadge(
-                text = badgeText,
-                containerColor = badgeColor.copy(alpha = 0.15f),
-                contentColor = badgeColor
-            )
-        }
-    }
-}
-
-@Composable
 private fun PinSetupDialog(
     onDismiss: () -> Unit,
     onPinConfirmed: (String) -> Unit
@@ -1664,15 +1560,4 @@ private fun AutoLockTimeoutDialog(
             }
         }
     )
-}
-
-private fun formatVaultBytes(bytes: Long): String {
-    if (bytes <= 0) return "0 KB"
-    val kb = bytes / 1024.0
-    val mb = kb / 1024.0
-    return if (mb >= 1.0) {
-        String.format(Locale.US, "%.1f MB", mb)
-    } else {
-        String.format(Locale.US, "%.1f KB", kb)
-    }
 }

@@ -120,7 +120,10 @@ class MainActivity : FragmentActivity() {
             ) {
                 InstaLoggerTheme(themeMode = themeMode) {
                     if (isAppLocked && isLockConfigured) {
-                        AppLockScreen(appLockManager = app.appLockManager)
+                        AppLockScreen(
+                            activity = this@MainActivity,
+                            appLockManager = app.appLockManager
+                        )
                     } else {
                         val navController = rememberNavController()
                         val navBackStackEntry by navController.currentBackStackEntryAsState()
