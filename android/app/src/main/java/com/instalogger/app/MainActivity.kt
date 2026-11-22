@@ -163,10 +163,64 @@ class MainActivity : ComponentActivity() {
                                 navController = navController,
                                 startDestination = Screen.Dashboard.route,
                                 modifier = Modifier.padding(innerPadding),
-                                enterTransition = { MotionSpecs.NavEnterTransition },
-                                exitTransition = { MotionSpecs.NavExitTransition },
-                                popEnterTransition = { MotionSpecs.NavPopEnterTransition },
-                                popExitTransition = { MotionSpecs.NavPopExitTransition }
+                                enterTransition = {
+                                    val fromRoute = initialState.destination.route
+                                    val toRoute = targetState.destination.route
+                                    val fromIdx = getTabRouteIndex(fromRoute)
+                                    val toIdx = getTabRouteIndex(toRoute)
+
+                                    when {
+                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPushEnter
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopEnter
+                                        fromIdx != -1 && toIdx != -1 -> {
+                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
+                                        }
+                                        else -> MotionSpecs.NavEnterTransition
+                                    }
+                                },
+                                exitTransition = {
+                                    val fromRoute = initialState.destination.route
+                                    val toRoute = targetState.destination.route
+                                    val fromIdx = getTabRouteIndex(fromRoute)
+                                    val toIdx = getTabRouteIndex(toRoute)
+
+                                    when {
+                                        toRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPushExit
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopExit
+                                        fromIdx != -1 && toIdx != -1 -> {
+                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
+                                        }
+                                        else -> MotionSpecs.NavExitTransition
+                                    }
+                                },
+                                popEnterTransition = {
+                                    val fromRoute = initialState.destination.route
+                                    val toRoute = targetState.destination.route
+                                    val fromIdx = getTabRouteIndex(fromRoute)
+                                    val toIdx = getTabRouteIndex(toRoute)
+
+                                    when {
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopEnter
+                                        fromIdx != -1 && toIdx != -1 -> {
+                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
+                                        }
+                                        else -> MotionSpecs.NavPopEnterTransition
+                                    }
+                                },
+                                popExitTransition = {
+                                    val fromRoute = initialState.destination.route
+                                    val toRoute = targetState.destination.route
+                                    val fromIdx = getTabRouteIndex(fromRoute)
+                                    val toIdx = getTabRouteIndex(toRoute)
+
+                                    when {
+                                        fromRoute?.startsWith("target_detail") == true -> MotionSpecs.IosPopExit
+                                        fromIdx != -1 && toIdx != -1 -> {
+                                            if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
+                                        }
+                                        else -> MotionSpecs.NavPopExitTransition
+                                    }
+                                }
                             ) {
                                 composable(Screen.Dashboard.route) {
                                     DashboardScreen(
@@ -203,6 +257,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+    private fun getTabRouteIndex(route: String?): Int {
+        return when (route) {
+            Screen.Dashboard.route -> 0
+            Screen.Notifications.route -> 1
+            Screen.Session.route -> 2
+            Screen.Settings.route -> 3
+            else -> -1
+        }
+    }
 
     private fun startLoggerService() {
         try {
