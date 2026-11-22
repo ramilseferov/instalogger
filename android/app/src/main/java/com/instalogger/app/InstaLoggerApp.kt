@@ -6,57 +6,45 @@ import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import com.instalogger.app.data.local.AppDatabase
-import com.instalogger.app.data.remote.ApiService
-import com.instalogger.app.data.remote.WebSocketManager
 import com.instalogger.app.data.repository.NotificationRepository
-import com.instalogger.app.data.repository.TargetRepository
+import com.instalogger.app.engine.InstagramEngine
+import com.instalogger.app.engine.ProfileInspector
+import com.instalogger.app.engine.SessionManager
+import com.instalogger.app.service.InstaLoggerForegroundService
 
 class InstaLoggerApp : Application() {
 
     lateinit var database: AppDatabase
         private set
 
+    lateinit var sessionManager: SessionManager
+        private set
+
+    lateinit var instagramEngine: InstagramEngine
+        private set
+
+    lateinit var profileInspector: ProfileInspector
+        private set
+
     lateinit var notificationRepository: NotificationRepository
-        private set
-
-    lateinit var targetRepository: TargetRepository
-        private set
-
-    lateinit var webSocketManager: WebSocketManager
-        private set
-
-    lateinit var apiService: ApiService
         private set
 
     override fun onCreate() {
         super.onCreate()
 
         database = AppDatabase.getInstance(this)
+        sessionManager = SessionManager(this)
+        instagramEngine = InstagramEngine()
         notificationRepository = NotificationRepository(database.notificationDao())
 
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val serverUrl = prefs.getString(KEY_SERVER_URL, ApiService.DEFAULT_BASE_URL) ?: ApiService.DEFAULT_BASE_URL
-
-        apiService = ApiService.create(serverUrl)
-        targetRepository = TargetRepository(apiService)
-        webSocketManager = WebSocketManager()
-        webSocketManager.updateUrl(serverUrl)
+        profileInspector = ProfileInspector(
+            context = this,
+            database = database,
+            sessionManager = sessionManager,
+            instagramEngine = instagramEngine
+        )
 
         createNotificationChannels()
-    }
-
-    fun updateServerUrl(newUrl: String) {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_SERVER_URL, newUrl).apply()
-
-        apiService = ApiService.create(newUrl)
-        targetRepository.updateApiService(apiService)
-        webSocketManager.updateUrl(newUrl)
-    }
-
-    fun getServerUrl(): String {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_SERVER_URL, ApiService.DEFAULT_BASE_URL) ?: ApiService.DEFAULT_BASE_URL
     }
 
     private fun createNotificationChannels() {
@@ -88,8 +76,6 @@ class InstaLoggerApp : Application() {
     }
 
     companion object {
-        const val PREFS_NAME = "instalogger_prefs"
-        const val KEY_SERVER_URL = "server_url"
         const val CHANNEL_FOREGROUND_ID = "instalogger_foreground_channel"
         const val CHANNEL_ALERTS_ID = "instalogger_alerts_channel"
     }

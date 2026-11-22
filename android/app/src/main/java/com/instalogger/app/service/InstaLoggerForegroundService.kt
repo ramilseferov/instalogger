@@ -10,23 +10,19 @@ import androidx.core.app.NotificationCompat
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.MainActivity
 import com.instalogger.app.R
-import com.instalogger.app.data.remote.WebSocketManager
-import com.instalogger.app.data.remote.WsEvent
+import com.instalogger.app.engine.ProfileInspector
 import kotlinx.coroutines.*
 
 class InstaLoggerForegroundService : Service() {
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
-    private var webSocketManager: WebSocketManager? = null
+    private var isRunning = false
 
     override fun onCreate() {
         super.onCreate()
-        val app = application as InstaLoggerApp
-        webSocketManager = app.webSocketManager
-
         startInForeground()
-        listenToWebSocketEvents()
+        startMonitoringLoop()
     }
 
     private fun startInForeground() {
@@ -60,48 +56,42 @@ class InstaLoggerForegroundService : Service() {
         }
     }
 
-    private fun listenToWebSocketEvents() {
-        webSocketManager?.connect()
+    private fun startMonitoringLoop() {
+        if (isRunning) return
+        isRunning = true
 
         serviceScope.launch {
-            webSocketManager?.events?.collect { event ->
-                when (event) {
-                    is WsEvent.ChangeDetected -> {
-                        handleTargetChange(event)
+            val app = application as InstaLoggerApp
+            val database = app.database
+            val profileInspector = app.profileInspector
+
+            while (isActive) {
+                try {
+                    val activeTargets = database.targetDao().getActiveTargets()
+                    val now = System.currentTimeMillis()
+
+                    for (target in activeTargets) {
+                        val intervalMs = if (target.isTurbo) 15_000L else (target.checkIntervalSeconds * 1000L)
+                        val lastCheck = target.lastCheckedAt ?: 0L
+
+                        if (now - lastCheck >= intervalMs) {
+                            try {
+                                profileInspector.inspectTarget(target.username)
+                            } catch (e: Exception) {
+                                // Ignore individual check error and continue loop
+                            }
+                        }
                     }
-                    is WsEvent.TargetChecked -> {
-                        // Background check confirmed
-                    }
-                    is WsEvent.Connected -> {
-                        // WS active
-                    }
-                    is WsEvent.Disconnected -> {
-                        // Reconnecting automatically
-                    }
+                } catch (e: Exception) {
+                    // Loop guard
                 }
+
+                delay(5_000L)
             }
         }
     }
 
-    private fun handleTargetChange(change: WsEvent.ChangeDetected) {
-        serviceScope.launch {
-            val app = application as InstaLoggerApp
-            val title = "${change.username} profilində dəyişiklik"
-            val message = "${change.fieldName}: ${change.oldValue ?: "-"} -> ${change.newValue ?: "-"}"
-
-            val savedId = app.notificationRepository.insertNotification(
-                targetId = change.targetId,
-                username = change.username,
-                eventType = "change_${change.fieldName}",
-                title = title,
-                message = message
-            )
-
-            showAlertNotification(savedId, title, message)
-        }
-    }
-
-    private fun showAlertNotification(id: Long, title: String, message: String) {
+    fun showAlertNotification(id: Long, title: String, message: String) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val contentIntent = Intent(this, MainActivity::class.java).apply {
@@ -149,8 +139,8 @@ class InstaLoggerForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
         serviceJob.cancel()
-        webSocketManager?.disconnect()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -1,6 +1,5 @@
 package com.instalogger.app.ui.screens
 
-import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,7 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -20,35 +19,29 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.instalogger.app.InstaLoggerApp
-import com.instalogger.app.data.repository.NotificationRepository
 import com.instalogger.app.service.BatteryHelper
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.ui.components.InstaLoggerTopBar
 import com.instalogger.app.ui.components.StatusBadge
-import com.instalogger.app.ui.theme.StatusAmber
-import com.instalogger.app.ui.theme.StatusAmberLight
-import com.instalogger.app.ui.theme.StatusGreen
-import com.instalogger.app.ui.theme.StatusGreenLight
-import com.instalogger.app.ui.theme.StatusRed
+import com.instalogger.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen(
-    notificationRepository: NotificationRepository
-) {
+fun SettingsScreen() {
     val context = LocalContext.current
     val app = context.applicationContext as InstaLoggerApp
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var serverUrl by remember { mutableStateOf(app.getServerUrl()) }
     var isBatteryIgnored by remember { mutableStateOf(BatteryHelper.isBatteryOptimizationIgnored(context)) }
 
     Scaffold(
         topBar = {
             InstaLoggerTopBar(
                 title = "Tənzimləmələr",
-                subtitle = "Server və arxa fon konfiqurasiyası"
+                subtitle = "Müstəqil mühərrik və sistem konfiqurasiyası"
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -61,7 +54,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Server URL Card
+            // Standalone Native Engine Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -72,47 +65,38 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(Icons.Default.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "Daemon Server Ünvanı",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "Müstəqil Daxili Mühərrik",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        StatusBadge(
+                            text = "Aktivdir",
+                            icon = Icons.Default.CheckCircle,
+                            containerColor = StatusGreenLight,
+                            contentColor = StatusGreen
                         )
                     }
 
                     Text(
-                        text = "Yerli və ya şəbəkə üzərindəki InstaLogger daemon ünvanı (məs: http://127.0.0.1:3000)",
+                        text = "Tətbiq heç bir xarici daemon və ya serverə ehtiyac duymadan birbaşa cihaz daxilində tam müstəqil çalışır.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
-                    OutlinedTextField(
-                        value = serverUrl,
-                        onValueChange = { serverUrl = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp)
-                    )
-
-                    Button(
-                        onClick = {
-                            if (serverUrl.isNotBlank()) {
-                                app.updateServerUrl(serverUrl.trim())
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Server ünvanı yeniləndi")
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Yadda Saxla")
-                    }
                 }
             }
 
@@ -200,7 +184,7 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Bildiriş panelində daimi xidmət statusunu yeniləmək və bağlantını bərpa etmək üçün xidməti yenidən başladın.",
+                        text = "Bildiriş panelində daimi xidmət statusunu təzələmək üçün xidməti yenidən başladın.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -240,7 +224,7 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Cihazda toplanmış bütün yerli Room bildiriş qeydlərini sıfırlayın.",
+                        text = "Cihazda saxlanılan bütün yerli hədəf, bildiriş və arxiv qeydlərini sıfırlayın.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -248,8 +232,13 @@ fun SettingsScreen(
                     OutlinedButton(
                         onClick = {
                             scope.launch {
-                                notificationRepository.clearAll()
-                                snackbarHostState.showSnackbar("Bütün yerli qeydlər silindi")
+                                withContext(Dispatchers.IO) {
+                                    app.database.targetDao().clearAll()
+                                    app.database.changeLogDao().clearAll()
+                                    app.database.avatarHistoryDao().clearAll()
+                                    app.database.notificationDao().clearAll()
+                                }
+                                snackbarHostState.showSnackbar("Bütün yerli qeydlər sıfırlandı")
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -257,7 +246,7 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Yerli Bildirişləri Təmizlə")
+                        Text("Bütün Məlumatları Sıfırla")
                     }
                 }
             }

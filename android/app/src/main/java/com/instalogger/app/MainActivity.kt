@@ -35,8 +35,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Notifications : Screen("notifications", "Bildirişlər", Icons.Default.Notifications)
     object Session : Screen("session", "Sessiya", Icons.Default.AccountCircle)
     object Settings : Screen("settings", "Tənzimləmələr", Icons.Default.Settings)
-    object TargetDetail : Screen("target/{targetId}", "Təfərrüat", Icons.Default.Dashboard) {
-        fun createRoute(targetId: String) = "target/$targetId"
+    object TargetDetail : Screen("target/{username}", "Təfərrüat", Icons.Default.Dashboard) {
+        fun createRoute(username: String) = "target/$username"
     }
 }
 
@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
 
         val app = application as InstaLoggerApp
 
-        // Request notification permission on Android 13+ and start service
+        // Start background monitoring service
         startLoggerService()
 
         setContent {
@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
 
                 val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
 
-                // Check and request notification permission
+                // Request notification permission on Android 13+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val permissionLauncher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.RequestPermission(),
@@ -149,9 +149,8 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable(Screen.Dashboard.route) {
                             DashboardScreen(
-                                targetRepository = app.targetRepository,
-                                onNavigateToDetail = { targetId ->
-                                    navController.navigate(Screen.TargetDetail.createRoute(targetId))
+                                onNavigateToDetail = { username ->
+                                    navController.navigate(Screen.TargetDetail.createRoute(username))
                                 }
                             )
                         }
@@ -161,23 +160,18 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Screen.Session.route) {
-                            InstagramSessionScreen(
-                                targetRepository = app.targetRepository
-                            )
+                            InstagramSessionScreen()
                         }
                         composable(Screen.Settings.route) {
-                            SettingsScreen(
-                                notificationRepository = app.notificationRepository
-                            )
+                            SettingsScreen()
                         }
                         composable(
                             route = Screen.TargetDetail.route,
-                            arguments = listOf(navArgument("targetId") { type = NavType.StringType })
+                            arguments = listOf(navArgument("username") { type = NavType.StringType })
                         ) { backStackEntry ->
-                            val targetId = backStackEntry.arguments?.getString("targetId") ?: ""
+                            val username = backStackEntry.arguments?.getString("username") ?: ""
                             ProfileDetailScreen(
-                                targetId = targetId,
-                                targetRepository = app.targetRepository,
+                                username = username,
                                 onBack = { navController.popBackStack() }
                             )
                         }

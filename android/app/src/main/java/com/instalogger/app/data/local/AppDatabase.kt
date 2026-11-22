@@ -6,11 +6,19 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [NotificationEntity::class],
-    version = 2,
+    entities = [
+        TargetEntity::class,
+        ChangeLogEntity::class,
+        AvatarHistoryEntity::class,
+        NotificationEntity::class
+    ],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun targetDao(): TargetDao
+    abstract fun changeLogDao(): ChangeLogDao
+    abstract fun avatarHistoryDao(): AvatarHistoryDao
     abstract fun notificationDao(): NotificationDao
 
     companion object {
@@ -22,7 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "instalogger.db"
+                    "instalogger_standalone.db"
                 ).fallbackToDestructiveMigration().build().also { instance = it }
             }
         }

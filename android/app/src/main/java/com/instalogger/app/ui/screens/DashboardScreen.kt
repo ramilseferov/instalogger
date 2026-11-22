@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,18 +14,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.instalogger.app.InstaLoggerApp
-import com.instalogger.app.data.remote.dto.TargetDto
-import com.instalogger.app.data.repository.TargetRepository
 import com.instalogger.app.ui.components.AddTargetDialog
 import com.instalogger.app.ui.components.InstaLoggerTopBar
+import com.instalogger.app.ui.components.RotatingRefreshButton
 import com.instalogger.app.ui.components.TargetCard
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun DashboardScreen(
-    targetRepository: TargetRepository,
     onNavigateToDetail: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -34,39 +35,38 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var targets by remember { mutableStateOf<List<TargetDto>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val targets by app.database.targetDao().getAllTargets().collectAsStateWithLifecycle(initialValue = emptyList())
+    var checkingTargetUsername by remember { mutableStateOf<String?>(null) }
+    var isGlobalRefreshing by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
 
-    fun refreshTargets() {
+    fun refreshAllTargets() {
+        if (isGlobalRefreshing) return
         scope.launch {
-            isLoading = true
-            targetRepository.getTargets().onSuccess {
-                targets = it
-            }.onFailure {
-                snackbarHostState.showSnackbar("Hədəfləri yükləmək mümkün olmadı: ${it.localizedMessage}")
+            isGlobalRefreshing = true
+            val activeTargets = withContext(Dispatchers.IO) { app.database.targetDao().getActiveTargets() }
+            for (t in activeTargets) {
+                try {
+                    app.profileInspector.inspectTarget(t.username)
+                } catch (e: Exception) {
+                    // Continue to next target
+                }
             }
-            isLoading = false
+            isGlobalRefreshing = false
+            snackbarHostState.showSnackbar("Bütün hədəflər yoxlanıldı")
         }
-    }
-
-    LaunchedEffect(Unit) {
-        refreshTargets()
     }
 
     Scaffold(
         topBar = {
             InstaLoggerTopBar(
                 title = "İzləmə Paneli",
-                subtitle = "Aktiv Instagram hədəfləri və audit vəziyyəti",
+                subtitle = "Müstəqil avtomatik monitorinq",
                 actions = {
-                    IconButton(onClick = { refreshTargets() }) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Yenilə",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                    RotatingRefreshButton(
+                        isRefreshing = isGlobalRefreshing,
+                        onClick = { refreshAllTargets() }
+                    )
                     IconButton(onClick = { showAddDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.Add,
@@ -97,11 +97,7 @@ fun DashboardScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (isLoading && targets.isEmpty()) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else if (targets.isEmpty()) {
+            if (targets.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -120,11 +116,13 @@ fun DashboardScreen(
                         text = "Heç bir hədəf tapılmadı",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "İzləmək istədiyiniz Instagram istifadəçi adını əlavə edərək dərhal başlayın.",
+                        text = "İzləmək istədiyiniz Instagram istifadəçi adını əlavə edin. Tətbiq birbaşa arxa fonda fasiləsiz yoxlayacaq.",
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -143,35 +141,44 @@ fun DashboardScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    items(targets, key = { it.id }) { target ->
+                    items(targets, key = { it.username }) { target ->
+                        val isChecking = checkingTargetUsername == target.username
+
                         TargetCard(
                             target = target,
-                            serverUrl = app.getServerUrl(),
-                            onClick = { onNavigateToDetail(target.id) },
+                            isChecking = isChecking,
+                            onClick = { onNavigateToDetail(target.username) },
                             onCheckNow = {
-                                scope.launch {
-                                    targetRepository.checkTargetNow(target.id).onSuccess {
-                                        snackbarHostState.showSnackbar("@${target.username} üçün yoxlanış başladıldı")
-                                        refreshTargets()
-                                    }.onFailure {
-                                        snackbarHostState.showSnackbar("Yoxlama xətası: ${it.localizedMessage}")
+                                if (checkingTargetUsername == null) {
+                                    scope.launch {
+                                        checkingTargetUsername = target.username
+                                        val result = app.profileInspector.inspectTarget(target.username)
+                                        checkingTargetUsername = null
+
+                                        if (result.isSuccess) {
+                                            snackbarHostState.showSnackbar("@${target.username} yoxlanıldı")
+                                        } else {
+                                            snackbarHostState.showSnackbar("Yoxlama xətası: ${result.exceptionOrNull()?.message}")
+                                        }
                                     }
                                 }
                             },
                             onToggleTurbo = { newTurbo ->
                                 scope.launch {
-                                    targetRepository.toggleTurbo(target.id, newTurbo).onSuccess {
-                                        snackbarHostState.showSnackbar("Turbo vəziyyəti dəyişdirildi")
-                                        refreshTargets()
+                                    withContext(Dispatchers.IO) {
+                                        app.database.targetDao().updateTurbo(target.username, newTurbo)
                                     }
+                                    snackbarHostState.showSnackbar(if (newTurbo) "Turbo aktiv edildi" else "Turbo deaktiv edildi")
                                 }
                             },
                             onDelete = {
                                 scope.launch {
-                                    targetRepository.deleteTarget(target.id).onSuccess {
-                                        snackbarHostState.showSnackbar("@${target.username} silindi")
-                                        refreshTargets()
+                                    withContext(Dispatchers.IO) {
+                                        app.database.targetDao().deleteTarget(target.username)
+                                        app.database.changeLogDao().deleteLogsForTarget(target.username)
+                                        app.database.avatarHistoryDao().deleteAvatarsForTarget(target.username)
                                     }
+                                    snackbarHostState.showSnackbar("@${target.username} silindi")
                                 }
                             }
                         )
@@ -186,12 +193,32 @@ fun DashboardScreen(
             onDismiss = { showAddDialog = false },
             onConfirm = { username, turbo ->
                 showAddDialog = false
+                val cleanUser = username.trim().trimStart('@')
                 scope.launch {
-                    targetRepository.addTarget(username, turbo).onSuccess {
-                        snackbarHostState.showSnackbar("@$username əlavə edildi")
-                        refreshTargets()
-                    }.onFailure {
-                        snackbarHostState.showSnackbar("Əlavə edilmədi: ${it.localizedMessage}")
+                    val progressSnackbar = snackbarHostState.showSnackbar(
+                        message = "@$cleanUser əlavə edilir və ilk yoxlama aparılır...",
+                        duration = SnackbarDuration.Short
+                    )
+
+                    val result = app.profileInspector.inspectTarget(cleanUser)
+                    if (result.isSuccess) {
+                        if (turbo) {
+                            withContext(Dispatchers.IO) {
+                                app.database.targetDao().updateTurbo(cleanUser, true)
+                            }
+                        }
+                        snackbarHostState.showSnackbar("@$cleanUser uğurla əlavə edildi!")
+                    } else {
+                        // Insert placeholder target anyway
+                        withContext(Dispatchers.IO) {
+                            app.database.targetDao().insertTarget(
+                                com.instalogger.app.data.local.TargetEntity(
+                                    username = cleanUser,
+                                    isTurbo = turbo
+                                )
+                            )
+                        }
+                        snackbarHostState.showSnackbar("@$cleanUser əlavə edildi (İlk yoxlama fon xidmətində təkrar ediləcək)")
                     }
                 }
             }

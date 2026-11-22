@@ -76,8 +76,12 @@ fun NotificationItem(
                         text = notification.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (notification.isRead) FontWeight.Medium else FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = formattedTime,
                         style = MaterialTheme.typography.labelSmall,

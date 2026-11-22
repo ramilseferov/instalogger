@@ -9,7 +9,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,16 +16,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.instalogger.app.data.remote.dto.TargetDto
+import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.StatusRed
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun TargetCard(
-    target: TargetDto,
-    serverUrl: String,
+    target: TargetEntity,
+    isChecking: Boolean,
     onClick: () -> Unit,
     onCheckNow: () -> Unit,
     onToggleTurbo: (Boolean) -> Unit,
@@ -34,7 +37,8 @@ fun TargetCard(
     modifier: Modifier = Modifier
 ) {
     val cardShape = RoundedCornerShape(26.dp)
-    val avatarUrl = target.getResolvedAvatarUrl(serverUrl)
+    val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+    val lastCheckStr = target.lastCheckedAt?.let { "Yoxlanış: ${timeFormat.format(Date(it))}" } ?: "Yoxlanmayıb"
 
     Card(
         modifier = modifier
@@ -58,9 +62,21 @@ fun TargetCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                if (!avatarUrl.isNullOrEmpty()) {
+                // Profile Avatar Thumbnail
+                val localFile = target.localAvatarPath?.let { File(it) }
+                if (localFile != null && localFile.exists()) {
                     AsyncImage(
-                        model = avatarUrl,
+                        model = localFile,
+                        contentDescription = target.username,
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .border(1.5.dp, AccentBlue, CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (!target.avatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = target.avatarUrl,
                         contentDescription = target.username,
                         modifier = Modifier
                             .size(54.dp)
@@ -85,19 +101,25 @@ fun TargetCard(
                     }
                 }
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
                     Text(
                         text = "@${target.username}",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
 
-                    if (!target.fullName.isNullOrBlank()) {
+                    if (target.fullName.isNotBlank()) {
                         Text(
                             text = target.fullName,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
@@ -108,7 +130,7 @@ fun TargetCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         PrivacyBadge(isPrivate = target.isPrivate)
-                        if (target.isTurboActive) {
+                        if (target.isTurbo) {
                             TurboBadge(isTurbo = true)
                         }
                     }
@@ -117,16 +139,16 @@ fun TargetCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Stats row
+            // Stats row (No overflow, equal distribution)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                StatItem(label = "Status", value = target.status ?: "aktiv")
-                StatItem(label = "Paylaşım", value = target.mediaCount.toString())
-                StatItem(label = "İnterval", value = "${target.checkIntervalSeconds}s")
+                StatItem(label = "İzləyici", value = target.followersCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = "İzlənilən", value = target.followingCount.toString(), modifier = Modifier.weight(1f))
+                StatItem(label = "Paylaşım", value = target.mediaCount.toString(), modifier = Modifier.weight(1f))
             }
 
             HorizontalDivider(
@@ -135,39 +157,37 @@ fun TargetCard(
                 color = MaterialTheme.colorScheme.outline
             )
 
-            // Action buttons row
+            // Bottom Action Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = target.lastCheckedAt?.take(19)?.replace("T", " ")?.let { "Yoxlanış: $it" } ?: "Yoxlanmayıb",
+                    text = lastCheckStr,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(
+                    // Smooth rotating refresh button
+                    RotatingRefreshButton(
+                        isRefreshing = isChecking,
                         onClick = onCheckNow,
                         modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Yoxla",
-                            tint = AccentBlue,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    )
 
                     IconButton(
-                        onClick = { onToggleTurbo(!target.isTurboActive) },
+                        onClick = { onToggleTurbo(!target.isTurbo) },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Bolt,
                             contentDescription = "Turbo",
-                            tint = if (target.isTurboActive) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (target.isTurbo) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -190,18 +210,22 @@ fun TargetCard(
 }
 
 @Composable
-private fun StatItem(label: String, value: String) {
-    Column {
+private fun StatItem(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

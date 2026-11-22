@@ -17,53 +17,35 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.instalogger.app.data.repository.TargetRepository
+import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.ui.components.InstaLoggerTopBar
 import com.instalogger.app.ui.components.StatusBadge
-import com.instalogger.app.ui.theme.AccentBlue
-import com.instalogger.app.ui.theme.StatusGreen
-import com.instalogger.app.ui.theme.StatusGreenLight
-import com.instalogger.app.ui.theme.StatusRed
-import com.instalogger.app.ui.theme.StatusRedLight
+import com.instalogger.app.ui.theme.*
 import kotlinx.coroutines.launch
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun InstagramSessionScreen(
-    targetRepository: TargetRepository
-) {
+fun InstagramSessionScreen() {
+    val context = LocalContext.current
+    val app = context.applicationContext as InstaLoggerApp
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedTab by remember { mutableIntStateOf(0) }
-    var hasSessionCookie by remember { mutableStateOf(false) }
+    var hasSession by remember { mutableStateOf(app.sessionManager.hasSession()) }
     var manualCookieText by remember { mutableStateOf("") }
-    var isCheckingSession by remember { mutableStateOf(true) }
-
-    fun checkSessionStatus() {
-        scope.launch {
-            isCheckingSession = true
-            targetRepository.getSettings().onSuccess { settings ->
-                hasSessionCookie = settings.hasSessionCookie
-            }
-            isCheckingSession = false
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        checkSessionStatus()
-    }
 
     Scaffold(
         topBar = {
             InstaLoggerTopBar(
                 title = "Instagram Sessiyası",
-                subtitle = "Məxfi profillər və anlıq izləmə üçün hesab əlaqəsi",
+                subtitle = "Məxfi profilləri izləmək üçün daxili hesab əlaqəsi",
                 actions = {
-                    IconButton(onClick = { checkSessionStatus() }) {
+                    IconButton(onClick = { hasSession = app.sessionManager.hasSession() }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Yoxla",
@@ -103,13 +85,13 @@ fun InstagramSessionScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (hasSessionCookie) "Instagram hesabı aktivdir" else "Sessiya bağlı deyil",
+                            text = if (hasSession) "Instagram sessiyası aktivdir" else "Sessiya bağlı deyil (Yalnız açıq profillər)",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    if (hasSessionCookie) {
+                    if (hasSession) {
                         StatusBadge(
                             text = "Aktivdir",
                             icon = Icons.Default.CheckCircle,
@@ -154,23 +136,22 @@ fun InstagramSessionScreen(
                             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(22.dp))
                     ) {
                         AndroidView(
-                            factory = { context ->
-                                WebView(context).apply {
+                            factory = { ctx ->
+                                WebView(ctx).apply {
                                     settings.javaScriptEnabled = true
                                     settings.domStorageEnabled = true
                                     settings.userAgentString =
-                                        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                                        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
                                     webViewClient = object : WebViewClient() {
                                         override fun onPageFinished(view: WebView?, url: String?) {
                                             super.onPageFinished(view, url)
                                             val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
                                             if (cookies != null && cookies.contains("sessionid=")) {
+                                                app.sessionManager.saveCookieString(cookies)
+                                                hasSession = true
                                                 scope.launch {
-                                                    targetRepository.saveSessionCookie(cookies).onSuccess {
-                                                        hasSessionCookie = true
-                                                        snackbarHostState.showSnackbar("Instagram sessiyası avtomatik aşkarlandı və saxlanıldı!")
-                                                    }
+                                                    snackbarHostState.showSnackbar("Instagram sessiyası avtomatik tutuldu və saxlanıldı!")
                                                 }
                                             }
                                         }
@@ -190,7 +171,7 @@ fun InstagramSessionScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            text = "Brauzerdən çıxarılmış sessionid və ya tam cookie stringini bura yapışdırın.",
+                            text = "Brauzerdən götürülmüş sessionid və ya tam cookie sətrini daxil edin.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -209,14 +190,11 @@ fun InstagramSessionScreen(
                         Button(
                             onClick = {
                                 if (manualCookieText.isNotBlank()) {
+                                    app.sessionManager.saveCookieString(manualCookieText.trim())
+                                    hasSession = true
                                     scope.launch {
-                                        targetRepository.saveSessionCookie(manualCookieText.trim()).onSuccess {
-                                            hasSessionCookie = true
-                                            snackbarHostState.showSnackbar("Cookie uğurla yadda saxlanıldı")
-                                            manualCookieText = ""
-                                        }.onFailure {
-                                            snackbarHostState.showSnackbar("Xəta: ${it.localizedMessage}")
-                                        }
+                                        snackbarHostState.showSnackbar("Cookie uğurla yadda saxlanıldı")
+                                        manualCookieText = ""
                                     }
                                 }
                             },
@@ -229,14 +207,13 @@ fun InstagramSessionScreen(
                             Text("Cookie Yadda Saxla")
                         }
 
-                        if (hasSessionCookie) {
+                        if (hasSession) {
                             OutlinedButton(
                                 onClick = {
+                                    app.sessionManager.clearSession()
+                                    hasSession = false
                                     scope.launch {
-                                        targetRepository.saveSessionCookie("").onSuccess {
-                                            hasSessionCookie = false
-                                            snackbarHostState.showSnackbar("Sessiya təmizləndi")
-                                        }
+                                        snackbarHostState.showSnackbar("Sessiya təmizləndi")
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
