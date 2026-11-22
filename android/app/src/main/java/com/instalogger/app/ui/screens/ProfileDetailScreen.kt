@@ -63,12 +63,16 @@ fun ProfileDetailScreen(
     val avatars by app.database.avatarHistoryDao().getAvatarsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val highlights by app.database.highlightDao().getHighlightsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val posts by app.database.postDao().getPostsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val history by app.database.followerHistoryDao().getHistoryForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val audits by app.database.followerAuditDao().getAuditsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
 
     var isRefreshing by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
     var activeHighlight by remember { mutableStateOf<HighlightEntity?>(null) }
     var activeHighlightMedia by remember { mutableStateOf<List<HighlightMediaEntity>>(emptyList()) }
+    var showAuditSheet by remember { mutableStateOf(false) }
+    var auditInitialFilter by remember { mutableStateOf("follower_lost") }
     val noneStr = stringResource(R.string.none_value)
 
     fun refreshTargetData() {
@@ -249,11 +253,31 @@ fun ProfileDetailScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(ShapeTokens.SmallShape)
+                                        .bouncyClickable(pressScale = 0.94f) {
+                                            auditInitialFilter = "follower_lost"
+                                            showAuditSheet = true
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
                                     Text(text = "${t.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.followers), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(ShapeTokens.SmallShape)
+                                        .bouncyClickable(pressScale = 0.94f) {
+                                            auditInitialFilter = "following_lost"
+                                            showAuditSheet = true
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
                                     Text(text = "${t.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -279,6 +303,12 @@ fun ProfileDetailScreen(
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
                 }
+
+                // Interactive Followers & Following Growth Chart
+                FollowerGrowthChart(
+                    history = history,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
 
                 // Standardized Sliding Pill Tab Row
                 SlidingPillTabRow(
@@ -494,6 +524,16 @@ fun ProfileDetailScreen(
             highlight = hl,
             mediaList = activeHighlightMedia,
             onDismiss = { activeHighlight = null }
+        )
+    }
+
+    // Followers & Following Audit Bottom Sheet
+    if (showAuditSheet) {
+        FollowerAuditBottomSheet(
+            targetUsername = username,
+            initialFilter = auditInitialFilter,
+            audits = audits,
+            onDismiss = { showAuditSheet = false }
         )
     }
 }

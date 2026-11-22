@@ -15,9 +15,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NotificationEntity::class,
         HighlightEntity::class,
         HighlightMediaEntity::class,
-        PostEntity::class
+        PostEntity::class,
+        FollowerAuditEntity::class,
+        FollowerHistoryEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,6 +29,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun highlightDao(): HighlightDao
     abstract fun postDao(): PostDao
+    abstract fun followerAuditDao(): FollowerAuditDao
+    abstract fun followerHistoryDao(): FollowerHistoryDao
 
     companion object {
         @Volatile

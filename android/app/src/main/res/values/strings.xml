@@ -55,6 +55,16 @@
     <string name="avatar_size_format">Size: %1$d KB</string>
     <string name="avatar_archived_format">Archived: %1$s</string>
     <string name="preview_title">Image Preview</string>
+    <string name="chart_title">Follower Growth &amp; Trend</string>
+    <string name="chart_subtitle">Live follower and following trajectory</string>
+    <string name="chart_no_data">Not enough history points to render chart yet.</string>
+    <string name="audit_sheet_title">Followers &amp; Following Audit</string>
+    <string name="filter_unfollowers">Unfollowers</string>
+    <string name="filter_unfollowed_by_target">Unfollowed</string>
+    <string name="filter_new_followers">New Followers</string>
+    <string name="filter_new_following">New Following</string>
+    <string name="audit_empty_title">No Records Found</string>
+    <string name="audit_empty_desc">No user changes detected in this category yet.</string>
 
     <!-- Notification Center & Audit Logs -->
     <string name="notifications_title">Notifications</string>

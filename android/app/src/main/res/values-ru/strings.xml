@@ -55,6 +55,16 @@
     <string name="avatar_size_format">Размер: %1$d КБ</string>
     <string name="avatar_archived_format">Архивировано: %1$s</string>
     <string name="preview_title">Предпросмотр изображения</string>
+    <string name="chart_title">Статистика и график подписчиков</string>
+    <string name="chart_subtitle">Динамика количества подписчиков и подписок</string>
+    <string name="chart_no_data">Недостаточно данных для построения графика.</string>
+    <string name="audit_sheet_title">Аудит подписчиков и подписок</string>
+    <string name="filter_unfollowers">Отписавшиеся</string>
+    <string name="filter_unfollowed_by_target">Удаленные из подписок</string>
+    <string name="filter_new_followers">Новые подписчики</string>
+    <string name="filter_new_following">Новые подписки</string>
+    <string name="audit_empty_title">Записей не найдено</string>
+    <string name="audit_empty_desc">В этой категории изменений пока не обнаружено.</string>
 
     <!-- Notification Center & Audit Logs -->
     <string name="notifications_title">Уведомления</string>

@@ -320,9 +320,11 @@ class ProfileInspector(
 
         // 7. Check and archive followers & following lists
         val targetId = snapshot.instagramId ?: existing?.instagramId
-        if (!targetId.isNullOrBlank() && !cookie.isNullOrBlank()) {
-            inspectFollowersList(cleanUser, targetId, cookie, now)
-            inspectFollowingList(cleanUser, targetId, cookie, now)
+        if (!targetId.isNullOrBlank()) {
+            if (!cookie.isNullOrBlank() || wasPrivateToPublic || !snapshot.isPrivate) {
+                inspectFollowersList(cleanUser, targetId, cookie, now)
+                inspectFollowingList(cleanUser, targetId, cookie, now)
+            }
         }
 
         // 8. Auto archive highlights and posts if account transitioned to Public or is Public
@@ -341,6 +343,22 @@ class ProfileInspector(
         val resolvedTurbo = freshInDb?.isTurbo ?: existing?.isTurbo ?: false
         val resolvedActive = freshInDb?.isActive ?: existing?.isActive ?: true
         val resolvedInterval = freshInDb?.checkIntervalSeconds ?: existing?.checkIntervalSeconds ?: 60
+
+        // 9. Record follower & following count point for trend diagram
+        val histFollowers = if (snapshot.followersCount > 0) snapshot.followersCount else (freshInDb?.followersCount ?: existing?.followersCount ?: 0L)
+        val histFollowing = if (snapshot.followingCount > 0) snapshot.followingCount else (freshInDb?.followingCount ?: existing?.followingCount ?: 0L)
+        val histMedia = if (snapshot.mediaCount > 0) snapshot.mediaCount else (freshInDb?.mediaCount ?: existing?.mediaCount ?: 0L)
+        if (histFollowers > 0 || histFollowing > 0) {
+            database.followerHistoryDao().insertHistory(
+                FollowerHistoryEntity(
+                    targetUsername = cleanUser,
+                    followersCount = histFollowers,
+                    followingCount = histFollowing,
+                    mediaCount = histMedia,
+                    timestamp = now
+                )
+            )
+        }
 
         // Holistic second-layer state hash calculation
         val newProfileHash = computeProfileStateHash(
@@ -646,7 +664,7 @@ class ProfileInspector(
         return md.digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 
-    private suspend fun inspectFollowersList(username: String, targetId: String, cookie: String, now: Long) {
+    private suspend fun inspectFollowersList(username: String, targetId: String, cookie: String?, now: Long) {
         try {
             val freshUsers = instagramEngine.fetchFollowersList(targetId, cookie, limit = 50)
             if (freshUsers.isEmpty()) return
@@ -667,9 +685,19 @@ class ProfileInspector(
                     val gained = freshUsers.filter { it.username.lowercase() !in oldSet }
                     val lost = oldUsers.filter { it.username.lowercase() !in newSet }
 
-                    for (u in gained.take(10)) {
+                    for (u in gained) {
                         val title = "@$username gained new follower: @${u.username}"
                         val desc = "New follower: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.followerAuditDao().insertAudit(
+                            FollowerAuditEntity(
+                                targetUsername = username,
+                                eventType = "follower_gained",
+                                username = u.username,
+                                fullName = u.fullName,
+                                profilePicUrl = u.profilePicUrl,
+                                timestamp = now
+                            )
+                        )
                         database.changeLogDao().insertLog(
                             ChangeLogEntity(
                                 targetUsername = username,
@@ -682,9 +710,19 @@ class ProfileInspector(
                         dispatchAlert(username, "follower_gained", title, desc, now)
                     }
 
-                    for (u in lost.take(10)) {
+                    for (u in lost) {
                         val title = "@$username lost follower: @${u.username}"
                         val desc = "Unfollowed: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.followerAuditDao().insertAudit(
+                            FollowerAuditEntity(
+                                targetUsername = username,
+                                eventType = "follower_lost",
+                                username = u.username,
+                                fullName = u.fullName,
+                                profilePicUrl = u.profilePicUrl,
+                                timestamp = now
+                            )
+                        )
                         database.changeLogDao().insertLog(
                             ChangeLogEntity(
                                 targetUsername = username,
@@ -707,7 +745,7 @@ class ProfileInspector(
         }
     }
 
-    private suspend fun inspectFollowingList(username: String, targetId: String, cookie: String, now: Long) {
+    private suspend fun inspectFollowingList(username: String, targetId: String, cookie: String?, now: Long) {
         try {
             val freshUsers = instagramEngine.fetchFollowingList(targetId, cookie, limit = 50)
             if (freshUsers.isEmpty()) return
@@ -728,9 +766,19 @@ class ProfileInspector(
                     val gained = freshUsers.filter { it.username.lowercase() !in oldSet }
                     val lost = oldUsers.filter { it.username.lowercase() !in newSet }
 
-                    for (u in gained.take(10)) {
+                    for (u in gained) {
                         val title = "@$username followed: @${u.username}"
                         val desc = "Now following: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.followerAuditDao().insertAudit(
+                            FollowerAuditEntity(
+                                targetUsername = username,
+                                eventType = "following_gained",
+                                username = u.username,
+                                fullName = u.fullName,
+                                profilePicUrl = u.profilePicUrl,
+                                timestamp = now
+                            )
+                        )
                         database.changeLogDao().insertLog(
                             ChangeLogEntity(
                                 targetUsername = username,
@@ -743,9 +791,19 @@ class ProfileInspector(
                         dispatchAlert(username, "following_gained", title, desc, now)
                     }
 
-                    for (u in lost.take(10)) {
+                    for (u in lost) {
                         val title = "@$username unfollowed: @${u.username}"
                         val desc = "Stopped following: ${u.fullName.ifBlank { "@" + u.username }}"
+                        database.followerAuditDao().insertAudit(
+                            FollowerAuditEntity(
+                                targetUsername = username,
+                                eventType = "following_lost",
+                                username = u.username,
+                                fullName = u.fullName,
+                                profilePicUrl = u.profilePicUrl,
+                                timestamp = now
+                            )
+                        )
                         database.changeLogDao().insertLog(
                             ChangeLogEntity(
                                 targetUsername = username,

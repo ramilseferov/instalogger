@@ -55,6 +55,16 @@
     <string name="avatar_size_format">Həcm: %1$d KB</string>
     <string name="avatar_archived_format">Arxivləndi: %1$s</string>
     <string name="preview_title">Şəkil Ön Baxışı</string>
+    <string name="chart_title">İzləyici Statistikası və Diaqram</string>
+    <string name="chart_subtitle">Canlı takibçi və takib sayı dinamikası</string>
+    <string name="chart_no_data">Diaqram çəkmək üçün kifayət qədər qeyd yoxdur.</string>
+    <string name="audit_sheet_title">Takibçi və Takib Auditi</string>
+    <string name="filter_unfollowers">Takibdən Çıxanlar</string>
+    <string name="filter_unfollowed_by_target">Takibdən Çıxarılanlar</string>
+    <string name="filter_new_followers">Yeni Takibçilər</string>
+    <string name="filter_new_following">Yeni İzlənilənlər</string>
+    <string name="audit_empty_title">Qeyd Tapılmadı</string>
+    <string name="audit_empty_desc">Bu kateqoriya üzrə hələ ki heç bir dəyişiklik aşkar edilməyib.</string>
 
     <!-- Notification Center & Audit Logs -->
     <string name="notifications_title">Bildirişlər</string>
