@@ -29,3 +29,7 @@ Thumbs.db
 __pycache__/
 *.pyc
 .superpowers/
+
+# Local custom build and release scripts (do not upload to github)
+build.sh
+scripts/
