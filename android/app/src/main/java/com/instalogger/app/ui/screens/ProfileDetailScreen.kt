@@ -1,6 +1,7 @@
 package com.instalogger.app.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -14,7 +15,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -26,6 +31,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,6 +45,7 @@ import com.instalogger.app.data.local.HighlightEntity
 import com.instalogger.app.data.local.HighlightMediaEntity
 import com.instalogger.app.data.local.PostEntity
 import com.instalogger.app.data.local.TargetEntity
+import com.instalogger.app.engine.PostSyncStatus
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
@@ -54,7 +61,8 @@ import java.util.*
 @Composable
 fun ProfileDetailScreen(
     username: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToSession: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as InstaLoggerApp
@@ -68,6 +76,10 @@ fun ProfileDetailScreen(
     val posts by app.database.postDao().getPostsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val history by app.database.followerHistoryDao().getHistoryForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val audits by app.database.followerAuditDao().getAuditsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val syncStateMap by app.profileInspector.postSyncState.collectAsStateWithLifecycle()
+    val cleanUserLower = remember(username) { username.trim().trimStart('@').lowercase() }
+    val targetSyncStatus = syncStateMap[cleanUserLower] ?: PostSyncStatus.IDLE
+    val hasSession = remember(app.sessionManager.hasSession()) { app.sessionManager.hasSession() }
 
     var isRefreshing by remember { mutableStateOf(false) }
     var isFetchingPosts by remember { mutableStateOf(posts.isEmpty()) }
@@ -270,8 +282,10 @@ fun ProfileDetailScreen(
                     }
                     1 -> {
                         // Posts Tab (Chunked into 3-column rows for smooth unified scrolling)
+                        val isActivelySyncing = isFetchingPosts || isRefreshing || targetSyncStatus == PostSyncStatus.SYNCING
+
                         if (posts.isEmpty()) {
-                            if (totalPostsCount > 0 || isFetchingPosts || isRefreshing) {
+                            if (isActivelySyncing) {
                                 item(key = "skeleton_posts") {
                                     SkeletonPostGrid(
                                         count = if (totalPostsCount > 0) totalPostsCount else 3,
@@ -279,7 +293,159 @@ fun ProfileDetailScreen(
                                         onRetry = { refreshTargetData() }
                                     )
                                 }
-                            } else {
+                            } else if (targetSyncStatus == PostSyncStatus.REQUIRES_SESSION || !hasSession) {
+                                item(key = "session_required_card") {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                                        shape = ShapeTokens.LargeShape,
+                                        color = MaterialTheme.colorScheme.surfaceContainer,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(56.dp)
+                                                    .clip(CircleShape)
+                                                    .background(AccentBlue.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.VpnKey,
+                                                    contentDescription = null,
+                                                    tint = AccentBlue,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+
+                                            Text(
+                                                text = stringResource(R.string.posts_session_required_title),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                textAlign = TextAlign.Center
+                                            )
+
+                                            Text(
+                                                text = stringResource(R.string.posts_session_required_desc),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                if (onNavigateToSession != null) {
+                                                    Button(
+                                                        onClick = onNavigateToSession,
+                                                        modifier = Modifier.weight(1f),
+                                                        shape = ShapeTokens.MediumShape,
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Lock,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = stringResource(R.string.btn_login_session),
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+
+                                                OutlinedButton(
+                                                    onClick = { refreshTargetData() },
+                                                    modifier = if (onNavigateToSession != null) Modifier.wrapContentWidth() else Modifier.fillMaxWidth(),
+                                                    shape = ShapeTokens.MediumShape
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Refresh,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(stringResource(R.string.action_refresh_list))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (targetSyncStatus == PostSyncStatus.RATE_LIMITED) {
+                                item(key = "rate_limited_card") {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                                        shape = ShapeTokens.LargeShape,
+                                        color = MaterialTheme.colorScheme.surfaceContainer,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(56.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Timer,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+
+                                            Text(
+                                                text = stringResource(R.string.posts_rate_limited_title),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                textAlign = TextAlign.Center
+                                            )
+
+                                            Text(
+                                                text = stringResource(R.string.posts_rate_limited_desc),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+
+                                            Button(
+                                                onClick = { refreshTargetData() },
+                                                shape = ShapeTokens.MediumShape
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(stringResource(R.string.action_refresh_list))
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (totalPostsCount == 0) {
                                 item(key = "empty_posts") {
                                     UnifiedEmptyState(
                                         title = stringResource(R.string.empty_target_posts),
@@ -289,6 +455,51 @@ fun ProfileDetailScreen(
                                             .fillMaxWidth()
                                             .padding(vertical = 40.dp)
                                     )
+                                }
+                            } else {
+                                // Sync failed or ended with 0 posts
+                                item(key = "sync_failed_card") {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                                        shape = ShapeTokens.LargeShape,
+                                        color = MaterialTheme.colorScheme.surfaceContainer,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.posts_sync_failed_title),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.posts_sync_failed_desc),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Button(
+                                                onClick = { refreshTargetData() },
+                                                shape = ShapeTokens.MediumShape
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(stringResource(R.string.action_refresh_list))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {

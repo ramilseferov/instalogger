@@ -275,7 +275,8 @@ class MainActivity : FragmentActivity() {
                                         val username = backStackEntry.arguments?.getString("username") ?: ""
                                         ProfileDetailScreen(
                                             username = username,
-                                            onBack = { navController.popBackStack() }
+                                            onBack = { navController.popBackStack() },
+                                            onNavigateToSession = { navController.navigate(Screen.Session.route) }
                                         )
                                     }
                                 }

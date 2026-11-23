@@ -233,4 +233,11 @@
     <string name="posts_syncing_format">Обнаружено %1$d публикаций • Синхронизация…</string>
     <string name="action_refresh_list">Обновить</string>
     <string name="session_required_followers">Для просмотра списка подписчиков может потребоваться сессия Instagram.</string>
+    <string name="posts_session_required_title">Требуется сессия Instagram</string>
+    <string name="posts_session_required_desc">Instagram ограничивает анонимную архивацию постов. Войдите в аккаунт во вкладке «Сессия» для загрузки и архивации публикаций.</string>
+    <string name="btn_login_session">Войти в Instagram</string>
+    <string name="posts_rate_limited_title">Лимит запросов Instagram (429)</string>
+    <string name="posts_rate_limited_desc">Слишком много запросов к Instagram с этой сети. Пожалуйста, подождите несколько минут или используйте активную сессию.</string>
+    <string name="posts_sync_failed_title">Не удалось загрузить публикации</string>
+    <string name="posts_sync_failed_desc">Не удалось получить публикации из Instagram. Проверьте соединение или повторите попытку.</string>
 </resources>

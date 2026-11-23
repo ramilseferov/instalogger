@@ -247,4 +247,11 @@
     <string name="posts_syncing_format">%1$d posts detected • Syncing…</string>
     <string name="action_refresh_list">Refresh</string>
     <string name="session_required_followers">Instagram session may be required to view full followers list.</string>
+    <string name="posts_session_required_title">Instagram Session Required</string>
+    <string name="posts_session_required_desc">Instagram blocks anonymous post archiving. Log in with an Instagram account in the Session tab to view and archive timeline posts.</string>
+    <string name="btn_login_session">Log In to Instagram</string>
+    <string name="posts_rate_limited_title">Instagram Rate Limit (429)</string>
+    <string name="posts_rate_limited_desc">Too many requests were sent to Instagram from this network. Please wait a few minutes and try again, or use an active session.</string>
+    <string name="posts_sync_failed_title">Failed to Fetch Posts</string>
+    <string name="posts_sync_failed_desc">Could not retrieve timeline posts from Instagram. Check your connection or retry.</string>
 </resources>

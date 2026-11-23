@@ -247,4 +247,11 @@
     <string name="posts_syncing_format">%1$d paylaşım aşkarlandı • Arxivlənir…</string>
     <string name="action_refresh_list">Yenilə</string>
     <string name="session_required_followers">Tam izləyici siyahısını görmək üçün Instagram sessiyası tələb oluna bilər.</string>
+    <string name="posts_session_required_title">Instagram Sessiyası Tələb Olunur</string>
+    <string name="posts_session_required_desc">Instagram anonim post arxivlənməsini məhdudlaşdırır. Paylaşımları və arxiv media fayllarını əldə etmək üçün Sessiya bölməsində daxil olun.</string>
+    <string name="btn_login_session">Instagram ilə Daxil Ol</string>
+    <string name="posts_rate_limited_title">Instagram Sorğu Limiti (429)</string>
+    <string name="posts_rate_limited_desc">Bu şəbəkədən Instagram-a həddən artıq sorğu göndərildi. Zəhmət olmasa bir neçə dəqiqə gözləyib yenidən cəhd edin və ya sessiya istifadə edin.</string>
+    <string name="posts_sync_failed_title">Paylaşımlar Gətirilə Bilmədi</string>
+    <string name="posts_sync_failed_desc">Instagram-dan paylaşımları əldə etmək mümkün olmadı. Əlaqəni yoxlayın və ya yenidən cəhd edin.</string>
 </resources>

@@ -61,6 +61,11 @@ fun DashboardScreen(
     var targets by remember { mutableStateOf<List<TargetEntity>>(emptyList()) }
     val pendingTargets = remember { mutableStateListOf<String>() }
     val deletingTargets = remember { mutableStateListOf<String>() }
+    val visiblePendingTargets = remember(pendingTargets.toList(), targets) {
+        pendingTargets.filter { pending ->
+            targets.none { it.username.equals(pending, ignoreCase = true) }
+        }
+    }
     var checkingTargetUsername by remember { mutableStateOf<String?>(null) }
     var isGlobalRefreshing by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -198,8 +203,8 @@ fun DashboardScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // 1. Shimmer Skeleton Cards for Pending additions (Instant zero-delay feedback)
-                    items(pendingTargets, key = { "pending_$it" }) { pendingUser ->
+                    // 1. Shimmer Skeleton Cards for Pending additions (Instant zero-delay feedback, auto-filtered against active targets)
+                    items(visiblePendingTargets, key = { "pending_$it" }) { pendingUser ->
                         SkeletonTargetCard(
                             username = pendingUser,
                             modifier = Modifier.animateItem()
@@ -284,7 +289,6 @@ fun DashboardScreen(
                         app.profileInspector.unmarkDeleted(cleanUser)
                         app.profileInspector.notifyDaemonAddTarget(cleanUser, turbo)
                         val result = app.profileInspector.inspectTarget(cleanUser)
-                        app.profileInspector.inspectHighlightsAndPosts(cleanUser)
                         if (result.isSuccess) {
                             val newTarget = result.getOrThrow().copy(isTurbo = turbo)
                             if (turbo) {
@@ -304,6 +308,15 @@ fun DashboardScreen(
                         }
                     } finally {
                         pendingTargets.remove(cleanUser)
+                    }
+
+                    // Fire-and-forget post & highlight extraction in background so it never hangs or freezes dashboard
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            app.profileInspector.inspectHighlightsAndPosts(cleanUser)
+                        } catch (e: Exception) {
+                            // Non-fatal background sync
+                        }
                     }
                 }
             }

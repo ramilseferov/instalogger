@@ -22,6 +22,10 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 
+enum class PostSyncStatus {
+    IDLE, SYNCING, COMPLETED, REQUIRES_SESSION, RATE_LIMITED, FAILED
+}
+
 class ProfileInspector(
     private val context: Context,
     private val database: AppDatabase,
@@ -29,6 +33,9 @@ class ProfileInspector(
     private val instagramEngine: InstagramEngine = InstagramEngine(),
     private val onAlertNotification: (title: String, message: String) -> Unit = { _, _ -> }
 ) {
+
+    private val _postSyncState = kotlinx.coroutines.flow.MutableStateFlow<Map<String, PostSyncStatus>>(emptyMap())
+    val postSyncState: kotlinx.coroutines.flow.StateFlow<Map<String, PostSyncStatus>> = _postSyncState
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -1210,56 +1217,77 @@ class ProfileInspector(
             }
 
             // 3. Fetch and archive recent posts
-            val posts = instagramEngine.fetchRecentPosts(effectiveTargetId, cleanUser, effectiveCookie, limit = 24)
-            if (posts.isNotEmpty()) {
-                val postDao = database.postDao()
-                val postEntities = mutableListOf<PostEntity>()
-
-                val postDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/posts")
-                postDir.mkdirs()
-                ArchiveDirectoryManager.ensureNoMedia(postDir)
-                val internalPostDir = File(context.filesDir, "posts/$cleanUser")
-                internalPostDir.mkdirs()
-                ArchiveDirectoryManager.ensureNoMedia(internalPostDir)
-                val vaultManager = VaultStorageManager.getInstance(context)
-
-                for (p in posts) {
-                    var localPath: String? = null
-                    val ext = if (p.mediaType == "video") "mp4" else "jpg"
-                    val file = File(postDir, "${p.shortcode}.$ext")
-
-                    val downloadUrl = if (p.mediaType == "video" && !p.videoUrl.isNullOrBlank()) p.videoUrl else p.displayUrl
-                    if (!downloadUrl.isNullOrBlank()) {
-                        if (!file.exists() || file.length() == 0L) {
-                            instagramEngine.downloadMedia(downloadUrl, file)
-                        }
-                        if (file.exists() && file.length() > 0L) {
-                            val bytes = file.readBytes()
-                            val encPost = vaultManager.saveEncryptedFile(cleanUser, "posts", "${p.shortcode}.$ext", bytes)
-                            localPath = encPost.absolutePath
-                        }
-                    }
-
-                    postEntities.add(
-                        PostEntity(
-                            id = p.shortcode,
-                            username = cleanUser,
-                            caption = p.caption.cleanDisplayText().ifBlank { null },
-                            displayUrl = p.displayUrl,
-                            localPath = localPath,
-                            isVideo = (p.mediaType == "video"),
-                            likeCount = p.likeCount,
-                            commentCount = p.commentCount,
-                            postedAt = p.timestamp
-                        )
-                    )
+            _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.SYNCING)
+            val postResult = instagramEngine.fetchRecentPostsDetailed(effectiveTargetId, cleanUser, effectiveCookie, limit = 24)
+            var fetchedCount = 0
+            when (postResult) {
+                is PostFetchResult.RateLimited -> {
+                    _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.RATE_LIMITED)
                 }
+                is PostFetchResult.RequiresSession -> {
+                    _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
+                }
+                is PostFetchResult.Error -> {
+                    _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
+                }
+                is PostFetchResult.Success -> {
+                    val posts = postResult.posts
+                    fetchedCount = posts.size
+                    if (posts.isNotEmpty()) {
+                        val postDao = database.postDao()
+                        val postEntities = mutableListOf<PostEntity>()
 
-                if (postEntities.isNotEmpty()) {
-                    postDao.insertPosts(postEntities)
-                    val cur = database.targetDao().getTarget(cleanUser)
-                    if (cur != null && (cur.mediaCount == 0L || cur.mediaCount < postEntities.size)) {
-                        database.targetDao().insertTarget(cur.copy(mediaCount = postEntities.size.toLong()))
+                        val postDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/posts")
+                        postDir.mkdirs()
+                        ArchiveDirectoryManager.ensureNoMedia(postDir)
+                        val internalPostDir = File(context.filesDir, "posts/$cleanUser")
+                        internalPostDir.mkdirs()
+                        ArchiveDirectoryManager.ensureNoMedia(internalPostDir)
+                        val vaultManager = VaultStorageManager.getInstance(context)
+
+                        for (p in posts) {
+                            var localPath: String? = null
+                            val ext = if (p.mediaType == "video") "mp4" else "jpg"
+                            val file = File(postDir, "${p.shortcode}.$ext")
+
+                            val downloadUrl = if (p.mediaType == "video" && !p.videoUrl.isNullOrBlank()) p.videoUrl else p.displayUrl
+                            if (!downloadUrl.isNullOrBlank()) {
+                                if (!file.exists() || file.length() == 0L) {
+                                    instagramEngine.downloadMedia(downloadUrl, file)
+                                }
+                                if (file.exists() && file.length() > 0L) {
+                                    val bytes = file.readBytes()
+                                    val encPost = vaultManager.saveEncryptedFile(cleanUser, "posts", "${p.shortcode}.$ext", bytes)
+                                    localPath = encPost.absolutePath
+                                }
+                            }
+
+                            postEntities.add(
+                                PostEntity(
+                                    id = p.shortcode,
+                                    username = cleanUser,
+                                    caption = p.caption.cleanDisplayText().ifBlank { null },
+                                    displayUrl = p.displayUrl,
+                                    localPath = localPath,
+                                    isVideo = (p.mediaType == "video"),
+                                    likeCount = p.likeCount,
+                                    commentCount = p.commentCount,
+                                    postedAt = p.timestamp
+                                )
+                            )
+                        }
+
+                        if (postEntities.isNotEmpty()) {
+                            postDao.insertPosts(postEntities)
+                            val cur = database.targetDao().getTarget(cleanUser)
+                            if (cur != null && (cur.mediaCount == 0L || cur.mediaCount < postEntities.size)) {
+                                database.targetDao().insertTarget(cur.copy(mediaCount = postEntities.size.toLong()))
+                            }
+                        }
+                        _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.COMPLETED)
+                    } else {
+                        val status = if (effectiveCookie.isNullOrBlank()) PostSyncStatus.REQUIRES_SESSION else PostSyncStatus.COMPLETED
+                        _postSyncState.value = _postSyncState.value + (cleanUser to status)
                     }
                 }
             }
@@ -1268,7 +1296,7 @@ class ProfileInspector(
             if (wasPrivateToPublic) {
                 val now = System.currentTimeMillis()
                 val title = "@$cleanUser is now PUBLIC! Highlights & Posts archived."
-                val message = "Archived $hlCount highlight reels and ${posts.size} posts in high speed."
+                val message = "Archived $hlCount highlight reels and $fetchedCount posts in high speed."
                 dispatchAlert(
                     targetUsername = cleanUser,
                     eventType = "privacy_change",
@@ -1278,6 +1306,7 @@ class ProfileInspector(
                 )
             }
         } catch (e: Exception) {
+            _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
             Log.w("ProfileInspector", "Failed to archive highlights and posts for @$cleanUser: ${e.message}")
         }
     }

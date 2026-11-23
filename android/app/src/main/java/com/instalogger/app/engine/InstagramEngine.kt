@@ -62,6 +62,13 @@ data class InstagramPostItem(
     val commentCount: Int = 0
 )
 
+sealed class PostFetchResult {
+    data class Success(val posts: List<InstagramPostItem>) : PostFetchResult()
+    object RequiresSession : PostFetchResult()
+    object RateLimited : PostFetchResult()
+    data class Error(val message: String) : PostFetchResult()
+}
+
 class InstagramEngine {
 
     private val client = OkHttpClient.Builder()
@@ -809,7 +816,7 @@ class InstagramEngine {
         return list
     }
 
-    fun fetchRecentPosts(userId: String?, username: String, cookieString: String?, limit: Int = 24): List<InstagramPostItem> {
+    fun fetchRecentPostsDetailed(userId: String?, username: String, cookieString: String?, limit: Int = 24): PostFetchResult {
         val list = mutableListOf<InstagramPostItem>()
 
         // 1. Try web profile info API first
@@ -828,44 +835,52 @@ class InstagramEngine {
             }
 
             clientWithRedirects.newCall(req.build()).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        val root = gson.fromJson(body, JsonObject::class.java)
-                        val edges = root?.getAsJsonObject("data")
-                            ?.getAsJsonObject("user")
-                            ?.getAsJsonObject("edge_owner_to_timeline_media")
-                            ?.getAsJsonArray("edges")
-                        if (edges != null && edges.size() > 0) {
-                            for (edge in edges) {
-                                val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
-                                val id = node.get("id")?.asString ?: continue
-                                val shortcode = node.get("shortcode")?.asString ?: id
-                                val isVideo = node.get("is_video")?.asBoolean ?: false
-                                val displayUrl = node.get("display_url")?.asString ?: ""
-                                val videoUrl = if (isVideo) node.get("video_url")?.asString else null
-                                val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
-                                val caption = if (captionEdges != null && captionEdges.size() > 0) {
-                                    captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
-                                } else ""
-                                val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
-                                    ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
-                                val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
-                                val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
+                when (response.code) {
+                    429 -> return PostFetchResult.RateLimited
+                    401, 403 -> return PostFetchResult.RequiresSession
+                    200 -> {
+                        val body = response.body?.string()
+                        if (body != null) {
+                            if (body.contains("/accounts/login/") || body.contains("login_required")) {
+                                return PostFetchResult.RequiresSession
+                            }
+                            val root = gson.fromJson(body, JsonObject::class.java)
+                            val edges = root?.getAsJsonObject("data")
+                                ?.getAsJsonObject("user")
+                                ?.getAsJsonObject("edge_owner_to_timeline_media")
+                                ?.getAsJsonArray("edges")
+                            if (edges != null && edges.size() > 0) {
+                                for (edge in edges) {
+                                    val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
+                                    val id = node.get("id")?.asString ?: continue
+                                    val shortcode = node.get("shortcode")?.asString ?: id
+                                    val isVideo = node.get("is_video")?.asBoolean ?: false
+                                    val displayUrl = node.get("display_url")?.asString ?: ""
+                                    val videoUrl = if (isVideo) node.get("video_url")?.asString else null
+                                    val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
+                                    val caption = if (captionEdges != null && captionEdges.size() > 0) {
+                                        captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
+                                    } else ""
+                                    val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
+                                        ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
+                                    val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
+                                    val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
 
-                                list.add(
-                                    InstagramPostItem(
-                                        id = shortcode,
-                                        shortcode = shortcode,
-                                        mediaType = if (isVideo) "video" else "image",
-                                        displayUrl = displayUrl,
-                                        videoUrl = videoUrl,
-                                        caption = caption.cleanDisplayText(),
-                                        timestamp = timestamp * 1000L,
-                                        likeCount = likes,
-                                        commentCount = comments
+                                    list.add(
+                                        InstagramPostItem(
+                                            id = shortcode,
+                                            shortcode = shortcode,
+                                            mediaType = if (isVideo) "video" else "image",
+                                            displayUrl = displayUrl,
+                                            videoUrl = videoUrl,
+                                            caption = caption.cleanDisplayText(),
+                                            timestamp = timestamp * 1000L,
+                                            likeCount = likes,
+                                            commentCount = comments
+                                        )
                                     )
-                                )
+                                }
+                                return PostFetchResult.Success(list)
                             }
                         }
                     }
@@ -875,10 +890,8 @@ class InstagramEngine {
             Log.w(TAG, "Web profile info posts query failed: ${e.message}")
         }
 
-        if (list.isNotEmpty()) return list
-
-        // 2. Fallback to GraphQL query hash if user_id is provided
-        if (!userId.isNullOrBlank()) {
+        // 2. Fallback to GraphQL query hash if user_id is provided and cookie exists
+        if (!userId.isNullOrBlank() && !cookieString.isNullOrBlank()) {
             try {
                 val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=e7465275e4878740f5b475ab0877917b&variables=%7B%22id%22%3A%22$userId%22%2C%22first%22%3A$limit%7D"
                 val req = Request.Builder()
@@ -887,20 +900,19 @@ class InstagramEngine {
                     .header("X-IG-App-ID", APP_ID)
                     .header("Referer", "https://www.instagram.com/")
                     .header("Accept", "*/*")
-
-                if (!cookieString.isNullOrBlank()) {
-                    req.header("Cookie", cookieString)
-                }
+                    .header("Cookie", cookieString)
 
                 clientWithRedirects.newCall(req.build()).execute().use { response ->
+                    if (response.code == 429) return PostFetchResult.RateLimited
+                    if (response.code in listOf(401, 403)) return PostFetchResult.RequiresSession
                     if (response.isSuccessful) {
-                        val body = response.body?.string() ?: return emptyList()
+                        val body = response.body?.string() ?: ""
                         val root = gson.fromJson(body, JsonObject::class.java)
                         val edges = root?.getAsJsonObject("data")
                             ?.getAsJsonObject("user")
                             ?.getAsJsonObject("edge_owner_to_timeline_media")
                             ?.getAsJsonArray("edges")
-                        if (edges != null) {
+                        if (edges != null && edges.size() > 0) {
                             for (edge in edges) {
                                 val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
                                 val id = node.get("id")?.asString ?: continue
@@ -930,6 +942,7 @@ class InstagramEngine {
                                     )
                                 )
                             }
+                            return PostFetchResult.Success(list)
                         }
                     }
                 }
@@ -937,8 +950,6 @@ class InstagramEngine {
                 Log.w(TAG, "GraphQL timeline posts query failed: ${e.message}")
             }
         }
-
-        if (list.isNotEmpty()) return list
 
         // 3. Fallback: Parse posts embedded in public profile HTML
         try {
@@ -955,6 +966,7 @@ class InstagramEngine {
             }
 
             clientWithRedirects.newCall(htmlReq.build()).execute().use { resp ->
+                if (resp.code == 429) return PostFetchResult.RateLimited
                 if (resp.isSuccessful) {
                     val html = resp.body?.string() ?: ""
                     val scPattern = Pattern.compile("\"shortcode\":\\s*\"([A-Za-z0-9_-]+)\"")
@@ -968,7 +980,6 @@ class InstagramEngine {
                     }
 
                     for (sc in shortcodes) {
-                        // Check if direct display_url exists near this shortcode
                         var directUrl: String? = null
                         val directPattern = Pattern.compile("\"shortcode\":\\s*\"" + Pattern.quote(sc) + "\"[^}]*?\"display_url\":\\s*\"([^\"]+)\"")
                         val directMatcher = directPattern.matcher(html)
@@ -990,13 +1001,23 @@ class InstagramEngine {
                             )
                         )
                     }
+                    if (list.isNotEmpty()) return PostFetchResult.Success(list)
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "HTML post parsing fallback failed: ${e.message}")
         }
 
-        return list
+        if (list.isNotEmpty()) return PostFetchResult.Success(list)
+        if (cookieString.isNullOrBlank()) return PostFetchResult.RequiresSession
+        return PostFetchResult.Error("No posts returned")
+    }
+
+    fun fetchRecentPosts(userId: String?, username: String, cookieString: String?, limit: Int = 24): List<InstagramPostItem> {
+        return when (val res = fetchRecentPostsDetailed(userId, username, cookieString, limit)) {
+            is PostFetchResult.Success -> res.posts
+            else -> emptyList()
+        }
     }
 
     companion object {
