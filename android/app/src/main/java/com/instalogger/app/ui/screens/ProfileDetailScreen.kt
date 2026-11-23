@@ -70,6 +70,7 @@ fun ProfileDetailScreen(
     val audits by app.database.followerAuditDao().getAuditsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
 
     var isRefreshing by remember { mutableStateOf(false) }
+    var isFetchingPosts by remember { mutableStateOf(posts.isEmpty()) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
     var selectedPostForViewer by remember { mutableStateOf<PostEntity?>(null) }
@@ -81,16 +82,23 @@ fun ProfileDetailScreen(
 
     // Auto-fetch posts & highlights immediately upon opening screen
     LaunchedEffect(username) {
-        app.profileInspector.inspectHighlightsAndPosts(username)
+        if (posts.isEmpty()) isFetchingPosts = true
+        try {
+            app.profileInspector.inspectHighlightsAndPosts(username)
+        } finally {
+            isFetchingPosts = false
+        }
     }
 
     fun refreshTargetData() {
         if (isRefreshing) return
         scope.launch {
             isRefreshing = true
+            if (posts.isEmpty()) isFetchingPosts = true
             val result = app.profileInspector.inspectTarget(username)
             app.profileInspector.inspectHighlightsAndPosts(username)
             isRefreshing = false
+            isFetchingPosts = false
             if (result.isSuccess) {
                 snackbarHostState.showSnackbar(context.getString(R.string.msg_target_checked, username))
             } else {
@@ -159,9 +167,10 @@ fun ProfileDetailScreen(
             ) {
                 // 1. Profile Hero Card
                 item(key = "hero_card") {
-                    target?.let { t ->
+                    if (target != null) {
                         ProfileHeroSection(
-                            target = t,
+                            target = target!!,
+                            localPostsCount = posts.size,
                             onAvatarClick = { previewImagePath = it },
                             onFollowersClick = {
                                 auditInitialTab = 0
@@ -172,6 +181,8 @@ fun ProfileDetailScreen(
                                 showAuditSheet = true
                             }
                         )
+                    } else {
+                        SkeletonProfileHero()
                     }
                 }
 
@@ -259,15 +270,21 @@ fun ProfileDetailScreen(
                     1 -> {
                         // Posts Tab (Chunked into 3-column rows for smooth unified scrolling)
                         if (posts.isEmpty()) {
-                            item(key = "empty_posts") {
-                                UnifiedEmptyState(
-                                    title = stringResource(R.string.empty_target_posts),
-                                    description = "",
-                                    icon = Icons.Default.GridOn,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 40.dp)
-                                )
+                            if (isFetchingPosts || isRefreshing) {
+                                item(key = "skeleton_posts") {
+                                    SkeletonPostGrid()
+                                }
+                            } else {
+                                item(key = "empty_posts") {
+                                    UnifiedEmptyState(
+                                        title = stringResource(R.string.empty_target_posts),
+                                        description = "",
+                                        icon = Icons.Default.GridOn,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 40.dp)
+                                    )
+                                }
                             }
                         } else {
                             val postChunks = posts.chunked(3)
@@ -383,9 +400,9 @@ fun ProfileDetailScreen(
                 Button(
                     onClick = {
                         showDeleteDialog = false
+                        onBack()
                         scope.launch {
                             app.profileInspector.deleteTarget(username, target?.instagramId)
-                            onBack()
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
@@ -423,6 +440,7 @@ private fun resolveAvatarSource(context: android.content.Context, t: TargetEntit
 @Composable
 private fun ProfileHeroSection(
     target: TargetEntity,
+    localPostsCount: Int = 0,
     onAvatarClick: (String) -> Unit,
     onFollowersClick: () -> Unit,
     onFollowingClick: () -> Unit
@@ -564,7 +582,8 @@ private fun ProfileHeroSection(
                     Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(text = "${target.mediaCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val displayMediaCount = maxOf(target.mediaCount, localPostsCount.toLong())
+                    Text(text = "$displayMediaCount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(text = stringResource(R.string.posts), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

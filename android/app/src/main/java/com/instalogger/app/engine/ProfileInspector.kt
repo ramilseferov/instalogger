@@ -354,16 +354,24 @@ class ProfileInspector(
         val resolvedInterval = freshInDb?.checkIntervalSeconds ?: existing?.checkIntervalSeconds ?: 60
 
         // 9. Record follower & following count point for trend diagram
+        val localPostsCount = database.postDao().getPostsCountForUser(cleanUser).toLong()
         val histFollowers = if (snapshot.followersCount > 0) snapshot.followersCount else (freshInDb?.followersCount ?: existing?.followersCount ?: 0L)
         val histFollowing = if (snapshot.followingCount > 0) snapshot.followingCount else (freshInDb?.followingCount ?: existing?.followingCount ?: 0L)
-        val histMedia = if (snapshot.mediaCount > 0) snapshot.mediaCount else (freshInDb?.mediaCount ?: existing?.mediaCount ?: 0L)
+        val resolvedMediaCount = when {
+            snapshot.mediaCount > 0L -> snapshot.mediaCount
+            localPostsCount > 0L -> localPostsCount
+            (freshInDb?.mediaCount ?: 0L) > 0L -> freshInDb!!.mediaCount
+            (existing?.mediaCount ?: 0L) > 0L -> existing!!.mediaCount
+            else -> 0L
+        }
+
         if (histFollowers > 0 || histFollowing > 0) {
             database.followerHistoryDao().insertHistory(
                 FollowerHistoryEntity(
                     targetUsername = cleanUser,
                     followersCount = histFollowers,
                     followingCount = histFollowing,
-                    mediaCount = histMedia,
+                    mediaCount = resolvedMediaCount,
                     timestamp = now
                 )
             )
@@ -377,7 +385,7 @@ class ProfileInspector(
             isPrivate = snapshot.isPrivate,
             followersCount = snapshot.followersCount,
             followingCount = snapshot.followingCount,
-            mediaCount = snapshot.mediaCount,
+            mediaCount = resolvedMediaCount,
             avatarHash = currentAvatarHash
         )
 
@@ -389,7 +397,7 @@ class ProfileInspector(
             isPrivate = snapshot.isPrivate,
             followersCount = if (snapshot.followersCount > 0) snapshot.followersCount else (freshInDb?.followersCount ?: existing?.followersCount ?: 0L),
             followingCount = if (snapshot.followingCount > 0) snapshot.followingCount else (freshInDb?.followingCount ?: existing?.followingCount ?: 0L),
-            mediaCount = if (snapshot.mediaCount > 0) snapshot.mediaCount else (freshInDb?.mediaCount ?: existing?.mediaCount ?: 0L),
+            mediaCount = resolvedMediaCount,
             avatarUrl = snapshot.profilePicUrl ?: freshInDb?.avatarUrl ?: existing?.avatarUrl,
             localAvatarPath = localAvatarPath,
             avatarHash = currentAvatarHash ?: freshInDb?.avatarHash ?: existing?.avatarHash,
@@ -715,31 +723,14 @@ class ProfileInspector(
         val targetEntity = database.targetDao().getTarget(cleanUser)
         val idToDelete = instagramId ?: targetEntity?.instagramId
 
-        // Record in persistent tombstones immediately to prevent resurrection under race conditions
+        // 1. Record in persistent tombstones immediately to prevent resurrection under race conditions
         val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
         val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
         current.add(cleanUser)
         if (!idToDelete.isNullOrBlank()) current.add(idToDelete.lowercase())
         prefs.edit().putStringSet("deleted_usernames", current).commit()
 
-        // 1. Delete from local Rust daemon (port 3000)
-        val candidates = mutableListOf<String>()
-        if (!idToDelete.isNullOrBlank()) candidates.add(idToDelete)
-        candidates.add(cleanUser)
-
-        for (targetKey in candidates.distinct()) {
-            try {
-                val req = Request.Builder()
-                    .url("http://127.0.0.1:3000/api/targets/$targetKey")
-                    .delete()
-                    .build()
-                httpClient.newCall(req).execute().close()
-            } catch (_: Exception) {
-                // Ignore if daemon is offline
-            }
-        }
-
-        // 2. Comprehensive Room database clean up across all entities
+        // 2. Comprehensive Room database clean up FIRST for 0ms UI reactivity
         try {
             database.targetDao().deleteTarget(cleanUser)
             database.changeLogDao().deleteLogsForTarget(cleanUser)
@@ -758,6 +749,28 @@ class ProfileInspector(
         try {
             ArchiveDirectoryManager.deleteInternalTargetFiles(context, cleanUser)
         } catch (_: Exception) {}
+
+        // 4. Notify local Rust daemon (port 3000) with fast non-blocking timeout
+        val candidates = mutableListOf<String>()
+        if (!idToDelete.isNullOrBlank()) candidates.add(idToDelete)
+        candidates.add(cleanUser)
+
+        val fastClient = httpClient.newBuilder()
+            .connectTimeout(1, TimeUnit.SECONDS)
+            .readTimeout(1, TimeUnit.SECONDS)
+            .build()
+
+        for (targetKey in candidates.distinct()) {
+            try {
+                val req = Request.Builder()
+                    .url("http://127.0.0.1:3000/api/targets/$targetKey")
+                    .delete()
+                    .build()
+                fastClient.newCall(req).execute().close()
+            } catch (_: Exception) {
+                // Ignore if daemon is offline
+            }
+        }
 
         true
     }

@@ -240,4 +240,10 @@
     <string name="vault_storage_size_format">%1$s (Zero Plaintext on Disk)</string>
     <string name="vault_badge_secure">Hardware Protected</string>
     <string name="vault_badge_isolated">100% Hidden</string>
+
+    <!-- Skeleton & Loading states -->
+    <string name="loading_profile_data">Loading profile data…</string>
+    <string name="loading_posts">Loading posts…</string>
+    <string name="action_refresh_list">Refresh</string>
+    <string name="session_required_followers">Instagram session may be required to view full followers list.</string>
 </resources>

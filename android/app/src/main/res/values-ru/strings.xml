@@ -226,4 +226,10 @@
     <string name="vault_storage_size_format">%1$s (Ноль открытого текста на диске)</string>
     <string name="vault_badge_secure">Аппаратная защита</string>
     <string name="vault_badge_isolated">100% Скрыто</string>
+
+    <!-- Skeleton & Loading states -->
+    <string name="loading_profile_data">Загрузка данных профиля…</string>
+    <string name="loading_posts">Загрузка публикаций…</string>
+    <string name="action_refresh_list">Обновить</string>
+    <string name="session_required_followers">Для просмотра списка подписчиков может потребоваться сессия Instagram.</string>
 </resources>

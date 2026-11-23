@@ -8,6 +8,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
@@ -206,26 +207,53 @@ class InstagramEngine {
                 }
             }
 
-            // 8. Extract media / post count
-            val mediaPattern = Pattern.compile("\"edge_owner_to_timeline_media\":\\s*\\{\\s*\"count\":\\s*(\\d+)|\"media_count\":\\s*(\\d+)")
-            val mediaMatcher = mediaPattern.matcher(html)
-            if (mediaMatcher.find()) {
-                val countStr = mediaMatcher.group(1) ?: mediaMatcher.group(2)
-                posts = countStr?.toLongOrNull() ?: 0L
+            // 8. Extract media / post count (multi-pattern fallback)
+            val mediaPatterns = listOf(
+                Pattern.compile("\"edge_owner_to_timeline_media\":\\s*\\{\\s*\"count\":\\s*(\\d+)"),
+                Pattern.compile("\"media_count\":\\s*(\\d+)"),
+                Pattern.compile("\"posts_count\":\\s*(\\d+)"),
+                Pattern.compile("\"edge_felix_video_timeline\":\\s*\\{\\s*\"count\":\\s*(\\d+)")
+            )
+            for (p in mediaPatterns) {
+                val m = p.matcher(html)
+                if (m.find()) {
+                    val countVal = m.group(1)?.toLongOrNull() ?: 0L
+                    if (countVal > 0L) {
+                        posts = countVal
+                        break
+                    }
+                }
             }
 
-            // 9. Fallback og:description if modern JSON was missing
-            if (followers == 0L && following == 0L) {
-                val descPattern = Pattern.compile("<meta\\s+property=\"og:description\"\\s+content=\"([^\"]+)\"")
-                val descMatcher = descPattern.matcher(html)
-                if (descMatcher.find()) {
-                    val desc = descMatcher.group(1) ?: ""
-                    val countPattern = Pattern.compile("([\\d,.]+)\\s+Followers,\\s+([\\d,.]+)\\s+Following,\\s+([\\d,.]+)\\s+Posts")
-                    val countMatcher = countPattern.matcher(desc)
-                    if (countMatcher.find()) {
-                        followers = parseFormattedNumber(countMatcher.group(1) ?: "0")
-                        following = parseFormattedNumber(countMatcher.group(2) ?: "0")
-                        posts = parseFormattedNumber(countMatcher.group(3) ?: "0")
+            // 9. Fallback og:description if posts or followers are missing
+            if (posts == 0L || (followers == 0L && following == 0L)) {
+                val descPatterns = listOf(
+                    Pattern.compile("<meta\\s+(?:name|property)=\"(?:description|og:description)\"\\s+content=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE),
+                    Pattern.compile("\"description\":\\s*\"([^\"]+)\"")
+                )
+                for (dp in descPatterns) {
+                    val descMatcher = dp.matcher(html)
+                    if (descMatcher.find()) {
+                        val desc = descMatcher.group(1) ?: ""
+                        // 1) Match multilingual or standard count formats: "X Followers, Y Following, Z Posts"
+                        val countPattern = Pattern.compile("([\\d,.]+[KkMmBb]?)\\s+(?:Followers|Takipçi|Подписчик|İzləyici)[^,;]*[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+(?:Following|Takip|Подписк|İzlənilən)[^,;]*[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+(?:Posts|Gönderi|Публикац|Paylaşım)", Pattern.CASE_INSENSITIVE)
+                        val countMatcher = countPattern.matcher(desc)
+                        if (countMatcher.find()) {
+                            if (followers == 0L) followers = parseFormattedNumber(countMatcher.group(1) ?: "0")
+                            if (following == 0L) following = parseFormattedNumber(countMatcher.group(2) ?: "0")
+                            if (posts == 0L) posts = parseFormattedNumber(countMatcher.group(3) ?: "0")
+                            break
+                        } else {
+                            // 2) Generic 3-part fallback: "X ..., Y ..., Z ..."
+                            val genericPattern = Pattern.compile("([\\d,.]+[KkMmBb]?)\\s+[^,;]+[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+[^,;]+[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+", Pattern.CASE_INSENSITIVE)
+                            val gm = genericPattern.matcher(desc)
+                            if (gm.find()) {
+                                if (followers == 0L) followers = parseFormattedNumber(gm.group(1) ?: "0")
+                                if (following == 0L) following = parseFormattedNumber(gm.group(2) ?: "0")
+                                if (posts == 0L) posts = parseFormattedNumber(gm.group(3) ?: "0")
+                                break
+                            }
+                        }
                     }
                 }
             }
@@ -421,8 +449,31 @@ class InstagramEngine {
     }
 
     private fun parseFormattedNumber(text: String): Long {
-        val clean = text.replace(",", "").replace(".", "").trim()
-        return clean.toLongOrNull() ?: 0L
+        val raw = text.trim()
+        if (raw.isBlank()) return 0L
+        return try {
+            val upper = raw.uppercase(Locale.ROOT)
+            when {
+                upper.endsWith("K") -> {
+                    val num = upper.removeSuffix("K").replace(",", ".").trim().toDoubleOrNull() ?: 0.0
+                    (num * 1_000.0).toLong()
+                }
+                upper.endsWith("M") -> {
+                    val num = upper.removeSuffix("M").replace(",", ".").trim().toDoubleOrNull() ?: 0.0
+                    (num * 1_000_000.0).toLong()
+                }
+                upper.endsWith("B") -> {
+                    val num = upper.removeSuffix("B").replace(",", ".").trim().toDoubleOrNull() ?: 0.0
+                    (num * 1_000_000_000.0).toLong()
+                }
+                else -> {
+                    val clean = raw.replace(",", "").replace(".", "").trim()
+                    clean.toLongOrNull() ?: 0L
+                }
+            }
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     fun downloadImage(url: String, destFile: File): Long {

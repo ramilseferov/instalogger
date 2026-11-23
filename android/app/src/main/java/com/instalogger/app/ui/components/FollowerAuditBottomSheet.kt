@@ -41,6 +41,7 @@ import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.util.ArchiveDirectoryManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -68,6 +69,9 @@ fun FollowerAuditBottomSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val app = context.applicationContext as com.instalogger.app.InstaLoggerApp
+    val scope = rememberCoroutineScope()
+
     var selectedTab by remember { mutableIntStateOf(initialTab) }
     var selectedFilter by remember { mutableStateOf(initialFilter) }
     var searchQuery by remember { mutableStateOf("") }
@@ -75,31 +79,62 @@ fun FollowerAuditBottomSheet(
     var followersList by remember { mutableStateOf<List<InstagramUserSummary>>(emptyList()) }
     var followingList by remember { mutableStateOf<List<InstagramUserSummary>>(emptyList()) }
     var isLoadingLists by remember { mutableStateOf(true) }
+    var isAuditingLive by remember { mutableStateOf(false) }
 
     val gson = remember { Gson() }
+
+    suspend fun loadListsFromDisk() {
+        val type = object : TypeToken<List<InstagramUserSummary>>() {}.type
+
+        // 1. Read followers.json
+        val followersJson = ArchiveDirectoryManager.getUserArchiveJson(context, targetUsername, "followers.json")
+            ?: File("/storage/emulated/0/instalogger/archives/$targetUsername/followers.json").takeIf { it.exists() }?.readText()
+        val parsedFollowers: List<InstagramUserSummary> = if (!followersJson.isNullOrBlank()) {
+            try { gson.fromJson(followersJson, type) ?: emptyList() } catch (_: Exception) { emptyList() }
+        } else emptyList()
+
+        // 2. Read following.json
+        val followingJson = ArchiveDirectoryManager.getUserArchiveJson(context, targetUsername, "following.json")
+            ?: File("/storage/emulated/0/instalogger/archives/$targetUsername/following.json").takeIf { it.exists() }?.readText()
+        val parsedFollowing: List<InstagramUserSummary> = if (!followingJson.isNullOrBlank()) {
+            try { gson.fromJson(followingJson, type) ?: emptyList() } catch (_: Exception) { emptyList() }
+        } else emptyList()
+
+        withContext(Dispatchers.Main) {
+            followersList = parsedFollowers
+            followingList = parsedFollowing
+            isLoadingLists = false
+        }
+    }
 
     LaunchedEffect(targetUsername) {
         isLoadingLists = true
         withContext(Dispatchers.IO) {
-            val type = object : TypeToken<List<InstagramUserSummary>>() {}.type
+            loadListsFromDisk()
+        }
+    }
 
-            // 1. Read followers.json
-            val followersJson = ArchiveDirectoryManager.getUserArchiveJson(context, targetUsername, "followers.json")
-                ?: File("/storage/emulated/0/instalogger/archives/$targetUsername/followers.json").takeIf { it.exists() }?.readText()
-            val parsedFollowers: List<InstagramUserSummary> = if (!followersJson.isNullOrBlank()) {
-                try { gson.fromJson(followersJson, type) ?: emptyList() } catch (_: Exception) { emptyList() }
-            } else emptyList()
-
-            // 2. Read following.json
-            val followingJson = ArchiveDirectoryManager.getUserArchiveJson(context, targetUsername, "following.json")
-                ?: File("/storage/emulated/0/instalogger/archives/$targetUsername/following.json").takeIf { it.exists() }?.readText()
-            val parsedFollowing: List<InstagramUserSummary> = if (!followingJson.isNullOrBlank()) {
-                try { gson.fromJson(followingJson, type) ?: emptyList() } catch (_: Exception) { emptyList() }
-            } else emptyList()
-
-            followersList = parsedFollowers
-            followingList = parsedFollowing
-            isLoadingLists = false
+    fun triggerLiveFollowerFetch() {
+        if (isAuditingLive) return
+        scope.launch {
+            isAuditingLive = true
+            withContext(Dispatchers.IO) {
+                try {
+                    val targetEntity = app.database.targetDao().getTarget(targetUsername)
+                    val cookie = app.sessionManager.getCookieString()
+                    val targetId = targetEntity?.instagramId ?: targetUsername
+                    val freshFollowers = app.instagramEngine.fetchFollowersList(targetId, cookie, limit = 100)
+                    if (freshFollowers.isNotEmpty()) {
+                        ArchiveDirectoryManager.saveUserArchiveJson(context, targetUsername, "followers.json", gson.toJson(freshFollowers))
+                    }
+                    val freshFollowing = app.instagramEngine.fetchFollowingList(targetId, cookie, limit = 100)
+                    if (freshFollowing.isNotEmpty()) {
+                        ArchiveDirectoryManager.saveUserArchiveJson(context, targetUsername, "following.json", gson.toJson(freshFollowing))
+                    }
+                    loadListsFromDisk()
+                } catch (_: Exception) {}
+            }
+            isAuditingLive = false
         }
     }
 
@@ -163,15 +198,25 @@ fun FollowerAuditBottomSheet(
                     )
                 }
 
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(36.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    RotatingRefreshButton(
+                        isRefreshing = isAuditingLive || isLoadingLists,
+                        onClick = { triggerLiveFollowerFetch() }
                     )
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -209,7 +254,8 @@ fun FollowerAuditBottomSheet(
                         onSearchChange = { searchQuery = it },
                         emptyTitle = stringResource(R.string.audit_empty_title),
                         emptyDesc = stringResource(R.string.empty_followers_desc),
-                        isLoading = isLoadingLists,
+                        isLoading = isLoadingLists || isAuditingLive,
+                        onRefresh = { triggerLiveFollowerFetch() },
                         context = context
                     )
                 }
@@ -221,7 +267,8 @@ fun FollowerAuditBottomSheet(
                         onSearchChange = { searchQuery = it },
                         emptyTitle = stringResource(R.string.audit_empty_title),
                         emptyDesc = stringResource(R.string.empty_following_desc),
-                        isLoading = isLoadingLists,
+                        isLoading = isLoadingLists || isAuditingLive,
+                        onRefresh = { triggerLiveFollowerFetch() },
                         context = context
                     )
                 }
@@ -249,6 +296,7 @@ private fun UserListTabContent(
     emptyTitle: String,
     emptyDesc: String,
     isLoading: Boolean,
+    onRefresh: () -> Unit,
     context: Context
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -296,6 +344,9 @@ private fun UserListTabContent(
                 title = emptyTitle,
                 description = emptyDesc,
                 icon = Icons.Default.Group,
+                actionLabel = stringResource(R.string.action_refresh_list),
+                actionIcon = Icons.Default.Refresh,
+                onActionClick = onRefresh,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)

@@ -277,6 +277,16 @@ impl Scheduler {
             let _ = self.db.upsert_media(&media);
         }
 
+        // Update target media_count if items were discovered and current count is less
+        if !blitz.items.is_empty() {
+            if let Ok(Some(mut current_target)) = self.db.get_target(target_id) {
+                if current_target.media_count == 0 || current_target.media_count < blitz.items.len() as i64 {
+                    current_target.media_count = blitz.items.len() as i64;
+                    let _ = self.db.update_target_profile(&current_target);
+                }
+            }
+        }
+
         // Dump payload
         let blitz_json_path = format!("{}/blitz_items.json", out_dir);
         let blitz_payload = serde_json::json!({

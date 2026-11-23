@@ -159,7 +159,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
 
         <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100 text-center">
           <div className="bg-[#F8F9FA] py-2.5 rounded-2xl border border-gray-100">
-            <span className="text-lg font-extrabold text-gray-900">{target.media_count}</span>
+            <span className="text-lg font-extrabold text-gray-900">{Math.max(target.media_count, media.length)}</span>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{t.instagram_posts}</p>
           </div>
           <div className="bg-[#F8F9FA] py-2.5 rounded-2xl border border-gray-100">

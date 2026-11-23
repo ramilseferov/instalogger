@@ -1,15 +1,19 @@
 package com.instalogger.app.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Security
@@ -33,6 +37,7 @@ import com.instalogger.app.ui.components.AddTargetDialog
 import com.instalogger.app.ui.components.HeaderActionButton
 import com.instalogger.app.ui.components.ReachabilityHeader
 import com.instalogger.app.ui.components.RotatingRefreshButton
+import com.instalogger.app.ui.components.SkeletonTargetCard
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.components.TargetCard
 import com.instalogger.app.ui.components.UnifiedEmptyState
@@ -54,6 +59,8 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var targets by remember { mutableStateOf<List<TargetEntity>>(emptyList()) }
+    val pendingTargets = remember { mutableStateListOf<String>() }
+    val deletingTargets = remember { mutableStateListOf<String>() }
     var checkingTargetUsername by remember { mutableStateOf<String?>(null) }
     var isGlobalRefreshing by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -169,71 +176,94 @@ fun DashboardScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (targets.isEmpty()) {
-                UnifiedEmptyState(
-                    icon = Icons.Default.Security,
-                    title = stringResource(R.string.dashboard_empty_title),
-                    description = stringResource(R.string.dashboard_empty_desc),
-                    actionLabel = stringResource(R.string.btn_add_target),
-                    actionIcon = Icons.Default.Add,
-                    onActionClick = { showAddDialog = true }
-                )
+            if (targets.isEmpty() && pendingTargets.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    contentAlignment = Alignment.Center
+                ) {
+                    UnifiedEmptyState(
+                        icon = Icons.Default.Security,
+                        title = stringResource(R.string.dashboard_empty_title),
+                        description = stringResource(R.string.dashboard_empty_desc),
+                        actionLabel = stringResource(R.string.btn_add_target),
+                        actionIcon = Icons.Default.Add,
+                        onActionClick = { showAddDialog = true }
+                    )
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    items(targets, key = { it.username }) { target ->
-                        val isChecking = checkingTargetUsername == target.username
-
-                        TargetCard(
-                            target = target,
-                            isChecking = isChecking,
-                            onClick = { onNavigateToDetail(target.username) },
-                            onCheckNow = {
-                                if (checkingTargetUsername == null) {
-                                    scope.launch {
-                                        checkingTargetUsername = target.username
-                                        val result = app.profileInspector.inspectTarget(target.username)
-                                        checkingTargetUsername = null
-
-                                        if (result.isSuccess) {
-                                            val updated = result.getOrThrow()
-                                            val preservedTurbo = targets.find { it.username == target.username }?.isTurbo ?: updated.isTurbo
-                                            targets = targets.map { if (it.username == target.username) updated.copy(isTurbo = preservedTurbo) else it }
-                                            snackbarHostState.showSnackbar(context.getString(R.string.msg_target_checked, target.username))
-                                        } else {
-                                            snackbarHostState.showSnackbar(context.getString(R.string.msg_check_failed, result.exceptionOrNull()?.message ?: ""))
-                                        }
-                                    }
-                                }
-                            },
-                            onToggleTurbo = { newTurbo ->
-                                // 1. Instant optimistic UI state update for zero lag
-                                targets = targets.map { if (it.username == target.username) it.copy(isTurbo = newTurbo) else it }
-
-                                // 2. Asynchronously persist to Room DB & notify daemon
-                                scope.launch(Dispatchers.IO) {
-                                    app.database.targetDao().updateTurbo(target.username, newTurbo)
-                                    val daemonId = target.instagramId ?: target.username
-                                    app.profileInspector.updateDaemonTurbo(daemonId, newTurbo)
-                                }
-
-                                // 3. Instant snackbar without blocking coroutine queue
-                                turboSnackbarJob?.cancel()
-                                turboSnackbarJob = scope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        message = if (newTurbo) turboEnabledMsg else turboDisabledMsg,
-                                        duration = SnackbarDuration.Short
-                                    )
-                                }
-                            },
-                            onDelete = {
-                                targetToDelete = target
-                            },
+                    // 1. Shimmer Skeleton Cards for Pending additions (Instant zero-delay feedback)
+                    items(pendingTargets, key = { "pending_$it" }) { pendingUser ->
+                        SkeletonTargetCard(
+                            username = pendingUser,
                             modifier = Modifier.animateItem()
                         )
+                    }
+
+                    // 2. Active Targets with smooth AnimatedVisibility collapse upon deletion
+                    items(targets, key = { it.username }) { target ->
+                        val isChecking = checkingTargetUsername == target.username
+                        val isDeleting = deletingTargets.contains(target.username.lowercase())
+
+                        AnimatedVisibility(
+                            visible = !isDeleting,
+                            enter = fadeIn(tween(250)),
+                            exit = fadeOut(tween(250)) + shrinkVertically(tween(250), shrinkTowards = Alignment.Top),
+                            modifier = Modifier.animateItem()
+                        ) {
+                            TargetCard(
+                                target = target,
+                                isChecking = isChecking,
+                                onClick = { onNavigateToDetail(target.username) },
+                                onCheckNow = {
+                                    if (checkingTargetUsername == null) {
+                                        scope.launch {
+                                            checkingTargetUsername = target.username
+                                            val result = app.profileInspector.inspectTarget(target.username)
+                                            checkingTargetUsername = null
+
+                                            if (result.isSuccess) {
+                                                val updated = result.getOrThrow()
+                                                val preservedTurbo = targets.find { it.username == target.username }?.isTurbo ?: updated.isTurbo
+                                                targets = targets.map { if (it.username == target.username) updated.copy(isTurbo = preservedTurbo) else it }
+                                                snackbarHostState.showSnackbar(context.getString(R.string.msg_target_checked, target.username))
+                                            } else {
+                                                snackbarHostState.showSnackbar(context.getString(R.string.msg_check_failed, result.exceptionOrNull()?.message ?: ""))
+                                            }
+                                        }
+                                    }
+                                },
+                                onToggleTurbo = { newTurbo ->
+                                    // 1. Instant optimistic UI state update for zero lag
+                                    targets = targets.map { if (it.username == target.username) it.copy(isTurbo = newTurbo) else it }
+
+                                    // 2. Asynchronously persist to Room DB & notify daemon
+                                    scope.launch(Dispatchers.IO) {
+                                        app.database.targetDao().updateTurbo(target.username, newTurbo)
+                                        val daemonId = target.instagramId ?: target.username
+                                        app.profileInspector.updateDaemonTurbo(daemonId, newTurbo)
+                                    }
+
+                                    // 3. Instant snackbar without blocking coroutine queue
+                                    turboSnackbarJob?.cancel()
+                                    turboSnackbarJob = scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = if (newTurbo) turboEnabledMsg else turboDisabledMsg,
+                                            duration = SnackbarDuration.Short
+                                        )
+                                    }
+                                },
+                                onDelete = {
+                                    targetToDelete = target
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -245,28 +275,35 @@ fun DashboardScreen(
             onDismiss = { showAddDialog = false },
             onConfirm = { username, turbo ->
                 showAddDialog = false
-                val cleanUser = username.trim().trimStart('@')
+                val cleanUser = username.trim().trimStart('@').lowercase()
+                if (!pendingTargets.contains(cleanUser) && targets.none { it.username.equals(cleanUser, ignoreCase = true) }) {
+                    pendingTargets.add(0, cleanUser)
+                }
                 scope.launch {
-                    app.profileInspector.unmarkDeleted(cleanUser)
-                    app.profileInspector.notifyDaemonAddTarget(cleanUser, turbo)
-                    val result = app.profileInspector.inspectTarget(cleanUser)
-                    app.profileInspector.inspectHighlightsAndPosts(cleanUser)
-                    if (result.isSuccess) {
-                        val newTarget = result.getOrThrow().copy(isTurbo = turbo)
-                        if (turbo) {
-                            withContext(Dispatchers.IO) {
-                                app.database.targetDao().updateTurbo(cleanUser, true)
+                    try {
+                        app.profileInspector.unmarkDeleted(cleanUser)
+                        app.profileInspector.notifyDaemonAddTarget(cleanUser, turbo)
+                        val result = app.profileInspector.inspectTarget(cleanUser)
+                        app.profileInspector.inspectHighlightsAndPosts(cleanUser)
+                        if (result.isSuccess) {
+                            val newTarget = result.getOrThrow().copy(isTurbo = turbo)
+                            if (turbo) {
+                                withContext(Dispatchers.IO) {
+                                    app.database.targetDao().updateTurbo(cleanUser, true)
+                                }
                             }
+                            targets = listOf(newTarget) + targets.filter { !it.username.equals(cleanUser, ignoreCase = true) }
+                            snackbarHostState.showSnackbar(context.getString(R.string.msg_target_added, cleanUser))
+                        } else {
+                            val placeholder = TargetEntity(username = cleanUser, isTurbo = turbo)
+                            withContext(Dispatchers.IO) {
+                                app.database.targetDao().insertTarget(placeholder)
+                            }
+                            targets = listOf(placeholder) + targets.filter { !it.username.equals(cleanUser, ignoreCase = true) }
+                            snackbarHostState.showSnackbar(context.getString(R.string.msg_target_added, cleanUser))
                         }
-                        targets = listOf(newTarget) + targets.filter { it.username != cleanUser }
-                        snackbarHostState.showSnackbar(context.getString(R.string.msg_target_added, cleanUser))
-                    } else {
-                        val placeholder = TargetEntity(username = cleanUser, isTurbo = turbo)
-                        withContext(Dispatchers.IO) {
-                            app.database.targetDao().insertTarget(placeholder)
-                        }
-                        targets = listOf(placeholder) + targets.filter { it.username != cleanUser }
-                        snackbarHostState.showSnackbar(context.getString(R.string.msg_target_added, cleanUser))
+                    } finally {
+                        pendingTargets.remove(cleanUser)
                     }
                 }
             }
@@ -295,8 +332,12 @@ fun DashboardScreen(
                     onClick = {
                         val t = targetToDelete ?: return@Button
                         targetToDelete = null
-                        targets = targets.filter { !it.username.equals(t.username, ignoreCase = true) }
+                        val uLower = t.username.lowercase()
+                        deletingTargets.add(uLower)
                         scope.launch {
+                            kotlinx.coroutines.delay(240) // Give exit animation window to finish smoothly
+                            targets = targets.filter { !it.username.equals(t.username, ignoreCase = true) }
+                            deletingTargets.remove(uLower)
                             app.profileInspector.deleteTarget(t.username, t.instagramId)
                             snackbarHostState.showSnackbar(context.getString(R.string.msg_target_deleted, t.username))
                         }

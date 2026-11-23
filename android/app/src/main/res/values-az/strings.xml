@@ -240,4 +240,10 @@
     <string name="vault_storage_size_format">%1$s (Diskdə sıfır açıq mətn)</string>
     <string name="vault_badge_secure">Aparatla Qorunur</string>
     <string name="vault_badge_isolated">100% Gizli</string>
+
+    <!-- Skeleton & Loading states -->
+    <string name="loading_profile_data">Profil məlumatları yüklənir…</string>
+    <string name="loading_posts">Paylaşımlar gətirilir…</string>
+    <string name="action_refresh_list">Yenilə</string>
+    <string name="session_required_followers">Tam izləyici siyahısını görmək üçün Instagram sessiyası tələb oluna bilər.</string>
 </resources>
