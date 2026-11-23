@@ -303,4 +303,9 @@
     <string name="notif_follower_lost_title">@%1$s izləyicisini itirdi: @%2$s</string>
     <string name="notif_following_gained_title">@%1$s yeni hesabı izləməyə başladı: @%2$s</string>
     <string name="notif_following_lost_title">@%1$s hesabı izləməkdən çıxdı: @%2$s</string>
+
+    <!-- Avatar Management -->
+    <string name="dialog_delete_avatar_title">Avatarı Sil</string>
+    <string name="dialog_delete_avatar_desc">Bu tarixi avatar qeydini və faylını arxivdən silmək istədiyinizdən əminsiniz?</string>
+    <string name="msg_avatar_deleted">Avatar arxivi silindi</string>
 </resources>

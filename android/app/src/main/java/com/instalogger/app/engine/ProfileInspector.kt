@@ -175,46 +175,68 @@ class ProfileInspector(
                     localAvatarPath = internal?.absolutePath ?: f.absolutePath
                     currentAvatarHash = computeFileSha256(File(localAvatarPath))
                 }
-            } else if (localAvatarPath == null || avatarUrl != existing?.avatarUrl) {
-                val downloadedPath = downloadAndArchiveAvatar(cleanUser, avatarUrl)
-                if (downloadedPath != null) {
-                    val file = File(downloadedPath)
-                    val newHash = computeFileSha256(file)
+            } else if (localAvatarPath == null || avatarUrl != existing?.avatarUrl || currentAvatarHash == null) {
+                val tempFile = downloadAvatarToTemp(cleanUser, avatarUrl)
+                if (tempFile != null) {
+                    val newHash = computeFileSha256(tempFile)
+                    val existingAvatars = avatarHistoryDao.getAvatarsListForTarget(cleanUser)
+                    val isDuplicateHash = (currentAvatarHash != null && newHash == currentAvatarHash) ||
+                            (newHash != null && existingAvatars.any { it.fileHash == newHash })
 
-                    // SECOND-PASS HASH CHECK:
-                    // Compare cryptographic SHA-256 byte digest with existing avatar
-                    if (currentAvatarHash != null && newHash != null && currentAvatarHash == newHash) {
+                    if (isDuplicateHash && localAvatarPath != null && File(localAvatarPath).exists()) {
                         // Byte content is 100% IDENTICAL (Instagram CDN token rotation false-positive)
-                        // Update reference quietly without creating duplicate log or alert
-                        localAvatarPath = downloadedPath
+                        // Discard temporary file immediately! Do NOT save duplicate file to disk or DB!
+                        tempFile.delete()
                     } else {
-                        // Hashes genuinely differ -> Genuine avatar change confirmed!
+                        // Genuinely NEW avatar (or initial avatar on first run)
+                        val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
+                        val timestamp = dateFormat.format(Date(now))
+                        val fileName = "avatar_${timestamp}.jpg"
+
+                        val targetDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/profile")
+                        targetDir.mkdirs()
+
+                        val destFile = File(targetDir, fileName)
+                        val currentFile = File(targetDir, "avatar_current.jpg")
+
+                        try {
+                            tempFile.copyTo(destFile, overwrite = true)
+                            tempFile.copyTo(currentFile, overwrite = true)
+                        } catch (e: Exception) {
+                            Log.e("ProfileInspector", "Failed to copy avatar files: ${e.message}")
+                        } finally {
+                            tempFile.delete()
+                        }
+
+                        ArchiveDirectoryManager.copyToInternalAvatar(context, cleanUser, destFile)
+
                         val oldPath = localAvatarPath
-                        localAvatarPath = downloadedPath
+                        localAvatarPath = destFile.absolutePath
+                        val oldHash = currentAvatarHash
                         currentAvatarHash = newHash
 
                         avatarHistoryDao.insertAvatar(
                             AvatarHistoryEntity(
                                 username = cleanUser,
-                                localPath = downloadedPath,
+                                localPath = destFile.absolutePath,
                                 archivedAt = now,
-                                fileSize = file.length(),
+                                fileSize = destFile.length(),
                                 fileHash = newHash
                             )
                         )
 
-                        if (existing != null && oldPath != null) {
-                            val title = "@$cleanUser profile picture updated"
-                            val desc = "New profile picture archived successfully [SHA-256 verified]"
+                        if (existing != null && oldPath != null && oldHash != null && newHash != oldHash) {
+                            val title = context.getString(R.string.notif_avatar_changed_title, cleanUser)
+                            val desc = context.getString(R.string.notif_avatar_changed_desc)
                             changeLogDao.insertLog(
                                 ChangeLogEntity(
                                     targetUsername = cleanUser,
                                     eventType = "avatar_change",
                                     title = title,
-                                    oldValue = existing.avatarHash ?: oldPath,
-                                    newValue = newHash ?: downloadedPath,
+                                    oldValue = oldHash,
+                                    newValue = newHash ?: destFile.absolutePath,
                                     oldAvatarPath = oldPath,
-                                    newAvatarPath = downloadedPath,
+                                    newAvatarPath = destFile.absolutePath,
                                     timestamp = now
                                 )
                             )
@@ -231,8 +253,9 @@ class ProfileInspector(
             }
         }
 
-        // Also import existing archives if available on disk
+        // Also import existing archives if available on disk and deduplicate
         importLocalArchives(cleanUser, snapshot.instagramId)
+        deduplicateAvatars(cleanUser)
         importLocalPostsAndHighlights(cleanUser, snapshot.instagramId)
         fetchMediaFromLocalDaemon(cleanUser, snapshot.instagramId)
 
@@ -927,12 +950,23 @@ class ProfileInspector(
 
         val existingList = database.avatarHistoryDao().getAvatarsListForTarget(username)
         val existingNames = existingList.map { File(it.localPath).name }.toSet()
+        val existingHashes = existingList.mapNotNull { it.fileHash }.toMutableSet()
 
         for (d in dirs) {
             if (d.exists() && d.isDirectory) {
                 val files = d.listFiles { f -> f.isFile && f.name.endsWith(".jpg", ignoreCase = true) } ?: continue
                 for (file in files) {
                     if (file.name == "avatar_current.jpg" || file.name.startsWith(".")) continue
+
+                    val hash = computeFileSha256(file)
+                    if (hash != null && existingHashes.contains(hash)) {
+                        // Redundant duplicate avatar file! Delete duplicate from disk if not already registered
+                        if (!existingNames.contains(file.name)) {
+                            try { file.delete() } catch (_: Exception) {}
+                        }
+                        continue
+                    }
+
                     if (existingNames.contains(file.name)) continue
 
                     val internal = ArchiveDirectoryManager.copyToInternalNamedAvatar(context, username, file)
@@ -943,39 +977,71 @@ class ProfileInspector(
                             username = username,
                             localPath = pathToStore,
                             archivedAt = file.lastModified(),
-                            fileSize = file.length()
+                            fileSize = file.length(),
+                            fileHash = hash
                         )
                     )
+                    if (hash != null) existingHashes.add(hash)
                 }
             }
         }
     }
 
-    private fun downloadAndArchiveAvatar(username: String, url: String): String? {
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
-        val timestamp = dateFormat.format(Date())
-        val fileName = "avatar_${timestamp}.jpg"
-
-        val targetDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$username/profile")
-        targetDir.mkdirs()
-
-        val destFile = File(targetDir, fileName)
-        val currentFile = File(targetDir, "avatar_current.jpg")
-
+    private fun downloadAvatarToTemp(username: String, url: String): File? {
+        val tempFile = File(context.cacheDir, "temp_avatar_${username}_${System.currentTimeMillis()}.jpg")
         return try {
-            val size = instagramEngine.downloadImage(url, destFile)
-            if (size > 0) {
-                try {
-                    destFile.copyTo(currentFile, overwrite = true)
-                } catch (e: Exception) {
-                    // Ignore copy error
-                }
-                ArchiveDirectoryManager.copyToInternalAvatar(context, username, destFile)
-                destFile.absolutePath
-            } else null
+            val size = instagramEngine.downloadImage(url, tempFile)
+            if (size > 0 && tempFile.exists() && tempFile.length() > 0L) {
+                tempFile
+            } else {
+                tempFile.delete()
+                null
+            }
         } catch (e: Exception) {
-            Log.e("ProfileInspector", "Failed to download avatar: ${e.message}")
+            Log.e("ProfileInspector", "Failed to download avatar to temp: ${e.message}")
+            try { tempFile.delete() } catch (_: Exception) {}
             null
+        }
+    }
+
+    suspend fun deduplicateAvatars(username: String) {
+        withContext(Dispatchers.IO) {
+            try {
+                val cleanUser = username.trim().trimStart('@')
+                val avatars = database.avatarHistoryDao().getAvatarsListForTarget(cleanUser)
+                if (avatars.size <= 1) return@withContext
+
+                // Sort by archivedAt ASCENDING so we keep the EARLIEST (original) archive
+                val sorted = avatars.sortedBy { it.archivedAt }
+                val seenHashes = mutableMapOf<String, AvatarHistoryEntity>()
+                val toDelete = mutableListOf<AvatarHistoryEntity>()
+
+                for (item in sorted) {
+                    val hash = item.fileHash ?: computeFileSha256(File(item.localPath))
+                    if (hash != null) {
+                        if (seenHashes.containsKey(hash)) {
+                            toDelete.add(item)
+                        } else {
+                            seenHashes[hash] = item
+                            if (item.fileHash == null) {
+                                database.avatarHistoryDao().insertAvatar(item.copy(fileHash = hash))
+                            }
+                        }
+                    }
+                }
+
+                for (dup in toDelete) {
+                    database.avatarHistoryDao().deleteAvatarById(dup.id)
+                    try {
+                        val f = File(dup.localPath)
+                        if (f.exists() && f.name != "avatar_current.jpg") {
+                            f.delete()
+                        }
+                    } catch (_: Exception) {}
+                }
+            } catch (e: Exception) {
+                Log.e("ProfileInspector", "Failed to deduplicate avatars: ${e.message}")
+            }
         }
     }
 

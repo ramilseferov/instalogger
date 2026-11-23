@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.data.local.AvatarHistoryEntity
@@ -92,9 +94,11 @@ fun ProfileDetailScreen(
     var showAuditSheet by remember { mutableStateOf(false) }
     var auditInitialTab by remember { mutableIntStateOf(0) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var avatarToDelete by remember { mutableStateOf<AvatarHistoryEntity?>(null) }
 
-    // Auto-fetch posts & highlights immediately upon opening screen
+    // Auto-fetch posts & highlights immediately upon opening screen and clean duplicate avatars
     LaunchedEffect(username) {
+        app.profileInspector.deduplicateAvatars(username)
         if (posts.isEmpty()) isFetchingPosts = true
         try {
             app.profileInspector.inspectHighlightsAndPosts(username)
@@ -564,7 +568,8 @@ fun ProfileDetailScreen(
                                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                                     AvatarHistoryCard(
                                         avatar = avatar,
-                                        onAvatarClick = { previewImagePath = it }
+                                        onAvatarClick = { previewImagePath = it },
+                                        onDeleteClick = { avatarToDelete = it }
                                     )
                                 }
                             }
@@ -646,6 +651,58 @@ fun ProfileDetailScreen(
             dismissButton = {
                 TextButton(
                     onClick = { showDeleteDialog = false },
+                    shape = ShapeTokens.SmallShape
+                ) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            },
+            shape = ShapeTokens.LargeShape,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    }
+
+    // Delete Historical Avatar Confirmation Dialog
+    avatarToDelete?.let { avatarItem ->
+        AlertDialog(
+            onDismissRequest = { avatarToDelete = null },
+            title = {
+                Text(
+                    text = stringResource(R.string.dialog_delete_avatar_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.dialog_delete_avatar_desc),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toRemove = avatarItem
+                        avatarToDelete = null
+                        scope.launch(Dispatchers.IO) {
+                            app.database.avatarHistoryDao().deleteAvatarById(toRemove.id)
+                            try {
+                                val f = File(toRemove.localPath)
+                                if (f.exists() && f.name != "avatar_current.jpg") {
+                                    f.delete()
+                                }
+                            } catch (_: Exception) {}
+                            snackbarHostState.showSnackbar(context.getString(R.string.msg_avatar_deleted))
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = ShapeTokens.SmallShape
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { avatarToDelete = null },
                     shape = ShapeTokens.SmallShape
                 ) {
                     Text(stringResource(R.string.dialog_cancel))
@@ -880,7 +937,8 @@ private fun AuditLogCard(log: ChangeLogEntity) {
 @Composable
 private fun AvatarHistoryCard(
     avatar: AvatarHistoryEntity,
-    onAvatarClick: (String) -> Unit
+    onAvatarClick: (String) -> Unit,
+    onDeleteClick: (AvatarHistoryEntity) -> Unit
 ) {
     val context = LocalContext.current
     val file = File(avatar.localPath)
@@ -945,6 +1003,17 @@ private fun AvatarHistoryCard(
                     text = stringResource(R.string.avatar_size_format, (avatar.fileSize / 1024)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(
+                onClick = { onDeleteClick(avatar) },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.action_delete),
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }

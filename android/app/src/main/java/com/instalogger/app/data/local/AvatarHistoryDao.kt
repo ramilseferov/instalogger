@@ -17,6 +17,12 @@ interface AvatarHistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAvatar(avatar: AvatarHistoryEntity): Long
 
+    @Query("DELETE FROM avatar_history WHERE id = :id")
+    suspend fun deleteAvatarById(id: Long)
+
+    @Delete
+    suspend fun deleteAvatar(avatar: AvatarHistoryEntity)
+
     @Query("DELETE FROM avatar_history WHERE username = :username")
     suspend fun deleteAvatarsForTarget(username: String)
 

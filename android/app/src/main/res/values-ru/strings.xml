@@ -289,4 +289,9 @@
     <string name="notif_follower_lost_title">@%1$s отписался: @%2$s</string>
     <string name="notif_following_gained_title">@%1$s подписался на: @%2$s</string>
     <string name="notif_following_lost_title">@%1$s отписался от: @%2$s</string>
+
+    <!-- Avatar Management -->
+    <string name="dialog_delete_avatar_title">Удалить аватар</string>
+    <string name="dialog_delete_avatar_desc">Вы уверены, что хотите удалить эту историческую запись аватара?</string>
+    <string name="msg_avatar_deleted">Архив аватара удален</string>
 </resources>
