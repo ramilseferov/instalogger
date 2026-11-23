@@ -12,8 +12,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.instalogger.app.R
 
 @Composable
 fun RotatingRefreshButton(
@@ -45,7 +47,7 @@ fun RotatingRefreshButton(
     ) {
         Icon(
             imageVector = Icons.Default.Refresh,
-            contentDescription = "Yenilə",
+            contentDescription = stringResource(R.string.btn_refresh),
             tint = if (isRefreshing) tint.copy(alpha = 0.7f) else tint,
             modifier = Modifier
                 .size(iconSize)

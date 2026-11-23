@@ -92,8 +92,7 @@ fun UnifiedEmptyState(
 
                     Button(
                         onClick = onActionClick,
-                        shape = ShapeTokens.MediumShape,
-                        modifier = Modifier.bouncyClickable(pressScale = 0.94f, onClick = onActionClick)
+                        shape = ShapeTokens.MediumShape
                     ) {
                         if (actionIcon != null) {
                             Icon(actionIcon, contentDescription = null, modifier = Modifier.size(18.dp))

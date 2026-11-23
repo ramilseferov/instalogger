@@ -76,7 +76,7 @@ fun NotificationCenterScreen() {
                 badgeContent = {
                     if (unreadCount > 0) {
                         StatusBadge(
-                            text = "$unreadCount Yeni",
+                            text = stringResource(R.string.badge_unread_format, unreadCount),
                             containerColor = AccentBlue.copy(alpha = 0.14f),
                             contentColor = AccentBlue,
                             borderColor = AccentBlue.copy(alpha = 0.3f)
@@ -138,7 +138,7 @@ fun NotificationCenterScreen() {
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 108.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(notifications, key = { it.id }) { item ->

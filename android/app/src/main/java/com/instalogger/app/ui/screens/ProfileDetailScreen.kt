@@ -51,6 +51,7 @@ import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.util.ArchiveDirectoryManager
+import com.instalogger.app.util.FormatUtils
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.launch
 import java.io.File
@@ -175,7 +176,7 @@ fun ProfileDetailScreen(
             // UNIFIED SEAMLESS SCROLLABLE CONTAINER
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 36.dp)
+                contentPadding = PaddingValues(bottom = 108.dp)
             ) {
                 // 1. Profile Hero Card
                 item(key = "hero_card") {
@@ -783,7 +784,7 @@ private fun ProfileHeroSection(
                         .padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "${target.followersCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = FormatUtils.formatCompactNumber(target.followersCount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(text = stringResource(R.string.followers), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Column(
@@ -794,12 +795,17 @@ private fun ProfileHeroSection(
                         .padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "${target.followingCount}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = FormatUtils.formatCompactNumber(target.followingCount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(text = stringResource(R.string.following), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    val displayMediaCount = maxOf(target.mediaCount, localPostsCount.toLong())
-                    Text(text = "$displayMediaCount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = FormatUtils.formatCompactNumber(if (target.mediaCount > 0) target.mediaCount else localPostsCount.toLong()),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Text(text = stringResource(R.string.posts), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -811,7 +817,7 @@ private fun ProfileHeroSection(
 private fun AuditLogCard(log: ChangeLogEntity) {
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(log.timestamp))
-    val itemShape = RoundedCornerShape(20.dp)
+    val itemShape = ShapeTokens.MediumShape
 
     Surface(
         modifier = Modifier
@@ -873,12 +879,12 @@ private fun AvatarHistoryCard(
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
     val formattedDate = timeFormat.format(Date(avatar.archivedAt))
 
-    val itemShape = RoundedCornerShape(20.dp)
+    val itemShape = ShapeTokens.MediumShape
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(itemShape)
-            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, itemShape)
+            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, itemShape)
             .bouncyClickable(pressScale = 0.97f) {
                 val path = (imageModel as? File)?.absolutePath ?: avatar.localPath
                 onAvatarClick(path)
@@ -899,8 +905,8 @@ private fun AvatarHistoryCard(
                 contentDescription = null,
                 modifier = Modifier
                     .size(64.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+                    .clip(ShapeTokens.SmallShape)
+                    .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, ShapeTokens.SmallShape),
                 contentScale = ContentScale.Crop
             )
             Column(modifier = Modifier.weight(1f)) {

@@ -38,13 +38,17 @@ import com.instalogger.app.R
 import com.instalogger.app.data.local.FollowerHistoryEntity
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
+import com.instalogger.app.ui.theme.StatusAmber
+import com.instalogger.app.ui.theme.StatusGreen
+import com.instalogger.app.ui.theme.StatusRed
+import com.instalogger.app.util.FormatUtils
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.abs
 
-private val FollowingCurveColor = Color(0xFFF59E0B) // Amber
-private val PositiveGreen = Color(0xFF10B981)
-private val NegativeRed = Color(0xFFEF4444)
+private val FollowingCurveColor = StatusAmber
+private val PositiveGreen = StatusGreen
+private val NegativeRed = StatusRed
 
 @Composable
 fun FollowerGrowthChart(
@@ -222,7 +226,7 @@ private fun StatBadge(
     ) {
         Column {
             Text(
-                text = "$count",
+                text = FormatUtils.formatCompactNumber(count),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = color
@@ -478,14 +482,14 @@ private fun InteractiveBezierChart(
                             fontSize = 10.sp
                         )
                         Text(
-                            text = "${pt.followersCount} takibçi",
+                            text = stringResource(R.string.chart_scrubber_followers, pt.followersCount),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = AccentBlue,
                             fontSize = 11.sp
                         )
                         Text(
-                            text = "${pt.followingCount} takib",
+                            text = stringResource(R.string.chart_scrubber_following, pt.followingCount),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = FollowingCurveColor,

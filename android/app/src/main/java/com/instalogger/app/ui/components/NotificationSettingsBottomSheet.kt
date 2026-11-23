@@ -87,7 +87,7 @@ fun NotificationSettingsBottomSheet(
                     Box(
                         modifier = Modifier
                             .size(42.dp)
-                            .clip(RoundedCornerShape(13.dp))
+                            .clip(ShapeTokens.SmallShape)
                             .background(AccentBlue.copy(alpha = 0.14f)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -249,7 +249,7 @@ fun NotificationSettingsBottomSheet(
                                 Box(
                                     modifier = Modifier
                                         .size(34.dp)
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .clip(ShapeTokens.SmallShape)
                                         .background(AccentBlue.copy(alpha = 0.12f)),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -308,7 +308,7 @@ fun NotificationSettingsBottomSheet(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(ShapeTokens.SmallShape)
                                 .background(AccentBlue.copy(alpha = 0.14f)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -342,14 +342,10 @@ fun NotificationSettingsBottomSheet(
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             AppSettingsManager.openSystemNotificationSettings(context)
                         },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = ShapeTokens.MediumShape,
                         color = AccentBlue.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.35f)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bouncyClickable(pressScale = 0.96f) {
-                                AppSettingsManager.openSystemNotificationSettings(context)
-                            }
+                        border = BorderStroke(ShapeTokens.BorderStandard, AccentBlue.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

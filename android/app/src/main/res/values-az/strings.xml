@@ -254,4 +254,15 @@
     <string name="posts_rate_limited_desc">Bu şəbəkədən Instagram-a həddən artıq sorğu göndərildi. Zəhmət olmasa bir neçə dəqiqə gözləyib yenidən cəhd edin və ya sessiya istifadə edin.</string>
     <string name="posts_sync_failed_title">Paylaşımlar Gətirilə Bilmədi</string>
     <string name="posts_sync_failed_desc">Instagram-dan paylaşımları əldə etmək mümkün olmadı. Əlaqəni yoxlayın və ya yenidən cəhd edin.</string>
+    <string name="chart_scrubber_followers">%1$d izləyici</string>
+    <string name="chart_scrubber_following">%1$d izlənilən</string>
+    <string name="webview_login_title">Instagram Veb Giriş</string>
+    <string name="session_not_detected_yet">Sessiya hələ aşkar edilməyib</string>
+    <string name="btn_check">Yoxla</string>
+    <string name="btn_refresh">Yenilə</string>
+    <string name="error_open_instagram">Instagram açıla bilmədi</string>
+    <string name="error_open_video_player">Video pleyer tapılmadı</string>
+    <string name="error_share_media">Paylaşım xətası</string>
+    <string name="error_media_not_local">Fayl hələ yerli saxlanılmayıb</string>
+    <string name="badge_unread_format">%1$d Yeni</string>
 </resources>

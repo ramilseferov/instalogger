@@ -55,8 +55,7 @@ fun ImagePreviewDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = onDismiss,
-                    shape = ShapeTokens.SmallShape,
-                    modifier = Modifier.bouncyClickable(pressScale = 0.94f, onClick = onDismiss)
+                    shape = ShapeTokens.SmallShape
                 ) {
                     Text(stringResource(R.string.dialog_close))
                 }

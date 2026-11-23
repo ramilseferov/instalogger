@@ -163,8 +163,7 @@ fun DashboardScreen(
                 onClick = { showAddDialog = true },
                 shape = ShapeTokens.MediumShape,
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.bouncyClickable(pressScale = 0.92f, onClick = { showAddDialog = true })
+                contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
@@ -200,7 +199,7 @@ fun DashboardScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 108.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // 1. Shimmer Skeleton Cards for Pending additions (Instant zero-delay feedback, auto-filtered against active targets)

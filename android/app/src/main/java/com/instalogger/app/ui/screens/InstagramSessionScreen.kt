@@ -106,7 +106,7 @@ fun InstagramSessionScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(bottom = 16.dp)
+                .padding(bottom = 108.dp)
         ) {
             // Status Header Card
             val statusCardShape = ShapeTokens.LargeShape
@@ -190,7 +190,7 @@ fun InstagramSessionScreen() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Instagram Web Login",
+                                text = stringResource(R.string.webview_login_title),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -204,14 +204,14 @@ fun InstagramSessionScreen() {
                                             hasSession = true
                                             scope.launch { snackbarHostState.showSnackbar(capturedMsg) }
                                         } else {
-                                            scope.launch { snackbarHostState.showSnackbar("Sessiya hələ aşkar edilməyib") }
+                                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.session_not_detected_yet)) }
                                         }
                                     },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
                                     Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Yoxla", style = MaterialTheme.typography.labelSmall)
+                                    Text(stringResource(R.string.btn_check), style = MaterialTheme.typography.labelSmall)
                                 }
 
                                 TextButton(
@@ -220,7 +220,7 @@ fun InstagramSessionScreen() {
                                 ) {
                                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Yenilə", style = MaterialTheme.typography.labelSmall)
+                                    Text(stringResource(R.string.btn_refresh), style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -367,18 +367,7 @@ fun InstagramSessionScreen() {
                                             }
                                         },
                                         shape = ShapeTokens.SmallShape,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .bouncyClickable(pressScale = 0.94f) {
-                                                if (manualCookieText.isNotBlank()) {
-                                                    app.sessionManager.saveCookieString(manualCookieText.trim())
-                                                    hasSession = true
-                                                    manualCookieText = ""
-                                                    scope.launch {
-                                                        snackbarHostState.showSnackbar(savedMsg)
-                                                    }
-                                                }
-                                            }
+                                        modifier = Modifier.weight(1f)
                                     ) {
                                         Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
@@ -395,14 +384,7 @@ fun InstagramSessionScreen() {
                                                 }
                                             },
                                             shape = ShapeTokens.SmallShape,
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                            modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
-                                                app.sessionManager.clearSession()
-                                                hasSession = false
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar(clearedMsg)
-                                                }
-                                            }
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                                         ) {
                                             Text(stringResource(R.string.btn_clear_session))
                                         }

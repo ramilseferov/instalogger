@@ -183,4 +183,15 @@
     <string name="btn_open_system_notifs">Open Android Notification Settings</string>
     <string name="btn_open_system_notifs_desc">Native OS sound, lock screen and channel controls</string>
     <string name="notif_settings_sheet_title">Notification Settings</string>
+    <string name="chart_scrubber_followers">%1$d followers</string>
+    <string name="chart_scrubber_following">%1$d following</string>
+    <string name="webview_login_title">Instagram Web Login</string>
+    <string name="session_not_detected_yet">Session not detected yet</string>
+    <string name="btn_check">Check</string>
+    <string name="btn_refresh">Refresh</string>
+    <string name="error_open_instagram">Could not open Instagram</string>
+    <string name="error_open_video_player">Video player not found</string>
+    <string name="error_share_media">Sharing error</string>
+    <string name="error_media_not_local">File has not been archived locally yet</string>
+    <string name="badge_unread_format">%1$d New</string>
 </resources>

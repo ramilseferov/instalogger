@@ -240,4 +240,15 @@
     <string name="posts_rate_limited_desc">Слишком много запросов к Instagram с этой сети. Пожалуйста, подождите несколько минут или используйте активную сессию.</string>
     <string name="posts_sync_failed_title">Не удалось загрузить публикации</string>
     <string name="posts_sync_failed_desc">Не удалось получить публикации из Instagram. Проверьте соединение или повторите попытку.</string>
+    <string name="chart_scrubber_followers">%1$d подписчиков</string>
+    <string name="chart_scrubber_following">%1$d подписок</string>
+    <string name="webview_login_title">Вход в Instagram</string>
+    <string name="session_not_detected_yet">Сессия пока не обнаружена</string>
+    <string name="btn_check">Проверить</string>
+    <string name="btn_refresh">Обновить</string>
+    <string name="error_open_instagram">Не удалось открыть Instagram</string>
+    <string name="error_open_video_player">Видеоплеер не найден</string>
+    <string name="error_share_media">Ошибка отправки</string>
+    <string name="error_media_not_local">Файл еще не сохранен локально</string>
+    <string name="badge_unread_format">%1$d Новых</string>
 </resources>

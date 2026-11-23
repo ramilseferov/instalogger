@@ -86,12 +86,11 @@ fun Modifier.bouncyScale(
 }
 
 /**
- * Smooth shimmer loading effect for placeholders.
+ * Smooth shimmer loading effect for placeholders, fully adaptive to Dark and Light modes.
  */
 fun Modifier.shimmerLoading(
     isLoading: Boolean,
-    baseColor: Color = Color.LightGray.copy(alpha = 0.25f),
-    highlightColor: Color = Color.White.copy(alpha = 0.65f)
+    durationMillis: Int = 1100
 ): Modifier = composed {
     if (!isLoading) return@composed this
 
@@ -100,11 +99,14 @@ fun Modifier.shimmerLoading(
         initialValue = -500f,
         targetValue = 1500f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "shimmer_translate"
     )
+
+    val baseColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
+    val highlightColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f)
 
     this.background(
         brush = Brush.linearGradient(

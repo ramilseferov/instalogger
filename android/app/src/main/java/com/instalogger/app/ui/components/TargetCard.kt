@@ -44,6 +44,7 @@ import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.AccentBlueDark
 import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.ui.theme.StatusRed
+import com.instalogger.app.util.FormatUtils
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -193,9 +194,9 @@ fun TargetCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    StatItem(label = stringResource(R.string.followers), value = target.followersCount.toString(), modifier = Modifier.weight(1f))
-                    StatItem(label = stringResource(R.string.following), value = target.followingCount.toString(), modifier = Modifier.weight(1f))
-                    StatItem(label = stringResource(R.string.posts), value = target.mediaCount.toString(), modifier = Modifier.weight(1f))
+                    StatItem(label = stringResource(R.string.followers), value = FormatUtils.formatCompactNumber(target.followersCount), modifier = Modifier.weight(1f))
+                    StatItem(label = stringResource(R.string.following), value = FormatUtils.formatCompactNumber(target.followingCount), modifier = Modifier.weight(1f))
+                    StatItem(label = stringResource(R.string.posts), value = FormatUtils.formatCompactNumber(target.mediaCount), modifier = Modifier.weight(1f))
                 }
             }
 

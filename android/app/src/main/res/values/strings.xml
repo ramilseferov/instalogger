@@ -254,4 +254,15 @@
     <string name="posts_rate_limited_desc">Too many requests were sent to Instagram from this network. Please wait a few minutes and try again, or use an active session.</string>
     <string name="posts_sync_failed_title">Failed to Fetch Posts</string>
     <string name="posts_sync_failed_desc">Could not retrieve timeline posts from Instagram. Check your connection or retry.</string>
+    <string name="chart_scrubber_followers">%1$d followers</string>
+    <string name="chart_scrubber_following">%1$d following</string>
+    <string name="webview_login_title">Instagram Web Login</string>
+    <string name="session_not_detected_yet">Session not detected yet</string>
+    <string name="btn_check">Check</string>
+    <string name="btn_refresh">Refresh</string>
+    <string name="error_open_instagram">Could not open Instagram</string>
+    <string name="error_open_video_player">Video player not found</string>
+    <string name="error_share_media">Sharing error</string>
+    <string name="error_media_not_local">File has not been archived locally yet</string>
+    <string name="badge_unread_format">%1$d New</string>
 </resources>

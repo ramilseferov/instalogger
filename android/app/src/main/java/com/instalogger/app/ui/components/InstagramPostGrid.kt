@@ -40,6 +40,7 @@ import com.instalogger.app.data.local.PostEntity
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
+import com.instalogger.app.ui.theme.StatusRed
 import com.instalogger.app.util.cleanDisplayText
 import java.io.File
 import java.text.SimpleDateFormat
@@ -283,8 +284,10 @@ fun InstagramPostViewerDialog(
                                             }
                                             context.startActivity(intent)
                                         } catch (_: Exception) {
-                                            Toast.makeText(context, "Video player tapılmadı", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, context.getString(R.string.error_open_video_player), Toast.LENGTH_SHORT).show()
                                         }
+                                    } else {
+                                        Toast.makeText(context, context.getString(R.string.error_media_not_local), Toast.LENGTH_SHORT).show()
                                     }
                                 },
                             contentAlignment = Alignment.Center
@@ -303,7 +306,7 @@ fun InstagramPostViewerDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF141416))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     // Actions Bar (Likes, Comments, Save/Share, External Link)
@@ -321,7 +324,7 @@ fun InstagramPostViewerDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Icon(Icons.Default.Favorite, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Favorite, contentDescription = null, tint = StatusRed, modifier = Modifier.size(20.dp))
                                 Text(
                                     text = stringResource(R.string.likes_count_format, post.likeCount),
                                     style = MaterialTheme.typography.bodyMedium,
@@ -360,10 +363,10 @@ fun InstagramPostViewerDialog(
                                             }
                                             context.startActivity(Intent.createChooser(intent, context.getString(R.string.action_export_media)))
                                         } catch (_: Exception) {
-                                            Toast.makeText(context, "Paylaşım xətası", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, context.getString(R.string.error_share_media), Toast.LENGTH_SHORT).show()
                                         }
                                     } else {
-                                        Toast.makeText(context, "Fayl hələ yerli saxlanılmayıb", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.error_media_not_local), Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 modifier = Modifier.size(36.dp)
@@ -379,7 +382,7 @@ fun InstagramPostViewerDialog(
                                     try {
                                         context.startActivity(intent)
                                     } catch (_: Exception) {
-                                        Toast.makeText(context, "Instagram açıla bilmədi", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.error_open_instagram), Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 modifier = Modifier.size(36.dp)

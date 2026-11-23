@@ -128,7 +128,7 @@ fun SettingsScreen() {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .padding(bottom = 16.dp),
+                .padding(bottom = 108.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 1. Language Selection Card
@@ -451,10 +451,8 @@ fun SettingsScreen() {
                 ) {
                     Button(
                         onClick = { showNotifSettingsSheet = true },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bouncyClickable(pressScale = 0.95f) { showNotifSettingsSheet = true }
+                        shape = ShapeTokens.MediumShape,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(17.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -470,12 +468,8 @@ fun SettingsScreen() {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             AppSettingsManager.openSystemNotificationSettings(context)
                         },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bouncyClickable(pressScale = 0.95f) {
-                                AppSettingsManager.openSystemNotificationSettings(context)
-                            }
+                        shape = ShapeTokens.MediumShape,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(17.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -495,13 +489,13 @@ fun SettingsScreen() {
                 description = stringResource(R.string.archive_dir_desc)
             ) {
                 // Path display pill
-                val pathShape = RoundedCornerShape(14.dp)
+                val pathShape = ShapeTokens.MediumShape
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(pathShape)
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, pathShape)
+                        .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, pathShape)
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                     Text(
@@ -521,10 +515,8 @@ fun SettingsScreen() {
                 ) {
                     Button(
                         onClick = { folderPicker.launch(null) },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .bouncyClickable(pressScale = 0.94f) { folderPicker.launch(null) }
+                        shape = ShapeTokens.MediumShape,
+                        modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -539,14 +531,7 @@ fun SettingsScreen() {
                                 snackbarHostState.showSnackbar(pathSavedMsg)
                             }
                         },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
-                            ArchiveDirectoryManager.resetToDefault(context)
-                            currentDisplayPath = ArchiveDirectoryManager.getDisplayPath(context)
-                            scope.launch {
-                                snackbarHostState.showSnackbar(pathSavedMsg)
-                            }
-                        }
+                        shape = ShapeTokens.MediumShape
                     ) {
                         Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -575,10 +560,8 @@ fun SettingsScreen() {
                 ) {
                     Button(
                         onClick = { showLogsExpanded = !showLogsExpanded },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .bouncyClickable(pressScale = 0.94f) { showLogsExpanded = !showLogsExpanded }
+                        shape = ShapeTokens.MediumShape,
+                        modifier = Modifier.weight(1f)
                     ) {
                         Icon(
                             imageVector = if (showLogsExpanded) Icons.Default.ExpandLess else Icons.Default.Visibility,
@@ -592,9 +575,8 @@ fun SettingsScreen() {
                     if (allLogs.isNotEmpty()) {
                         OutlinedButton(
                             onClick = { showClearLogsDialog = true },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.bouncyClickable(pressScale = 0.94f) { showClearLogsDialog = true }
+                            shape = ShapeTokens.MediumShape,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
                             Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -610,13 +592,13 @@ fun SettingsScreen() {
                         .animateContentSize(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
                 ) {
                     if (showLogsExpanded) {
-                        val logContainerShape = RoundedCornerShape(16.dp)
+                        val logContainerShape = ShapeTokens.MediumShape
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(logContainerShape)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant, logContainerShape)
+                                .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, logContainerShape)
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -675,13 +657,8 @@ fun SettingsScreen() {
                             BatteryHelper.openBatteryOptimizationSettings(context)
                             isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
                         },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bouncyClickable(pressScale = 0.94f) {
-                                BatteryHelper.openBatteryOptimizationSettings(context)
-                                isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
-                            }
+                        shape = ShapeTokens.MediumShape,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp), tint = StatusGreen)
                         Spacer(modifier = Modifier.width(6.dp))
@@ -693,13 +670,8 @@ fun SettingsScreen() {
                             BatteryHelper.requestIgnoreBatteryOptimization(context)
                             isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
                         },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .bouncyClickable(pressScale = 0.94f) {
-                                BatteryHelper.requestIgnoreBatteryOptimization(context)
-                                isBatteryIgnored = BatteryHelper.isBatteryOptimizationIgnored(context)
-                            }
+                        shape = ShapeTokens.MediumShape,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(Icons.Default.BatteryChargingFull, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -721,13 +693,7 @@ fun SettingsScreen() {
                             snackbarHostState.showSnackbar(serviceRestartedMsg)
                         }
                     },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
-                        InstaLoggerForegroundService.start(context)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(serviceRestartedMsg)
-                        }
-                    }
+                    shape = ShapeTokens.MediumShape
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -743,9 +709,8 @@ fun SettingsScreen() {
             ) {
                 OutlinedButton(
                     onClick = { showClearAllDialog = true },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed),
-                    modifier = Modifier.bouncyClickable(pressScale = 0.94f) { showClearAllDialog = true }
+                    shape = ShapeTokens.MediumShape,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed)
                 ) {
                     Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))

@@ -39,6 +39,9 @@ import com.instalogger.app.engine.InstagramUserSummary
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
+import com.instalogger.app.ui.theme.StatusAmber
+import com.instalogger.app.ui.theme.StatusGreen
+import com.instalogger.app.ui.theme.StatusRed
 import com.instalogger.app.util.ArchiveDirectoryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,9 +50,9 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-private val RedLost = Color(0xFFEF4444)
-private val OrangeLost = Color(0xFFF97316)
-private val GreenGained = Color(0xFF10B981)
+private val RedLost = StatusRed
+private val OrangeLost = StatusAmber
+private val GreenGained = StatusGreen
 private val BlueGained = AccentBlue
 
 data class FilterPill(
@@ -374,7 +377,7 @@ private fun UserListTabContent(
                             try {
                                 context.startActivity(intent)
                             } catch (_: Exception) {
-                                Toast.makeText(context, "Instagram açıla bilmədi", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.error_open_instagram), Toast.LENGTH_SHORT).show()
                             }
                         }
                     )
@@ -603,7 +606,7 @@ private fun AuditDiffsTabContent(
                             try {
                                 context.startActivity(intent)
                             } catch (_: Exception) {
-                                Toast.makeText(context, "Instagram açıla bilmədi", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.error_open_instagram), Toast.LENGTH_SHORT).show()
                             }
                         }
                     )

@@ -21,6 +21,7 @@ object ShapeTokens {
     val MediumShape = RoundedCornerShape(CornerMedium)
     val LargeShape = RoundedCornerShape(CornerLarge)
     val PillShape = RoundedCornerShape(CornerPill)
+    val DockShape = RoundedCornerShape(26.dp)
     val Circle = CircleShape
 
     // Standard Border Stroke Widths

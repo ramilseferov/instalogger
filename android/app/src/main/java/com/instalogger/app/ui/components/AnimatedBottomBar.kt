@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.instalogger.app.Screen
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.animation.bouncyClickable
+import com.instalogger.app.ui.theme.ShapeTokens
 import kotlin.math.roundToInt
 
 /**
@@ -39,8 +40,7 @@ fun AnimatedBottomBar(
     onItemSelected: (Screen) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val dockCornerRadius = 26.dp
-    val dockShape = RoundedCornerShape(dockCornerRadius)
+    val dockShape = ShapeTokens.DockShape
 
     Box(
         modifier = modifier
