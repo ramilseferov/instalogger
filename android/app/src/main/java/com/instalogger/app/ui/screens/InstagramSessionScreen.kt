@@ -1,7 +1,11 @@
 package com.instalogger.app.ui.screens
 
 import android.annotation.SuppressLint
+import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.animateColorAsState
@@ -51,10 +55,33 @@ fun InstagramSessionScreen() {
     var selectedTab by remember { mutableIntStateOf(0) }
     var hasSession by remember { mutableStateOf(app.sessionManager.hasSession()) }
     var manualCookieText by remember { mutableStateOf("") }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var isLoadingWeb by remember { mutableStateOf(true) }
+    var webProgress by remember { mutableFloatStateOf(0.1f) }
 
     val capturedMsg = stringResource(R.string.msg_session_captured)
     val savedMsg = stringResource(R.string.msg_cookie_saved)
     val clearedMsg = stringResource(R.string.msg_session_cleared)
+
+    // Periodic automatic cookie detection while in login WebView
+    LaunchedEffect(selectedTab, hasSession) {
+        if (selectedTab == 0 && !hasSession) {
+            while (!hasSession) {
+                kotlinx.coroutines.delay(1500)
+                try {
+                    val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
+                    if (cookies != null && cookies.contains("sessionid=")) {
+                        app.sessionManager.saveCookieString(cookies)
+                        hasSession = true
+                        snackbarHostState.showSnackbar(capturedMsg)
+                        break
+                    }
+                } catch (e: Exception) {
+                    // Ignore background polling error
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -149,41 +176,133 @@ fun InstagramSessionScreen() {
             when (selectedTab) {
                 0 -> {
                     val webViewShape = ShapeTokens.LargeShape
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                            .clip(webViewShape)
-                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, webViewShape)
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
                     ) {
-                        val isDark = isSystemInDarkTheme()
-                        AndroidView(
-                            factory = { ctx ->
-                                WebView(ctx).apply {
-                                    setBackgroundColor(if (isDark) 0xFF0D0E12.toInt() else 0xFFFFFFFF.toInt())
-                                    settings.javaScriptEnabled = true
-                                    settings.domStorageEnabled = true
-                                    settings.userAgentString =
-                                        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+                        // Mini action bar for WebView
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Instagram Web Login",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
 
-                                    webViewClient = object : WebViewClient() {
-                                        override fun onPageFinished(view: WebView?, url: String?) {
-                                            super.onPageFinished(view, url)
-                                            val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
-                                            if (cookies != null && cookies.contains("sessionid=")) {
-                                                app.sessionManager.saveCookieString(cookies)
-                                                hasSession = true
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar(capturedMsg)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
+                                        if (cookies != null && cookies.contains("sessionid=")) {
+                                            app.sessionManager.saveCookieString(cookies)
+                                            hasSession = true
+                                            scope.launch { snackbarHostState.showSnackbar(capturedMsg) }
+                                        } else {
+                                            scope.launch { snackbarHostState.showSnackbar("Sessiya hələ aşkar edilməyib") }
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Yoxla", style = MaterialTheme.typography.labelSmall)
+                                }
+
+                                TextButton(
+                                    onClick = { webViewRef?.reload() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Yenilə", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(webViewShape)
+                                .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, webViewShape)
+                        ) {
+                            val isDark = isSystemInDarkTheme()
+                            AndroidView(
+                                factory = { ctx ->
+                                    WebView(ctx).apply {
+                                        webViewRef = this
+                                        layoutParams = ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        setBackgroundColor(if (isDark) 0xFF0D0E12.toInt() else 0xFFFFFFFF.toInt())
+                                        val cm = CookieManager.getInstance()
+                                        cm.setAcceptCookie(true)
+                                        cm.setAcceptThirdPartyCookies(this, true)
+
+                                        settings.apply {
+                                            javaScriptEnabled = true
+                                            domStorageEnabled = true
+                                            databaseEnabled = true
+                                            useWideViewPort = true
+                                            loadWithOverviewMode = true
+                                            javaScriptCanOpenWindowsAutomatically = true
+                                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                            cacheMode = WebSettings.LOAD_DEFAULT
+                                            userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
+                                        }
+
+                                        webChromeClient = object : WebChromeClient() {
+                                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                                webProgress = newProgress / 100f
+                                                isLoadingWeb = newProgress < 100
+                                            }
+                                        }
+
+                                        webViewClient = object : WebViewClient() {
+                                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                                val uri = request?.url ?: return false
+                                                val scheme = uri.scheme?.lowercase()
+                                                if (scheme == "http" || scheme == "https") {
+                                                    return false
+                                                }
+                                                // Prevent intent:// or instagram:// redirects from failing
+                                                return true
+                                            }
+
+                                            override fun onPageFinished(view: WebView?, url: String?) {
+                                                super.onPageFinished(view, url)
+                                                isLoadingWeb = false
+                                                val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
+                                                if (cookies != null && cookies.contains("sessionid=")) {
+                                                    app.sessionManager.saveCookieString(cookies)
+                                                    hasSession = true
+                                                    scope.launch {
+                                                        snackbarHostState.showSnackbar(capturedMsg)
+                                                    }
                                                 }
                                             }
                                         }
+                                        loadUrl("https://www.instagram.com/accounts/login/")
                                     }
-                                    loadUrl("https://www.instagram.com/accounts/login/")
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            if (isLoadingWeb) {
+                                LinearProgressIndicator(
+                                    progress = { webProgress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .align(Alignment.TopCenter)
+                                )
+                            }
+                        }
                     }
                 }
                 1 -> {
