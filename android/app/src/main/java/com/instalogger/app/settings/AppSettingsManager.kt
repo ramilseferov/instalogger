@@ -100,6 +100,12 @@ class AppSettingsManager(private val context: Context) {
     private val _vibrationEnabled = MutableStateFlow(loadBoolean(KEY_NOTIF_VIBRATION, true))
     val vibrationEnabled: StateFlow<Boolean> = _vibrationEnabled.asStateFlow()
 
+    private val _daemonSyncEnabled = MutableStateFlow(loadBoolean(KEY_DAEMON_SYNC_ENABLED, false))
+    val daemonSyncEnabled: StateFlow<Boolean> = _daemonSyncEnabled.asStateFlow()
+
+    private val _daemonHostUrl = MutableStateFlow(prefs.getString(KEY_DAEMON_HOST_URL, DEFAULT_DAEMON_URL) ?: DEFAULT_DAEMON_URL)
+    val daemonHostUrl: StateFlow<String> = _daemonHostUrl.asStateFlow()
+
     private val _categoryStates: Map<NotificationCategory, MutableStateFlow<Boolean>> =
         NotificationCategory.entries.associateWith { cat ->
             MutableStateFlow(prefs.getBoolean(cat.prefKey, cat.defaultEnabled))
@@ -155,6 +161,17 @@ class AppSettingsManager(private val context: Context) {
         prefs.edit().putBoolean(KEY_NOTIF_VIBRATION, enabled).apply()
     }
 
+    fun setDaemonSyncEnabled(enabled: Boolean) {
+        _daemonSyncEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_DAEMON_SYNC_ENABLED, enabled).apply()
+    }
+
+    fun setDaemonHostUrl(url: String) {
+        val clean = url.trim().trimEnd('/')
+        _daemonHostUrl.value = clean
+        prefs.edit().putString(KEY_DAEMON_HOST_URL, clean).apply()
+    }
+
     fun isNotificationAllowed(eventType: String?): Boolean {
         if (!_statusBarNotifications.value) return false
         val cat = NotificationCategory.fromEventType(eventType)
@@ -185,6 +202,9 @@ class AppSettingsManager(private val context: Context) {
         const val KEY_IN_APP_NOTIFS = "pref_in_app_notifs"
         const val KEY_NOTIF_SOUND = "pref_notif_sound"
         const val KEY_NOTIF_VIBRATION = "pref_notif_vibration"
+        const val KEY_DAEMON_SYNC_ENABLED = "pref_daemon_sync_enabled"
+        const val KEY_DAEMON_HOST_URL = "pref_daemon_host_url"
+        const val DEFAULT_DAEMON_URL = "http://127.0.0.1:3000"
 
         @Volatile
         private var INSTANCE: AppSettingsManager? = null

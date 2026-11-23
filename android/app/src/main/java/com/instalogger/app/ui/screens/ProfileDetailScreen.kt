@@ -229,15 +229,15 @@ fun ProfileDetailScreen(
                     SlidingPillTabRow(
                         tabs = listOf(
                             TabItem(
-                                title = stringResource(R.string.tab_audit_logs, logs.size),
+                                title = stringResource(R.string.tab_audit_short, logs.size),
                                 icon = Icons.Default.History
                             ),
                             TabItem(
-                                title = stringResource(R.string.tab_posts, totalPostsCount),
+                                title = stringResource(R.string.tab_posts_short, totalPostsCount),
                                 icon = Icons.Default.GridOn
                             ),
                             TabItem(
-                                title = stringResource(R.string.tab_avatar_history, avatars.size),
+                                title = stringResource(R.string.tab_avatars_short, avatars.size),
                                 icon = Icons.Default.Image
                             )
                         ),
@@ -344,15 +344,21 @@ fun ProfileDetailScreen(
                                             Spacer(modifier = Modifier.height(4.dp))
 
                                             Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(IntrinsicSize.Min),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 if (onNavigateToSession != null) {
                                                     Button(
                                                         onClick = onNavigateToSession,
-                                                        modifier = Modifier.weight(1f),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .fillMaxHeight(),
                                                         shape = ShapeTokens.MediumShape,
-                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
+                                                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                                                     ) {
                                                         Icon(
                                                             imageVector = Icons.Default.Lock,
@@ -362,15 +368,20 @@ fun ProfileDetailScreen(
                                                         Spacer(modifier = Modifier.width(6.dp))
                                                         Text(
                                                             text = stringResource(R.string.btn_login_session),
-                                                            fontWeight = FontWeight.Bold
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
                                                         )
                                                     }
                                                 }
 
                                                 OutlinedButton(
                                                     onClick = { refreshTargetData() },
-                                                    modifier = if (onNavigateToSession != null) Modifier.wrapContentWidth() else Modifier.fillMaxWidth(),
-                                                    shape = ShapeTokens.MediumShape
+                                                    modifier = Modifier
+                                                        .weight(if (onNavigateToSession != null) 0.8f else 1f)
+                                                        .fillMaxHeight(),
+                                                    shape = ShapeTokens.MediumShape,
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Refresh,
@@ -378,7 +389,11 @@ fun ProfileDetailScreen(
                                                         modifier = Modifier.size(16.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(stringResource(R.string.action_refresh_list))
+                                                    Text(
+                                                        text = stringResource(R.string.action_refresh_list),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
                                                 }
                                             }
                                         }
@@ -645,12 +660,13 @@ fun ProfileDetailScreen(
 private fun resolveAvatarSource(context: android.content.Context, t: TargetEntity): Any? {
     val internalFile = ArchiveDirectoryManager.getInternalAvatar(context, t.username)
     val localFile = t.localAvatarPath?.let { File(it) }
+    val archiveDirFile = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${t.username}/profile/avatar_current.jpg")
     return when {
         internalFile != null && internalFile.exists() && internalFile.length() > 0 -> internalFile
         localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
+        archiveDirFile.exists() && archiveDirFile.length() > 0 -> archiveDirFile
         !t.avatarUrl.isNullOrBlank() -> t.avatarUrl
-        !t.instagramId.isNullOrBlank() -> "http://127.0.0.1:3000/archives/${t.instagramId}/profile/avatar_current.jpg"
-        else -> "http://127.0.0.1:3000/archives/${t.username}/profile/avatar_current.jpg"
+        else -> null
     }
 }
 
@@ -870,11 +886,13 @@ private fun AvatarHistoryCard(
     val file = File(avatar.localPath)
     val vaultFile = File(context.filesDir, "vault/${avatar.username}/profile/${file.name}.enc")
     val internalCandidate = File(context.filesDir, "avatars/${avatar.username}/${file.name}")
+    val externalArchive = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${avatar.username}/profile/${file.name}")
     val imageModel: Any = when {
         file.exists() && file.canRead() && file.length() > 0 -> file
         vaultFile.exists() && vaultFile.length() > 0 -> vaultFile
         internalCandidate.exists() && internalCandidate.length() > 0 -> internalCandidate
-        else -> "http://127.0.0.1:3000/archives/${avatar.username}/profile/${file.name}"
+        externalArchive.exists() && externalArchive.length() > 0 -> externalArchive
+        else -> file
     }
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
     val formattedDate = timeFormat.format(Date(avatar.archivedAt))

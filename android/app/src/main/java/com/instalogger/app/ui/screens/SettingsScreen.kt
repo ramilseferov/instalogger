@@ -70,6 +70,10 @@ fun SettingsScreen() {
     val inAppNotifs by app.settingsManager.inAppNotifications.collectAsStateWithLifecycle()
     val soundEnabled by app.settingsManager.soundEnabled.collectAsStateWithLifecycle()
     val vibrationEnabled by app.settingsManager.vibrationEnabled.collectAsStateWithLifecycle()
+    val daemonSyncEnabled by app.settingsManager.daemonSyncEnabled.collectAsStateWithLifecycle()
+    val daemonHostUrl by app.settingsManager.daemonHostUrl.collectAsStateWithLifecycle()
+    var isTestingDaemon by remember { mutableStateOf(false) }
+    var daemonPingStatus by remember { mutableStateOf<Boolean?>(null) }
 
     var showNotifSettingsSheet by remember { mutableStateOf(false) }
     var isBatteryIgnored by remember { mutableStateOf(BatteryHelper.isBatteryOptimizationIgnored(context)) }
@@ -128,7 +132,7 @@ fun SettingsScreen() {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .padding(bottom = 108.dp),
+                .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 1. Language Selection Card
@@ -701,7 +705,102 @@ fun SettingsScreen() {
                 }
             }
 
-            // 6. Danger Zone Card (Clear All Data)
+            // 6. Termux & Daemon Sync Card (Optional integration)
+            SettingsGroupCard(
+                icon = Icons.Default.Dns,
+                title = stringResource(R.string.section_daemon_title),
+                description = stringResource(R.string.section_daemon_desc),
+                headerTrailing = {
+                    if (daemonSyncEnabled) {
+                        StatusBadge(
+                            text = if (daemonPingStatus == true) stringResource(R.string.daemon_status_connected) else stringResource(R.string.badge_active),
+                            icon = if (daemonPingStatus == true) Icons.Default.CheckCircle else Icons.Default.Sync,
+                            containerColor = StatusGreenLight,
+                            contentColor = StatusGreen
+                        )
+                    } else {
+                        StatusBadge(
+                            text = stringResource(R.string.daemon_status_disconnected),
+                            icon = Icons.Default.CloudOff,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            ) {
+                SettingSwitchRow(
+                    title = stringResource(R.string.daemon_sync_enabled),
+                    description = stringResource(R.string.daemon_sync_desc),
+                    checked = daemonSyncEnabled,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setDaemonSyncEnabled(it)
+                    }
+                )
+
+                if (daemonSyncEnabled) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+
+                    OutlinedTextField(
+                        value = daemonHostUrl,
+                        onValueChange = { app.settingsManager.setDaemonHostUrl(it) },
+                        label = { Text(stringResource(R.string.daemon_host_title)) },
+                        singleLine = true,
+                        shape = ShapeTokens.MediumShape,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isTestingDaemon = true
+                                    val ok = withContext(Dispatchers.IO) {
+                                        try {
+                                            val client = okhttp3.OkHttpClient.Builder()
+                                                .connectTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+                                                .readTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+                                                .build()
+                                            val req = okhttp3.Request.Builder().url("$daemonHostUrl/api/targets").get().build()
+                                            client.newCall(req).execute().use { it.isSuccessful }
+                                        } catch (_: Exception) {
+                                            false
+                                        }
+                                    }
+                                    daemonPingStatus = ok
+                                    isTestingDaemon = false
+                                    snackbarHostState.showSnackbar(
+                                        if (ok) context.getString(R.string.msg_daemon_connected) else context.getString(R.string.msg_daemon_unreachable)
+                                    )
+                                }
+                            },
+                            shape = ShapeTokens.MediumShape,
+                            enabled = !isTestingDaemon
+                        ) {
+                            if (isTestingDaemon) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                            } else {
+                                Icon(Icons.Default.Dns, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            Text(stringResource(R.string.btn_ping_daemon))
+                        }
+                    }
+                }
+            }
+
+            // 7. Danger Zone Card (Clear All Data)
             SettingsGroupCard(
                 icon = Icons.Default.Warning,
                 title = stringResource(R.string.danger_zone_title),

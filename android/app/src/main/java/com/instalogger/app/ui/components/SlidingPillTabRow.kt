@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.ShapeTokens
@@ -50,6 +51,7 @@ fun SlidingPillTabRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .height(IntrinsicSize.Min)
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -72,6 +74,7 @@ fun SlidingPillTabRow(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .fillMaxHeight()
                         .clip(pillShape)
                         .background(bgColor)
                         .then(
@@ -79,19 +82,19 @@ fun SlidingPillTabRow(
                             else Modifier
                         )
                         .bouncyClickable(pressScale = 0.94f) { onTabSelected(index) }
-                        .padding(vertical = 10.dp, horizontal = 8.dp),
+                        .padding(vertical = 10.dp, horizontal = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         if (tab.icon != null) {
                             Icon(
                                 imageVector = tab.icon,
                                 contentDescription = null,
                                 tint = contentColor,
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
 
@@ -100,7 +103,9 @@ fun SlidingPillTabRow(
                             text = titleText,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = contentColor
+                            color = contentColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }

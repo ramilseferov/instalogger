@@ -194,4 +194,42 @@
     <string name="error_share_media">Sharing error</string>
     <string name="error_media_not_local">File has not been archived locally yet</string>
     <string name="badge_unread_format">%1$d New</string>
+
+    <!-- Compact Tab Titles -->
+    <string name="tab_audit_short">Audit (%1$d)</string>
+    <string name="tab_posts_short">Posts (%1$d)</string>
+    <string name="tab_avatars_short">Avatars (%1$d)</string>
+
+    <!-- Daemon & Termux Settings -->
+    <string name="section_daemon_title">Termux &amp; Daemon Sync</string>
+    <string name="section_daemon_desc">Optional connection to local Rust daemon running on Termux or desktop</string>
+    <string name="daemon_sync_enabled">Termux Daemon Sync</string>
+    <string name="daemon_sync_desc">Synchronize targets with background Axum daemon on port 3000</string>
+    <string name="daemon_host_title">Daemon URL</string>
+    <string name="daemon_status_connected">Connected</string>
+    <string name="daemon_status_disconnected">Disconnected</string>
+    <string name="btn_ping_daemon">Test Connection</string>
+    <string name="msg_daemon_connected">Daemon reached successfully!</string>
+    <string name="msg_daemon_unreachable">Daemon is not running on this address</string>
+
+    <!-- Localized Alert Notifications -->
+    <string name="notif_followers_changed_title">@%1$s followers count changed (%2$s)</string>
+    <string name="notif_followers_changed_desc">%1$d -&gt; %2$d followers (%3$s)</string>
+    <string name="notif_following_changed_title">@%1$s following count changed (%2$s)</string>
+    <string name="notif_following_changed_desc">%1$d -&gt; %2$d following (%3$s)</string>
+    <string name="notif_posts_changed_title">@%1$s post count changed (%2$s)</string>
+    <string name="notif_posts_changed_desc">%1$s -&gt; %2$s posts (%3$s)</string>
+    <string name="notif_avatar_changed_title">@%1$s avatar updated</string>
+    <string name="notif_avatar_changed_desc">Profile photo changed and preserved in encrypted vault</string>
+    <string name="notif_privacy_changed_title">@%1$s privacy status changed</string>
+    <string name="notif_privacy_changed_desc">Account is now %1$s</string>
+    <string name="notif_privacy_public">PUBLIC</string>
+    <string name="notif_privacy_private">PRIVATE</string>
+    <string name="notif_bio_changed_title">@%1$s biography updated</string>
+    <string name="notif_public_archived_title">@%1$s is now PUBLIC! Highlights &amp; Posts archived.</string>
+    <string name="notif_public_archived_desc">Archived %1$d highlight reels and %2$d posts.</string>
+    <string name="notif_follower_gained_title">@%1$s gained follower: @%2$s</string>
+    <string name="notif_follower_lost_title">@%1$s lost follower: @%2$s</string>
+    <string name="notif_following_gained_title">@%1$s started following: @%2$s</string>
+    <string name="notif_following_lost_title">@%1$s unfollowed: @%2$s</string>
 </resources>

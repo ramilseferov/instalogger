@@ -11,6 +11,9 @@ interface ChangeLogDao {
     @Query("SELECT * FROM change_logs WHERE targetUsername = :username ORDER BY timestamp DESC")
     fun getLogsForTarget(username: String): Flow<List<ChangeLogEntity>>
 
+    @Query("SELECT * FROM change_logs WHERE targetUsername = :username AND eventType = :eventType ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestLogForEvent(username: String, eventType: String): ChangeLogEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLog(log: ChangeLogEntity): Long
 

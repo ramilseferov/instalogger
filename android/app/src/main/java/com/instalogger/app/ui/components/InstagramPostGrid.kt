@@ -41,6 +41,7 @@ import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.ui.theme.StatusRed
+import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.cleanDisplayText
 import java.io.File
 import java.text.SimpleDateFormat
@@ -84,11 +85,14 @@ fun PostGridItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val localFile = post.localPath?.let { File(it) }
+    val extArchive = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${post.username}/posts/${post.id}.jpg")
     val resolvedModel: Any = when {
         localFile != null && localFile.exists() && localFile.length() > 0L -> localFile
+        extArchive.exists() && extArchive.length() > 0L -> extArchive
         post.displayUrl.isNotBlank() -> post.displayUrl
-        else -> "http://127.0.0.1:3000/archives/${post.username}/posts/${post.id}.jpg"
+        else -> ""
     }
 
     Box(
@@ -167,10 +171,12 @@ fun InstagramPostViewerDialog(
 ) {
     val context = LocalContext.current
     val localFile = post.localPath?.let { File(it) }
+    val extArchive = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${post.username}/posts/${post.id}.jpg")
     val resolvedModel: Any = when {
         localFile != null && localFile.exists() && localFile.length() > 0L -> localFile
+        extArchive.exists() && extArchive.length() > 0L -> extArchive
         post.displayUrl.isNotBlank() -> post.displayUrl
-        else -> "http://127.0.0.1:3000/archives/${post.username}/posts/${post.id}.jpg"
+        else -> ""
     }
 
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())

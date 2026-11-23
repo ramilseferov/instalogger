@@ -251,4 +251,42 @@
     <string name="error_share_media">Ошибка отправки</string>
     <string name="error_media_not_local">Файл еще не сохранен локально</string>
     <string name="badge_unread_format">%1$d Новых</string>
+
+    <!-- Compact Tab Titles -->
+    <string name="tab_audit_short">Аудит (%1$d)</string>
+    <string name="tab_posts_short">Посты (%1$d)</string>
+    <string name="tab_avatars_short">Аватары (%1$d)</string>
+
+    <!-- Daemon & Termux Settings -->
+    <string name="section_daemon_title">Синхронизация Termux и Daemon</string>
+    <string name="section_daemon_desc">Опциональное подключение к локальному демону Rust на Termux или ПК</string>
+    <string name="daemon_sync_enabled">Интеграция с демоном Termux</string>
+    <string name="daemon_sync_desc">Синхронизировать цели с локальным демоном Axum на порту 3000</string>
+    <string name="daemon_host_title">Адрес демона</string>
+    <string name="daemon_status_connected">Подключено</string>
+    <string name="daemon_status_disconnected">Не подключено</string>
+    <string name="btn_ping_daemon">Проверить связь</string>
+    <string name="msg_daemon_connected">Связь с демоном успешно установлена!</string>
+    <string name="msg_daemon_unreachable">Демон не отвечает по данному адресу</string>
+
+    <!-- Localized Alert Notifications -->
+    <string name="notif_followers_changed_title">@%1$s число подписчиков изменилось (%2$s)</string>
+    <string name="notif_followers_changed_desc">%1$d -&gt; %2$d подписчиков (%3$s)</string>
+    <string name="notif_following_changed_title">@%1$s число подписок изменилось (%2$s)</string>
+    <string name="notif_following_changed_desc">%1$d -&gt; %2$d подписок (%3$s)</string>
+    <string name="notif_posts_changed_title">@%1$s число публикаций изменилось (%2$s)</string>
+    <string name="notif_posts_changed_desc">%1$s -&gt; %2$s публикаций (%3$s)</string>
+    <string name="notif_avatar_changed_title">@%1$s фото профиля обновлено</string>
+    <string name="notif_avatar_changed_desc">Фото профиля изменено и сохранено в зашифрованном хранилище</string>
+    <string name="notif_privacy_changed_title">@%1$s статус приватности изменен</string>
+    <string name="notif_privacy_changed_desc">Аккаунт теперь %1$s</string>
+    <string name="notif_privacy_public">ОТКРЫТЫЙ</string>
+    <string name="notif_privacy_private">ЗАКРЫТЫЙ</string>
+    <string name="notif_bio_changed_title">@%1$s биография обновлена</string>
+    <string name="notif_public_archived_title">@%1$s теперь ОТКРЫТ! Публикации сохранены.</string>
+    <string name="notif_public_archived_desc">Архивировано %1$d альбомов историй и %2$d постов.</string>
+    <string name="notif_follower_gained_title">@%1$s новый подписчик: @%2$s</string>
+    <string name="notif_follower_lost_title">@%1$s отписался: @%2$s</string>
+    <string name="notif_following_gained_title">@%1$s подписался на: @%2$s</string>
+    <string name="notif_following_lost_title">@%1$s отписался от: @%2$s</string>
 </resources>

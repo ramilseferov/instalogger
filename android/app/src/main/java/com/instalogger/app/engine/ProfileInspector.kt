@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.instalogger.app.InstaLoggerApp
+import com.instalogger.app.R
 import com.instalogger.app.data.local.*
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.util.ArchiveDirectoryManager
@@ -43,6 +44,7 @@ class ProfileInspector(
         .build()
 
     private val gson = Gson()
+    private val inspectionLocks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
 
     private suspend fun dispatchAlert(
         targetUsername: String,
@@ -53,6 +55,13 @@ class ProfileInspector(
     ) {
         val app = context.applicationContext as? InstaLoggerApp
         val settings = app?.settingsManager
+
+        // Deduplication guard: ignore identical message for the same event and target within 60 seconds
+        val latestNotif = database.notificationDao().getLatestNotificationForEvent(targetUsername, eventType)
+        if (latestNotif != null && latestNotif.message == message && (timestamp - latestNotif.timestamp) < 60_000L) {
+            return
+        }
+
         var notifId = timestamp
 
         if (settings == null || settings.inAppNotifications.value) {
@@ -78,16 +87,24 @@ class ProfileInspector(
     }
 
     suspend fun inspectTarget(username: String): Result<TargetEntity> = withContext(Dispatchers.IO) {
-        val targetDao = database.targetDao()
-        val changeLogDao = database.changeLogDao()
-        val avatarHistoryDao = database.avatarHistoryDao()
-        val notificationDao = database.notificationDao()
         val cleanUser = username.trim().trimStart('@').lowercase()
 
         // Fast-path guard: Abort immediately if target has been deleted
         if (isTargetDeleted(cleanUser)) {
             return@withContext Result.failure(Exception("Target was deleted"))
         }
+
+        val targetMutex = inspectionLocks.computeIfAbsent(cleanUser) { kotlinx.coroutines.sync.Mutex() }
+        if (!targetMutex.tryLock()) {
+            val inDb = database.targetDao().getTarget(cleanUser)
+            return@withContext if (inDb != null) Result.success(inDb) else Result.failure(Exception("Inspection already running for @$cleanUser"))
+        }
+
+        try {
+            val targetDao = database.targetDao()
+            val changeLogDao = database.changeLogDao()
+            val avatarHistoryDao = database.avatarHistoryDao()
+            val notificationDao = database.notificationDao()
 
         // 1. Live Instagram inspection (obtains live follower & following count)
         val cookie = sessionManager.getCookieString()
@@ -222,130 +239,133 @@ class ProfileInspector(
         // 2. Check privacy change
         val wasPrivateToPublic = (existing != null && existing.isPrivate && !snapshot.isPrivate)
         if (existing != null && existing.isPrivate != snapshot.isPrivate) {
-            val title = "@$cleanUser privacy status changed"
-            val desc = if (snapshot.isPrivate) "Account changed to Private" else "Account changed to Public"
-            val oldVal = if (existing.isPrivate) "Private" else "Public"
-            val newVal = if (snapshot.isPrivate) "Private" else "Public"
-            changeLogDao.insertLog(
-                ChangeLogEntity(
+            val oldVal = if (existing.isPrivate) context.getString(R.string.notif_privacy_private) else context.getString(R.string.notif_privacy_public)
+            val newVal = if (snapshot.isPrivate) context.getString(R.string.notif_privacy_private) else context.getString(R.string.notif_privacy_public)
+            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "privacy_change")
+            if (latestLog?.newValue != newVal) {
+                val title = context.getString(R.string.notif_privacy_changed_title, cleanUser)
+                val desc = context.getString(R.string.notif_privacy_changed_desc, newVal)
+                changeLogDao.insertLog(
+                    ChangeLogEntity(
+                        targetUsername = cleanUser,
+                        eventType = "privacy_change",
+                        title = title,
+                        oldValue = oldVal,
+                        newValue = newVal,
+                        timestamp = now
+                    )
+                )
+                dispatchAlert(
                     targetUsername = cleanUser,
                     eventType = "privacy_change",
                     title = title,
-                    oldValue = oldVal,
-                    newValue = newVal,
+                    message = desc,
                     timestamp = now
                 )
-            )
-            dispatchAlert(
-                targetUsername = cleanUser,
-                eventType = "privacy_change",
-                title = title,
-                message = desc,
-                timestamp = now
-            )
+            }
         }
 
         // 3. Check post count change
         if (existing != null && existing.mediaCount != snapshot.mediaCount && snapshot.mediaCount > 0) {
-            val title = "@$cleanUser post count changed"
-            val desc = "${existing.mediaCount} -> ${snapshot.mediaCount} posts"
-            changeLogDao.insertLog(
-                ChangeLogEntity(
+            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "post_count_change")
+            if (latestLog?.newValue != snapshot.mediaCount.toString()) {
+                val diff = snapshot.mediaCount - existing.mediaCount
+                val sign = if (diff > 0) "+$diff" else "$diff"
+                val title = context.getString(R.string.notif_posts_changed_title, cleanUser, sign)
+                val desc = context.getString(R.string.notif_posts_changed_desc, existing.mediaCount.toString(), snapshot.mediaCount.toString(), sign)
+                changeLogDao.insertLog(
+                    ChangeLogEntity(
+                        targetUsername = cleanUser,
+                        eventType = "post_count_change",
+                        title = title,
+                        oldValue = existing.mediaCount.toString(),
+                        newValue = snapshot.mediaCount.toString(),
+                        timestamp = now
+                    )
+                )
+                dispatchAlert(
                     targetUsername = cleanUser,
                     eventType = "post_count_change",
                     title = title,
-                    oldValue = existing.mediaCount.toString(),
-                    newValue = snapshot.mediaCount.toString(),
+                    message = desc,
                     timestamp = now
                 )
-            )
-            dispatchAlert(
-                targetUsername = cleanUser,
-                eventType = "post_count_change",
-                title = title,
-                message = desc,
-                timestamp = now
-            )
+            }
         }
 
         // 4. Check biography change
         if (existing != null && snapshot.biography.isNotBlank() && existing.biography != snapshot.biography) {
-            val title = "@$cleanUser biography updated"
-            val desc = snapshot.biography.take(80)
-            changeLogDao.insertLog(
-                ChangeLogEntity(
-                    targetUsername = cleanUser,
-                    eventType = "bio_change",
-                    title = title,
-                    oldValue = existing.biography,
-                    newValue = snapshot.biography,
-                    timestamp = now
+            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "bio_change")
+            if (latestLog?.newValue != snapshot.biography) {
+                val title = context.getString(R.string.notif_bio_changed_title, cleanUser)
+                val desc = snapshot.biography.take(80)
+                changeLogDao.insertLog(
+                    ChangeLogEntity(
+                        targetUsername = cleanUser,
+                        eventType = "bio_change",
+                        title = title,
+                        oldValue = existing.biography,
+                        newValue = snapshot.biography,
+                        timestamp = now
+                    )
                 )
-            )
-        }
-
-        // 5. Check followers count change
-        if (existing != null && existing.followersCount > 0 && snapshot.followersCount > 0 && existing.followersCount != snapshot.followersCount) {
-            val diff = snapshot.followersCount - existing.followersCount
-            val sign = if (diff > 0) "+$diff" else "$diff"
-            val title = "@$cleanUser followers count changed ($sign)"
-            val desc = "${existing.followersCount} -> ${snapshot.followersCount} followers ($sign)"
-            changeLogDao.insertLog(
-                ChangeLogEntity(
-                    targetUsername = cleanUser,
-                    eventType = "followers_change",
-                    title = title,
-                    oldValue = existing.followersCount.toString(),
-                    newValue = snapshot.followersCount.toString(),
-                    timestamp = now
-                )
-            )
-            dispatchAlert(
-                targetUsername = cleanUser,
-                eventType = "followers_change",
-                title = title,
-                message = desc,
-                timestamp = now
-            )
-        }
-
-        // 6. Check following count change
-        if (existing != null && existing.followingCount > 0 && snapshot.followingCount > 0 && existing.followingCount != snapshot.followingCount) {
-            val diff = snapshot.followingCount - existing.followingCount
-            val sign = if (diff > 0) "+$diff" else "$diff"
-            val title = "@$cleanUser following count changed ($sign)"
-            val desc = "${existing.followingCount} -> ${snapshot.followingCount} following ($sign)"
-            changeLogDao.insertLog(
-                ChangeLogEntity(
-                    targetUsername = cleanUser,
-                    eventType = "following_change",
-                    title = title,
-                    oldValue = existing.followingCount.toString(),
-                    newValue = snapshot.followingCount.toString(),
-                    timestamp = now
-                )
-            )
-            dispatchAlert(
-                targetUsername = cleanUser,
-                eventType = "following_change",
-                title = title,
-                message = desc,
-                timestamp = now
-            )
-        }
-
-        // 7. Check and archive followers & following lists
-        val targetId = snapshot.instagramId ?: existing?.instagramId
-        if (!targetId.isNullOrBlank()) {
-            if (!cookie.isNullOrBlank() || wasPrivateToPublic || !snapshot.isPrivate) {
-                inspectFollowersList(cleanUser, targetId, cookie, now)
-                inspectFollowingList(cleanUser, targetId, cookie, now)
             }
         }
 
-        // 8. Auto archive highlights and posts
-        if (!snapshot.isPrivate || existing == null || wasPrivateToPublic || !cookie.isNullOrBlank()) {
-            archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic)
+        // 5. Check followers count change (Strict deduplication guard against race-conditions)
+        if (existing != null && existing.followersCount > 0 && snapshot.followersCount > 0 && existing.followersCount != snapshot.followersCount) {
+            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "followers_change")
+            if (latestLog?.newValue != snapshot.followersCount.toString()) {
+                val diff = snapshot.followersCount - existing.followersCount
+                val sign = if (diff > 0) "+$diff" else "$diff"
+                val title = context.getString(R.string.notif_followers_changed_title, cleanUser, sign)
+                val desc = context.getString(R.string.notif_followers_changed_desc, existing.followersCount, snapshot.followersCount, sign)
+                changeLogDao.insertLog(
+                    ChangeLogEntity(
+                        targetUsername = cleanUser,
+                        eventType = "followers_change",
+                        title = title,
+                        oldValue = existing.followersCount.toString(),
+                        newValue = snapshot.followersCount.toString(),
+                        timestamp = now
+                    )
+                )
+                dispatchAlert(
+                    targetUsername = cleanUser,
+                    eventType = "followers_change",
+                    title = title,
+                    message = desc,
+                    timestamp = now
+                )
+            }
+        }
+
+        // 6. Check following count change (Strict deduplication guard against race-conditions)
+        if (existing != null && existing.followingCount > 0 && snapshot.followingCount > 0 && existing.followingCount != snapshot.followingCount) {
+            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "following_change")
+            if (latestLog?.newValue != snapshot.followingCount.toString()) {
+                val diff = snapshot.followingCount - existing.followingCount
+                val sign = if (diff > 0) "+$diff" else "$diff"
+                val title = context.getString(R.string.notif_following_changed_title, cleanUser, sign)
+                val desc = context.getString(R.string.notif_following_changed_desc, existing.followingCount, snapshot.followingCount, sign)
+                changeLogDao.insertLog(
+                    ChangeLogEntity(
+                        targetUsername = cleanUser,
+                        eventType = "following_change",
+                        title = title,
+                        oldValue = existing.followingCount.toString(),
+                        newValue = snapshot.followingCount.toString(),
+                        timestamp = now
+                    )
+                )
+                dispatchAlert(
+                    targetUsername = cleanUser,
+                    eventType = "following_change",
+                    title = title,
+                    message = desc,
+                    timestamp = now
+                )
+            }
         }
 
         // Resolve local avatar path if still null
@@ -353,14 +373,11 @@ class ProfileInspector(
             localAvatarPath = findExistingLocalAvatar(cleanUser, snapshot.instagramId)
         }
 
-        // Always query the absolute freshest record from Room DB right before writing
-        // to prevent overwriting user modifications (e.g. isTurbo toggle) made while network fetch was running
         val freshInDb = targetDao.getTarget(cleanUser) ?: existing
         val resolvedTurbo = freshInDb?.isTurbo ?: existing?.isTurbo ?: false
         val resolvedActive = freshInDb?.isActive ?: existing?.isActive ?: true
         val resolvedInterval = freshInDb?.checkIntervalSeconds ?: existing?.checkIntervalSeconds ?: 60
 
-        // 9. Record follower & following count point for trend diagram
         val localPostsCount = database.postDao().getPostsCountForUser(cleanUser).toLong()
         val histFollowers = if (snapshot.followersCount > 0) snapshot.followersCount else (freshInDb?.followersCount ?: existing?.followersCount ?: 0L)
         val histFollowing = if (snapshot.followingCount > 0) snapshot.followingCount else (freshInDb?.followingCount ?: existing?.followingCount ?: 0L)
@@ -384,7 +401,6 @@ class ProfileInspector(
             )
         }
 
-        // Holistic second-layer state hash calculation
         val newProfileHash = computeProfileStateHash(
             username = cleanUser,
             fullName = snapshot.fullName,
@@ -421,18 +437,40 @@ class ProfileInspector(
             return@withContext Result.failure(Exception("Target was deleted"))
         }
 
+        // IMMEDIATE DATABASE COMMIT: Guarantees that any concurrent/subsequent check reads fresh state
         targetDao.insertTarget(updatedTarget)
+
+        // 7. Check and archive followers & following lists in background
+        val targetId = snapshot.instagramId ?: existing?.instagramId
+        if (!targetId.isNullOrBlank()) {
+            if (!cookie.isNullOrBlank() || wasPrivateToPublic || !snapshot.isPrivate) {
+                inspectFollowersList(cleanUser, targetId, cookie, now)
+                inspectFollowingList(cleanUser, targetId, cookie, now)
+            }
+        }
+
+        // 8. Auto archive highlights and posts
+        if (!snapshot.isPrivate || existing == null || wasPrivateToPublic || !cookie.isNullOrBlank()) {
+            archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic)
+        }
+
         Result.success(updatedTarget)
+    } finally {
+        targetMutex.unlock()
     }
+}
 
     suspend fun updateDaemonTurbo(targetIdentifier: String, isTurbo: Boolean) = withContext(Dispatchers.IO) {
+        val app = context.applicationContext as? InstaLoggerApp
+        if (app?.settingsManager?.daemonSyncEnabled?.value != true) return@withContext
+        val daemonUrl = app.settingsManager.daemonHostUrl.value
         try {
             val fastClient = httpClient.newBuilder()
                 .connectTimeout(1, TimeUnit.SECONDS)
                 .readTimeout(1, TimeUnit.SECONDS)
                 .build()
             val request = Request.Builder()
-                .url("http://127.0.0.1:3000/api/targets/$targetIdentifier/turbo")
+                .url("$daemonUrl/api/targets/$targetIdentifier/turbo")
                 .post("{\"turbo\": $isTurbo}".toRequestBody("application/json".toMediaType()))
                 .build()
             fastClient.newCall(request).execute().close()
@@ -442,13 +480,16 @@ class ProfileInspector(
     }
 
     private fun fetchFromLocalDaemon(username: String): InstagramProfileSnapshot? {
+        val app = context.applicationContext as? InstaLoggerApp
+        if (app?.settingsManager?.daemonSyncEnabled?.value != true) return null
+        val daemonUrl = app.settingsManager.daemonHostUrl.value
         try {
             val fastClient = httpClient.newBuilder()
                 .connectTimeout(1, TimeUnit.SECONDS)
                 .readTimeout(1, TimeUnit.SECONDS)
                 .build()
             val request = Request.Builder()
-                .url("http://127.0.0.1:3000/api/targets")
+                .url("$daemonUrl/api/targets")
                 .get()
                 .build()
 
@@ -473,7 +514,7 @@ class ProfileInspector(
                         if (!id.isNullOrBlank()) {
                             try {
                                 val checkReq = Request.Builder()
-                                    .url("http://127.0.0.1:3000/api/targets/$id/check")
+                                    .url("$daemonUrl/api/targets/$id/check")
                                     .post("{}".toRequestBody("application/json".toMediaType()))
                                     .build()
                                 httpClient.newCall(checkReq).execute().close()
@@ -485,7 +526,7 @@ class ProfileInspector(
                         var localPic: String? = null
                         var avatarUrlString: String? = null
                         if (!picPath.isNullOrBlank()) {
-                            avatarUrlString = "http://127.0.0.1:3000/$picPath"
+                            avatarUrlString = "$daemonUrl/$picPath"
                             try {
                                 val dlReq = Request.Builder().url(avatarUrlString).get().build()
                                 httpClient.newCall(dlReq).execute().use { imgResp ->
@@ -537,6 +578,9 @@ class ProfileInspector(
     }
 
     suspend fun notifyDaemonAddTarget(username: String, turbo: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val app = context.applicationContext as? InstaLoggerApp
+        if (app?.settingsManager?.daemonSyncEnabled?.value != true) return@withContext false
+        val daemonUrl = app.settingsManager.daemonHostUrl.value
         val cleanUser = username.trim().trimStart('@').lowercase()
         try {
             val json = JsonObject().apply {
@@ -545,7 +589,7 @@ class ProfileInspector(
             }
             val body = json.toString().toRequestBody("application/json".toMediaType())
             val req = Request.Builder()
-                .url("http://127.0.0.1:3000/api/targets")
+                .url("$daemonUrl/api/targets")
                 .post(body)
                 .build()
             httpClient.newCall(req).execute().use { resp ->
@@ -557,6 +601,9 @@ class ProfileInspector(
     }
 
     suspend fun fetchMediaFromLocalDaemon(username: String, instagramId: String?) = withContext(Dispatchers.IO) {
+        val app = context.applicationContext as? InstaLoggerApp
+        if (app?.settingsManager?.daemonSyncEnabled?.value != true) return@withContext
+        val daemonUrl = app.settingsManager.daemonHostUrl.value
         val cleanUser = username.trim().trimStart('@').lowercase()
         val keys = mutableListOf<String>()
         if (!instagramId.isNullOrBlank()) keys.add(instagramId)
@@ -565,7 +612,7 @@ class ProfileInspector(
         for (k in keys.distinct()) {
             try {
                 val req = Request.Builder()
-                    .url("http://127.0.0.1:3000/api/targets/$k/media")
+                    .url("$daemonUrl/api/targets/$k/media")
                     .get()
                     .build()
                 httpClient.newCall(req).execute().use { resp ->
@@ -757,25 +804,29 @@ class ProfileInspector(
             ArchiveDirectoryManager.deleteInternalTargetFiles(context, cleanUser)
         } catch (_: Exception) {}
 
-        // 4. Notify local Rust daemon (port 3000) with fast non-blocking timeout
-        val candidates = mutableListOf<String>()
-        if (!idToDelete.isNullOrBlank()) candidates.add(idToDelete)
-        candidates.add(cleanUser)
+        // 4. Notify local Rust daemon (optional, if enabled)
+        val app = context.applicationContext as? InstaLoggerApp
+        if (app?.settingsManager?.daemonSyncEnabled?.value == true) {
+            val daemonUrl = app.settingsManager.daemonHostUrl.value
+            val candidates = mutableListOf<String>()
+            if (!idToDelete.isNullOrBlank()) candidates.add(idToDelete)
+            candidates.add(cleanUser)
 
-        val fastClient = httpClient.newBuilder()
-            .connectTimeout(1, TimeUnit.SECONDS)
-            .readTimeout(1, TimeUnit.SECONDS)
-            .build()
+            val fastClient = httpClient.newBuilder()
+                .connectTimeout(1, TimeUnit.SECONDS)
+                .readTimeout(1, TimeUnit.SECONDS)
+                .build()
 
-        for (targetKey in candidates.distinct()) {
-            try {
-                val req = Request.Builder()
-                    .url("http://127.0.0.1:3000/api/targets/$targetKey")
-                    .delete()
-                    .build()
-                fastClient.newCall(req).execute().close()
-            } catch (_: Exception) {
-                // Ignore if daemon is offline
+            for (targetKey in candidates.distinct()) {
+                try {
+                    val req = Request.Builder()
+                        .url("$daemonUrl/api/targets/$targetKey")
+                        .delete()
+                        .build()
+                    fastClient.newCall(req).execute().close()
+                } catch (_: Exception) {
+                    // Ignore if daemon is offline
+                }
             }
         }
 
@@ -783,14 +834,21 @@ class ProfileInspector(
     }
 
     suspend fun syncAllFromDaemon(): List<String> = withContext(Dispatchers.IO) {
+        val app = context.applicationContext as? InstaLoggerApp
+        if (app?.settingsManager?.daemonSyncEnabled?.value != true) return@withContext emptyList()
+        val daemonUrl = app.settingsManager.daemonHostUrl.value
         val synced = mutableListOf<String>()
         try {
+            val fastClient = httpClient.newBuilder()
+                .connectTimeout(1, TimeUnit.SECONDS)
+                .readTimeout(2, TimeUnit.SECONDS)
+                .build()
             val request = Request.Builder()
-                .url("http://127.0.0.1:3000/api/targets")
+                .url("$daemonUrl/api/targets")
                 .get()
                 .build()
 
-            httpClient.newCall(request).execute().use { response ->
+            fastClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext emptyList()
                 val body = response.body?.string() ?: return@withContext emptyList()
                 val json = gson.fromJson(body, JsonObject::class.java) ?: return@withContext emptyList()
@@ -806,10 +864,10 @@ class ProfileInspector(
                     if (isTargetDeleted(cleanUser) || (!targetId.isNullOrBlank() && isTargetDeleted(targetId))) {
                         try {
                             val delReq = Request.Builder()
-                                .url("http://127.0.0.1:3000/api/targets/${targetId ?: cleanUser}")
+                                .url("$daemonUrl/api/targets/${targetId ?: cleanUser}")
                                 .delete()
                                 .build()
-                            httpClient.newCall(delReq).execute().close()
+                            fastClient.newCall(delReq).execute().close()
                         } catch (_: Exception) {}
                         continue
                     }
@@ -1295,8 +1353,8 @@ class ProfileInspector(
             // If account was private and became public, dispatch a special success alert
             if (wasPrivateToPublic) {
                 val now = System.currentTimeMillis()
-                val title = "@$cleanUser is now PUBLIC! Highlights & Posts archived."
-                val message = "Archived $hlCount highlight reels and $fetchedCount posts in high speed."
+                val title = context.getString(R.string.notif_public_archived_title, cleanUser)
+                val message = context.getString(R.string.notif_public_archived_desc, hlCount, fetchedCount)
                 dispatchAlert(
                     targetUsername = cleanUser,
                     eventType = "privacy_change",

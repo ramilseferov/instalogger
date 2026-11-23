@@ -94,16 +94,17 @@ fun TargetCard(
                     val context = LocalContext.current
                     val localFile = target.localAvatarPath?.let { File(it) }
                     val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, target.username)
+                    val archiveDirFile = File(com.instalogger.app.util.ArchiveDirectoryManager.getArchiveDirectory(context), "${target.username}/profile/avatar_current.jpg")
                     val resolvedAvatarFile = when {
                         internalFile != null && internalFile.exists() && internalFile.length() > 0 -> internalFile
                         localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
+                        archiveDirFile.exists() && archiveDirFile.length() > 0 -> archiveDirFile
                         else -> null
                     }
 
                     val imageSource: Any? = when {
                         resolvedAvatarFile != null -> resolvedAvatarFile
                         !target.avatarUrl.isNullOrBlank() -> target.avatarUrl
-                        !target.instagramId.isNullOrBlank() -> "http://127.0.0.1:3000/archives/${target.instagramId}/profile/avatar_current.jpg"
                         else -> null
                     }
 

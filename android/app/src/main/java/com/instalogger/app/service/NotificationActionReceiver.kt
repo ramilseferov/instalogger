@@ -14,8 +14,12 @@ class NotificationActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_MARK_READ) {
             val notificationId = intent.getLongExtra(EXTRA_NOTIFICATION_ID, -1L)
+            val notificationTag = intent.getStringExtra(EXTRA_NOTIFICATION_TAG)
             if (notificationId != -1L) {
                 val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                if (!notificationTag.isNullOrBlank()) {
+                    notificationManager.cancel(notificationTag, (notificationId and 0x7FFFFFFFL).toInt())
+                }
                 notificationManager.cancel(notificationId.toInt())
 
                 val app = context.applicationContext as? InstaLoggerApp
@@ -32,5 +36,6 @@ class NotificationActionReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_MARK_READ = "com.instalogger.app.ACTION_MARK_READ"
         const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
+        const val EXTRA_NOTIFICATION_TAG = "extra_notification_tag"
     }
 }

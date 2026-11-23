@@ -114,9 +114,11 @@ class InstaLoggerForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val notifTag = "${eventType ?: "alert"}_$title"
         val markReadIntent = Intent(this, NotificationActionReceiver::class.java).apply {
             action = NotificationActionReceiver.ACTION_MARK_READ
             putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, id)
+            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_TAG, notifTag)
         }
         val pendingMarkRead = PendingIntent.getBroadcast(
             this,
@@ -146,7 +148,7 @@ class InstaLoggerForegroundService : Service() {
             builder.setVibrate(longArrayOf(0L))
         }
 
-        notificationManager.notify(id.toInt(), builder.build())
+        notificationManager.notify(notifTag, (id and 0x7FFFFFFFL).toInt(), builder.build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

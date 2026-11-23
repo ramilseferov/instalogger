@@ -106,7 +106,7 @@ fun InstagramSessionScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(bottom = 108.dp)
+                .padding(bottom = 12.dp)
         ) {
             // Status Header Card
             val statusCardShape = ShapeTokens.LargeShape
@@ -225,74 +225,83 @@ fun InstagramSessionScreen() {
                             }
                         }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(webViewShape)
-                                .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, webViewShape)
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            shape = webViewShape,
+                            border = androidx.compose.foundation.BorderStroke(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant),
+                            color = MaterialTheme.colorScheme.surface
                         ) {
-                            val isDark = isSystemInDarkTheme()
-                            AndroidView(
-                                factory = { ctx ->
-                                    WebView(ctx).apply {
-                                        webViewRef = this
-                                        layoutParams = ViewGroup.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT,
-                                            ViewGroup.LayoutParams.MATCH_PARENT
-                                        )
-                                        setBackgroundColor(if (isDark) 0xFF0D0E12.toInt() else 0xFFFFFFFF.toInt())
-                                        val cm = CookieManager.getInstance()
-                                        cm.setAcceptCookie(true)
-                                        cm.setAcceptThirdPartyCookies(this, true)
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                val isDark = isSystemInDarkTheme()
+                                AndroidView(
+                                    factory = { ctx ->
+                                        WebView(ctx).apply {
+                                            webViewRef = this
+                                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                            layoutParams = ViewGroup.LayoutParams(
+                                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                                ViewGroup.LayoutParams.MATCH_PARENT
+                                            )
+                                            setBackgroundColor(if (isDark) 0xFF0D0E12.toInt() else 0xFFFFFFFF.toInt())
+                                            val cm = CookieManager.getInstance()
+                                            cm.setAcceptCookie(true)
+                                            cm.setAcceptThirdPartyCookies(this, true)
 
-                                        settings.apply {
-                                            javaScriptEnabled = true
-                                            domStorageEnabled = true
-                                            databaseEnabled = true
-                                            useWideViewPort = true
-                                            loadWithOverviewMode = true
-                                            javaScriptCanOpenWindowsAutomatically = true
-                                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                            cacheMode = WebSettings.LOAD_DEFAULT
-                                            userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
-                                        }
-
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                                webProgress = newProgress / 100f
-                                                isLoadingWeb = newProgress < 100
+                                            settings.apply {
+                                                javaScriptEnabled = true
+                                                domStorageEnabled = true
+                                                databaseEnabled = true
+                                                useWideViewPort = true
+                                                loadWithOverviewMode = true
+                                                javaScriptCanOpenWindowsAutomatically = true
+                                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                                cacheMode = WebSettings.LOAD_DEFAULT
+                                                userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
                                             }
-                                        }
 
-                                        webViewClient = object : WebViewClient() {
-                                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                                val uri = request?.url ?: return false
-                                                val scheme = uri.scheme?.lowercase()
-                                                if (scheme == "http" || scheme == "https") {
-                                                    return false
+                                            webChromeClient = object : WebChromeClient() {
+                                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                                    webProgress = newProgress / 100f
+                                                    isLoadingWeb = newProgress < 100
                                                 }
-                                                // Prevent intent:// or instagram:// redirects from failing
-                                                return true
                                             }
 
-                                            override fun onPageFinished(view: WebView?, url: String?) {
-                                                super.onPageFinished(view, url)
-                                                isLoadingWeb = false
-                                                val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
-                                                if (cookies != null && cookies.contains("sessionid=")) {
-                                                    app.sessionManager.saveCookieString(cookies)
-                                                    hasSession = true
-                                                    scope.launch {
-                                                        snackbarHostState.showSnackbar(capturedMsg)
+                                            webViewClient = object : WebViewClient() {
+                                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                                    val uri = request?.url ?: return false
+                                                    val scheme = uri.scheme?.lowercase()
+                                                    if (scheme == "http" || scheme == "https") {
+                                                        return false
+                                                    }
+                                                    // Prevent intent:// or instagram:// redirects from failing
+                                                    return true
+                                                }
+
+                                                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                                                    super.onReceivedError(view, request, error)
+                                                    if (request?.isForMainFrame == true) {
+                                                        isLoadingWeb = false
+                                                    }
+                                                }
+
+                                                override fun onPageFinished(view: WebView?, url: String?) {
+                                                    super.onPageFinished(view, url)
+                                                    isLoadingWeb = false
+                                                    val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
+                                                    if (cookies != null && cookies.contains("sessionid=")) {
+                                                        app.sessionManager.saveCookieString(cookies)
+                                                        hasSession = true
+                                                        scope.launch {
+                                                            snackbarHostState.showSnackbar(capturedMsg)
+                                                        }
                                                     }
                                                 }
                                             }
+                                            loadUrl("https://www.instagram.com/accounts/login/")
                                         }
-                                        loadUrl("https://www.instagram.com/accounts/login/")
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                )
 
                             if (isLoadingWeb) {
                                 LinearProgressIndicator(
@@ -305,7 +314,8 @@ fun InstagramSessionScreen() {
                         }
                     }
                 }
-                1 -> {
+            }
+            1 -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()

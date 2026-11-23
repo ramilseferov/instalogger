@@ -265,4 +265,42 @@
     <string name="error_share_media">Paylaşım xətası</string>
     <string name="error_media_not_local">Fayl hələ yerli saxlanılmayıb</string>
     <string name="badge_unread_format">%1$d Yeni</string>
+
+    <!-- Compact Tab Titles -->
+    <string name="tab_audit_short">Audit (%1$d)</string>
+    <string name="tab_posts_short">Postlar (%1$d)</string>
+    <string name="tab_avatars_short">Avatarlar (%1$d)</string>
+
+    <!-- Daemon & Termux Settings -->
+    <string name="section_daemon_title">Termux və Daemon Sinxronizasiyası</string>
+    <string name="section_daemon_desc">Termux və ya kompüterdə işləyən yerli Rust daemon-una qoşulma (istəyə bağlı)</string>
+    <string name="daemon_sync_enabled">Termux Daemon İnteqrasiyası</string>
+    <string name="daemon_sync_desc">Hədəfləri port 3000-də çalışan Axum daemon-u ilə sinxronlaşdır</string>
+    <string name="daemon_host_title">Daemon Ünvanı</string>
+    <string name="daemon_status_connected">Qoşuldu</string>
+    <string name="daemon_status_disconnected">Qoşulmayıb</string>
+    <string name="btn_ping_daemon">Bağlantını Yoxla</string>
+    <string name="msg_daemon_connected">Daemon ilə əlaqə uğurla quruldu!</string>
+    <string name="msg_daemon_unreachable">Bu ünvanda işləyən daemon tapılmadı</string>
+
+    <!-- Localized Alert Notifications -->
+    <string name="notif_followers_changed_title">@%1$s izləyici sayı dəyişdi (%2$s)</string>
+    <string name="notif_followers_changed_desc">%1$d -&gt; %2$d izləyici (%3$s)</string>
+    <string name="notif_following_changed_title">@%1$s izlənilən sayı dəyişdi (%2$s)</string>
+    <string name="notif_following_changed_desc">%1$d -&gt; %2$d izlənilən (%3$s)</string>
+    <string name="notif_posts_changed_title">@%1$s paylaşım sayı dəyişdi (%2$s)</string>
+    <string name="notif_posts_changed_desc">%1$s -&gt; %2$s paylaşım (%3$s)</string>
+    <string name="notif_avatar_changed_title">@%1$s profil şəkli yeniləndi</string>
+    <string name="notif_avatar_changed_desc">Profil şəkli dəyişdirildi və şifrəli seyfdə arxivləndi</string>
+    <string name="notif_privacy_changed_title">@%1$s gizlilik statusu dəyişdi</string>
+    <string name="notif_privacy_changed_desc">Hesab artıq %1$s rejimindədir</string>
+    <string name="notif_privacy_public">AÇIQ</string>
+    <string name="notif_privacy_private">GİZLİ</string>
+    <string name="notif_bio_changed_title">@%1$s bioqrafiyası yeniləndi</string>
+    <string name="notif_public_archived_title">@%1$s artıq AÇIQDIR! Postlar arxivləndi.</string>
+    <string name="notif_public_archived_desc">%1$d hekayə albomu və %2$d post arxivləndi.</string>
+    <string name="notif_follower_gained_title">@%1$s yeni izləyici qazandı: @%2$s</string>
+    <string name="notif_follower_lost_title">@%1$s izləyicisini itirdi: @%2$s</string>
+    <string name="notif_following_gained_title">@%1$s yeni hesabı izləməyə başladı: @%2$s</string>
+    <string name="notif_following_lost_title">@%1$s hesabı izləməkdən çıxdı: @%2$s</string>
 </resources>

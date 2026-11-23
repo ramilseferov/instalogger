@@ -14,6 +14,9 @@ interface NotificationDao {
     @Query("SELECT COUNT(*) FROM notifications WHERE isRead = 0")
     fun getUnreadCount(): Flow<Int>
 
+    @Query("SELECT * FROM notifications WHERE (username = :username OR targetId = :username) AND eventType = :eventType ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestNotificationForEvent(username: String, eventType: String): NotificationEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNotification(notification: NotificationEntity): Long
 
