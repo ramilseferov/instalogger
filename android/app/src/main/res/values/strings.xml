@@ -244,6 +244,7 @@
     <!-- Skeleton & Loading states -->
     <string name="loading_profile_data">Loading profile data…</string>
     <string name="loading_posts">Loading posts…</string>
+    <string name="posts_syncing_format">%1$d posts detected • Syncing…</string>
     <string name="action_refresh_list">Refresh</string>
     <string name="session_required_followers">Instagram session may be required to view full followers list.</string>
 </resources>

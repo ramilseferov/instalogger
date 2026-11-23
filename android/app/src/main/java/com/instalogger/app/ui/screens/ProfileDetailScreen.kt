@@ -211,6 +211,7 @@ fun ProfileDetailScreen(
                 }
 
                 // 4. Sliding Pill Tab Selector
+                val totalPostsCount = target?.let { maxOf(it.mediaCount, posts.size.toLong()).toInt() } ?: posts.size
                 item(key = "tab_selector") {
                     SlidingPillTabRow(
                         tabs = listOf(
@@ -219,7 +220,7 @@ fun ProfileDetailScreen(
                                 icon = Icons.Default.History
                             ),
                             TabItem(
-                                title = stringResource(R.string.tab_posts, posts.size),
+                                title = stringResource(R.string.tab_posts, totalPostsCount),
                                 icon = Icons.Default.GridOn
                             ),
                             TabItem(
@@ -270,9 +271,13 @@ fun ProfileDetailScreen(
                     1 -> {
                         // Posts Tab (Chunked into 3-column rows for smooth unified scrolling)
                         if (posts.isEmpty()) {
-                            if (isFetchingPosts || isRefreshing) {
+                            if (totalPostsCount > 0 || isFetchingPosts || isRefreshing) {
                                 item(key = "skeleton_posts") {
-                                    SkeletonPostGrid()
+                                    SkeletonPostGrid(
+                                        count = if (totalPostsCount > 0) totalPostsCount else 3,
+                                        showStatusCard = true,
+                                        onRetry = { refreshTargetData() }
+                                    )
                                 }
                             } else {
                                 item(key = "empty_posts") {
