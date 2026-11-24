@@ -250,4 +250,17 @@ class MediaEngineUnitTest {
         assertEquals("video", items[1].mediaType)
         assertEquals("https://scontent.cdninstagram.com/v/active2.mp4", items[1].mediaUrl)
     }
+
+    @Test
+    fun appLogger_redactsSecretsAndFormatsTerminalDump() {
+        com.instalogger.app.util.AppLogger.clear()
+        com.instalogger.app.util.AppLogger.e("TestTag", "HTTP 500 https://scontent.cdninstagram.com/v/x.jpg?oh=SIGNED_TOKEN&oe=EXP_123 Cookie: sessionid=TOP_SECRET_999")
+        val dump = com.instalogger.app.util.AppLogger.formatDump()
+        assertFalse(dump.contains("TOP_SECRET_999"))
+        assertFalse(dump.contains("SIGNED_TOKEN"))
+        assertFalse(dump.contains("EXP_123"))
+        assertTrue(dump.contains("[E][TestTag]"))
+        assertTrue(dump.contains("[REDACTED]"))
+        com.instalogger.app.util.AppLogger.clear()
+    }
 }

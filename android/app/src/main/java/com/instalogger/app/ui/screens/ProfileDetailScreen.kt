@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.instalogger.app.InstaLoggerApp
@@ -123,11 +124,21 @@ fun ProfileDetailScreen(
             isRefreshing = true
             if (posts.isEmpty()) isFetchingPosts = true
             val result = app.profileInspector.inspectTarget(username)
-            app.profileInspector.inspectHighlightsAndPosts(username)
+            val syncStatus = if (result.isSuccess) {
+                app.profileInspector.inspectHighlightsAndPosts(username)
+            } else {
+                PostSyncStatus.FAILED
+            }
             isRefreshing = false
             isFetchingPosts = false
             if (result.isSuccess) {
-                snackbarHostState.showSnackbar(context.getString(R.string.msg_target_checked, username))
+                val feedback = when (syncStatus) {
+                    PostSyncStatus.COMPLETED -> context.getString(R.string.msg_target_checked, username)
+                    PostSyncStatus.RATE_LIMITED -> context.getString(R.string.msg_target_checked_rate_limited, username)
+                    PostSyncStatus.REQUIRES_SESSION -> context.getString(R.string.msg_target_checked_session_needed, username)
+                    else -> context.getString(R.string.msg_target_checked_media_partial, username)
+                }
+                snackbarHostState.showSnackbar(feedback)
             } else {
                 snackbarHostState.showSnackbar(context.getString(R.string.msg_check_failed, result.exceptionOrNull()?.message ?: ""))
             }
@@ -902,7 +913,11 @@ private fun ProfileHeroSection(
                 ) {
                     if (topImageSource != null) {
                         AsyncImage(
-                            model = topImageSource,
+                            model = ImageRequest.Builder(context)
+                                .data(topImageSource)
+                                .memoryCacheKey("hero_avatar_${target.username.lowercase()}_${target.avatarHash ?: target.lastCheckedAt ?: 0L}")
+                                .crossfade(true)
+                                .build(),
                             contentDescription = target.username,
                             modifier = Modifier
                                 .fillMaxSize()

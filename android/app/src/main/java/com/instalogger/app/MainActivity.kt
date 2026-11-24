@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -50,6 +51,7 @@ sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: I
     object Notifications : Screen("notifications", R.string.nav_notifications, Icons.Default.Notifications)
     object Session : Screen("session", R.string.nav_session, Icons.Default.AccountCircle)
     object Settings : Screen("settings", R.string.nav_settings, Icons.Default.Settings)
+    object DeveloperLogs : Screen("developer_logs", R.string.dev_logs_title, Icons.Default.Terminal)
     object TargetDetail : Screen("target/{username}", R.string.target_detail_title, Icons.Default.Dashboard) {
         fun createRoute(username: String) = "target/$username"
     }
@@ -268,7 +270,16 @@ class MainActivity : FragmentActivity() {
                                         InstagramSessionScreen()
                                     }
                                     composable(Screen.Settings.route) {
-                                        SettingsScreen()
+                                        SettingsScreen(
+                                            onOpenDeveloperLogs = {
+                                                navController.navigate(Screen.DeveloperLogs.route)
+                                            }
+                                        )
+                                    }
+                                    composable(Screen.DeveloperLogs.route) {
+                                        DeveloperLogsScreen(
+                                            onBack = { navController.popBackStack() }
+                                        )
                                     }
                                     composable(
                                         route = Screen.TargetDetail.route,

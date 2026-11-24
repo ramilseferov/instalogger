@@ -400,4 +400,21 @@
     <string name="pool_badge_suggest_large">Böyük hesab · Hovuzu aç</string>
     <string name="pool_msg_flushed">Hovuz boşaldıldı (%1$s)</string>
     <string name="pool_msg_reset">Hovuz başlanğıc nöqtəsi sıfırlandı</string>
+    <!-- Developer Logs Terminal & Honest Refresh Feedback -->
+    <string name="dev_logs_title">Developer Logs</string>
+    <string name="dev_logs_desc">Şifrəli terminal konsolu: HTTP kodları, API cavabları, yükləmə və xəta jurnalı.</string>
+    <string name="dev_logs_open_btn">Log Terminalını Aç</string>
+    <string name="dev_logs_subtitle_stats">%1$d sətir · %2$d xəta · %3$d xəbərdarlıq</string>
+    <string name="dev_logs_encrypted_badge">AES-256-GCM şifrəli · sessiya tokenləri gizlədilib</string>
+    <string name="dev_logs_search_hint">Axtar (tag, HTTP 500, avatar...)</string>
+    <string name="dev_logs_copy_all">Hamısını kopyala</string>
+    <string name="dev_logs_copied">Buferə kopyalandı</string>
+    <string name="dev_logs_clear">Təmizlə</string>
+    <string name="dev_logs_cleared">Developer logları təmizləndi</string>
+    <string name="dev_logs_empty">Hələ qeydə alınmış log yoxdur.</string>
+    <string name="msg_target_checked_rate_limited">@%1$s profili yeniləndi, lakin post/media sorğusu limitləndi (429)</string>
+    <string name="msg_target_checked_session_needed">@%1$s profili yeniləndi, media üçün aktiv sessiya tələb olunur</string>
+    <string name="msg_target_checked_media_partial">@%1$s profili yeniləndi, post/highlight sinxronizasiyası alınmadı (Developer Logs-a baxın)</string>
+    <string name="msg_refresh_partial">%1$d hesab yeniləndi, %2$d hesabda xəta oldu (Developer Logs-a baxın)</string>
+    <string name="msg_refresh_all_failed">Yeniləmə alınmadı (%1$d xəta) — Developer Logs-a baxın</string>
 </resources>

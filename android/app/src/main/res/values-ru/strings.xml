@@ -386,4 +386,21 @@
     <string name="pool_badge_suggest_large">Крупный аккаунт · Включить пул</string>
     <string name="pool_msg_flushed">Пул отправлен (%1$s)</string>
     <string name="pool_msg_reset">Базовая точка пула сброшена</string>
+    <!-- Developer Logs Terminal & Honest Refresh Feedback -->
+    <string name="dev_logs_title">Developer Logs</string>
+    <string name="dev_logs_desc">Зашифрованный терминал: коды HTTP, ответы API, загрузки и журнал ошибок.</string>
+    <string name="dev_logs_open_btn">Открыть терминал логов</string>
+    <string name="dev_logs_subtitle_stats">%1$d строк · %2$d ошибок · %3$d предупреждений</string>
+    <string name="dev_logs_encrypted_badge">Шифрование AES-256-GCM · токены сессии скрыты</string>
+    <string name="dev_logs_search_hint">Поиск (tag, HTTP 500, avatar...)</string>
+    <string name="dev_logs_copy_all">Копировать все</string>
+    <string name="dev_logs_copied">Скопировано в буфер</string>
+    <string name="dev_logs_clear">Очистить</string>
+    <string name="dev_logs_cleared">Журнал разработчика очищен</string>
+    <string name="dev_logs_empty">Записей в журнале пока нет.</string>
+    <string name="msg_target_checked_rate_limited">Профиль @%1$s обновлен, но медиа ограничены лимитом (429)</string>
+    <string name="msg_target_checked_session_needed">Профиль @%1$s обновлен; для медиа требуется активная сессия</string>
+    <string name="msg_target_checked_media_partial">Профиль @%1$s обновлен, но посты/хайлайты не загрузились (см. Developer Logs)</string>
+    <string name="msg_refresh_partial">Обновлено: %1$d, ошибок: %2$d (см. Developer Logs)</string>
+    <string name="msg_refresh_all_failed">Обновление не удалось (%1$d ошибок) — см. Developer Logs</string>
 </resources>

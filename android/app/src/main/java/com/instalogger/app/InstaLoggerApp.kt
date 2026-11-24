@@ -20,9 +20,12 @@ import com.instalogger.app.engine.media.YtDlpEmbeddedProvider
 import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
 import com.instalogger.app.util.AppLockManager
+import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.VaultMediaFetcher
 import com.instalogger.app.util.VaultStorageManager
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 class InstaLoggerApp : Application(), ImageLoaderFactory {
 
@@ -60,7 +63,30 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
         private set
 
     override fun newImageLoader(): ImageLoader {
+        val coilClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val host = req.url.host.lowercase()
+                val builder = req.newBuilder()
+                if (host.contains("instagram.com") || host.contains("cdninstagram.com") || host.contains("fbcdn.net")) {
+                    if (req.header("User-Agent") == null) {
+                        builder.header(
+                            "User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                        )
+                    }
+                    if (req.header("Accept") == null) {
+                        builder.header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                    }
+                }
+                chain.proceed(builder.build())
+            }
+            .build()
+
         return ImageLoader.Builder(this)
+            .okHttpClient(coilClient)
             .components {
                 add(VaultMediaFetcher.Factory(this@InstaLoggerApp))
             }
@@ -72,6 +98,7 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
         super.onCreate()
 
         LanguageManager.init(this)
+        AppLogger.init(this)
         appLockManager = AppLockManager.getInstance(this)
         vaultStorageManager = VaultStorageManager.getInstance(this)
         settingsManager = AppSettingsManager.getInstance(this)

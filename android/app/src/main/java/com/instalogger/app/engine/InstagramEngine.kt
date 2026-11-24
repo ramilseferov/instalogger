@@ -7,6 +7,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.instalogger.app.engine.media.CarouselSlideHint
 import com.instalogger.app.engine.media.ExtractedPostMetadata
+import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -216,30 +217,37 @@ class InstagramEngine(context: Context? = null) {
 
         // 1. First attempt: ZERO-LOGIN Anonymous Desktop SSR HTML (NEVER sends session cookie,
         //    so logged-in viewer metadata can NEVER poison tracked targets' names, IDs, or avatars)
+        AppLogger.i(TAG, "fetchProfile(@$cleanUsername) start (hasSession=${!cookieString.isNullOrBlank()})")
         var bestSnapshot: InstagramProfileSnapshot? = null
         try {
             val htmlSnapshot = fetchViaHtml(cleanUsername)
             if (htmlSnapshot != null) {
                 bestSnapshot = htmlSnapshot
-                // If we got complete public metadata (ID + counts or name), return immediately without touching user's session!
+                AppLogger.i(
+                    TAG,
+                    "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR OK: pk=${htmlSnapshot.instagramId} followers=${htmlSnapshot.followersCount} following=${htmlSnapshot.followingCount} posts=${htmlSnapshot.mediaCount} story=${htmlSnapshot.latestStoryAt > 0L} pic=${!htmlSnapshot.profilePicUrl.isNullOrBlank()}"
+                )
                 if (!htmlSnapshot.instagramId.isNullOrBlank() &&
                     (htmlSnapshot.followersCount > 0L || htmlSnapshot.followingCount > 0L || htmlSnapshot.fullName.isNotBlank())
                 ) {
                     return Result.success(htmlSnapshot)
                 }
+            } else {
+                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR returned null")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Zero-login HTML navigation attempt failed for @$cleanUsername: ${e.message}")
+            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR error: ${e.message}")
         }
 
         // 2. Second attempt: ZERO-LOGIN Guest Web Profile Info API
         try {
             val guestApiSnapshot = fetchViaWebApi(cleanUsername, cookieString = null)
             if (guestApiSnapshot != null) {
+                AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier2-GuestWebApi OK: pk=${guestApiSnapshot.instagramId} followers=${guestApiSnapshot.followersCount}")
                 return Result.success(guestApiSnapshot)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Guest Web API attempt failed for @$cleanUsername: ${e.message}")
+            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier2-GuestWebApi error: ${e.message}")
         }
 
         // 3. Third attempt: Authenticated Web Profile Info API (ONLY fallback when anonymous tiers failed or were incomplete)
@@ -247,10 +255,11 @@ class InstagramEngine(context: Context? = null) {
             try {
                 val authApiSnapshot = fetchViaWebApi(cleanUsername, cookieString = cookieString)
                 if (authApiSnapshot != null) {
+                    AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier3-AuthWebApi OK: pk=${authApiSnapshot.instagramId} followers=${authApiSnapshot.followersCount}")
                     return Result.success(authApiSnapshot)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Authenticated Web API attempt failed for @$cleanUsername: ${e.message}")
+                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier3-AuthWebApi error: ${e.message}")
             }
         }
 
@@ -258,17 +267,19 @@ class InstagramEngine(context: Context? = null) {
         try {
             val hashSnapshot = fetchViaGraphQLHash(cleanUsername, cookieString)
             if (hashSnapshot != null) {
+                AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier4-GraphQL OK: pk=${hashSnapshot.instagramId}")
                 return Result.success(hashSnapshot)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "GraphQL Hash attempt failed for @$cleanUsername: ${e.message}")
+            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier4-GraphQL error: ${e.message}")
         }
 
         if (bestSnapshot != null) {
             return Result.success(bestSnapshot)
         }
 
-        return Result.failure(Exception("Profil məlumatları alına bilmədi. İnternet əlaqəsini və ya Instagram sessiyasını yoxlayın."))
+        AppLogger.e(TAG, "fetchProfile(@$cleanUsername) FAILED: all 4 tiers exhausted")
+        return Result.failure(Exception("Profil məlumatları alına bilmədi. İnternet əlaqəsini və ya Instagram limitini yoxlayın."))
     }
 
     /**
@@ -378,7 +389,10 @@ class InstagramEngine(context: Context? = null) {
 
         // Strictly zero-login: NEVER attach logged-in user cookies to HTML profile scraping!
         client.newCall(requestBuilder.build()).execute().use { response ->
-            if (response.code != 200) return null
+            if (response.code != 200) {
+                AppLogger.w(TAG, "fetchViaHtml(@$username) HTTP ${response.code} location=${response.header("Location") ?: "-"}")
+                return null
+            }
             val html = response.body?.string() ?: return null
 
             // Prefer exact structured SSR user JSON matched strictly by target username
@@ -616,7 +630,8 @@ class InstagramEngine(context: Context? = null) {
         return try {
             clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
                 if (!response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
+                val body = response.body?.string()?.trimStart() ?: return null
+                if (!body.startsWith("{")) return null
                 val root = gson.fromJson(body, JsonObject::class.java) ?: return null
                 val data = root.getAsJsonObject("data") ?: return null
                 val user = data.getAsJsonObject("user") ?: return null
@@ -770,18 +785,24 @@ class InstagramEngine(context: Context? = null) {
                 .header("Accept", "image/*,*/*;q=0.8")
                 .build()
         )
-        for (request in attempts) {
+        for ((idx, request) in attempts.withIndex()) {
             try {
                 clientWithRedirects.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@use
+                    if (!response.isSuccessful) {
+                        AppLogger.w(TAG, "downloadImage attempt#${idx + 1} HTTP ${response.code} for ${destFile.name}")
+                        return@use
+                    }
                     val bytes = response.body?.bytes() ?: return@use
                     if (bytes.isEmpty()) return@use
                     FileOutputStream(destFile).use { it.write(bytes) }
+                    AppLogger.d(TAG, "downloadImage OK (${bytes.size} B) -> ${destFile.name}")
                     return bytes.size.toLong()
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "downloadImage attempt#${idx + 1} error for ${destFile.name}: ${e.message}")
             }
         }
+        AppLogger.e(TAG, "downloadImage FAILED for ${destFile.name}")
         return 0L
     }
 
@@ -1091,7 +1112,11 @@ class InstagramEngine(context: Context? = null) {
         try {
             clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
                 if (response.isSuccessful) {
-                    val body = response.body?.string() ?: return emptyList()
+                    val body = response.body?.string()?.trimStart() ?: return emptyList()
+                    if (!body.startsWith("{")) {
+                        AppLogger.w(TAG, "Highlights GraphQL non-JSON response for user $userId (len=${body.length})")
+                        return emptyList()
+                    }
                     val root = gson.fromJson(body, JsonObject::class.java) ?: return emptyList()
                     val edges = root.getAsJsonObject("data")
                         ?.getAsJsonObject("user")
@@ -1195,12 +1220,22 @@ class InstagramEngine(context: Context? = null) {
         val reelKey = "highlight:$numericId"
         val hasSession = !cookieString.isNullOrBlank()
 
-        // Tier 1: Modern Instagram v1 REST reels_media endpoint (Desktop UA + Mobile WebView UA retry)
+        AppLogger.i(TAG, "fetchHighlightStories($highlightId) start (hasSession=$hasSession)")
+
+        // Tier 1: Mobile Private API (i.instagram.com) + Web v1 REST reels_media
         val encodedReelId = URLEncoder.encode(reelKey, "UTF-8")
-        val v1Url = "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId"
         val referer = "https://www.instagram.com/stories/highlights/$numericId/"
-        val uaList = if (hasSession) listOf(DESKTOP_CHROME_UA, WEBVIEW_MOBILE_UA) else listOf(DESKTOP_CHROME_UA)
-        for (ua in uaList) {
+        val v1Candidates = if (hasSession) {
+            listOf(
+                "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to IG_ANDROID_APP_UA,
+                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to DESKTOP_CHROME_UA,
+                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to WEBVIEW_MOBILE_UA
+            )
+        } else {
+            listOf("https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to DESKTOP_CHROME_UA)
+        }
+
+        for ((v1Url, ua) in v1Candidates) {
             try {
                 val reqBuilder = Request.Builder().url(v1Url)
                 if (hasSession) {
@@ -1215,18 +1250,39 @@ class InstagramEngine(context: Context? = null) {
                 }
 
                 clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty()
-                        if (body.startsWith("{")) {
-                            val parsed = parseReelsMediaJson(body, highlightId, reelKey)
-                            if (parsed.isNotEmpty()) return parsed
+                    val body = resp.body?.string().orEmpty()
+                    if (resp.isSuccessful && body.trimStart().startsWith("{")) {
+                        val parsed = parseReelsMediaJson(body, highlightId, reelKey)
+                        if (parsed.isNotEmpty()) {
+                            AppLogger.i(TAG, "fetchHighlightStories($highlightId) Tier1 OK (${parsed.size} items via ${v1Url.substringBefore("?")})")
+                            return parsed
                         }
+                        AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 HTTP 200 but 0 items: ${body.take(140)}")
                     } else {
-                        Log.w(TAG, "v1 reels_media HTTP ${resp.code} for $highlightId (ua=${ua.take(30)})")
+                        AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 HTTP ${resp.code} (${v1Url.substringBefore("?")}) body=${body.take(120)}")
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "v1 reels_media failed for $highlightId: ${e.message}")
+                AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 error: ${e.message}")
+            }
+        }
+
+        // Tier 2 (Authenticated WebView Network Interceptor): executes Instagram's OWN live GraphQL/doc_id inside Chromium!
+        if (hasSession && headlessScraper != null) {
+            try {
+                val wvItems = runBlocking {
+                    headlessScraper.scrapeStoriesOrHighlight(
+                        targetUrl = "https://www.instagram.com/stories/highlights/$numericId/",
+                        highlightId = highlightId,
+                        cookieString = cookieString
+                    )
+                }
+                if (wvItems.isNotEmpty()) {
+                    AppLogger.i(TAG, "fetchHighlightStories($highlightId) Tier2-WebView OK (${wvItems.size} items)")
+                    return wvItems
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier2-WebView error: ${e.message}")
             }
         }
 
@@ -1276,7 +1332,11 @@ class InstagramEngine(context: Context? = null) {
         try {
             clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
                 if (response.isSuccessful) {
-                    val body = response.body?.string() ?: return emptyList()
+                    val body = response.body?.string()?.trimStart() ?: return emptyList()
+                    if (!body.startsWith("{")) {
+                        AppLogger.w(TAG, "Highlight stories GraphQL non-JSON response for $highlightId (len=${body.length})")
+                        return emptyList()
+                    }
                     val root = gson.fromJson(body, JsonObject::class.java) ?: return emptyList()
                     val reelsMedia = root.getAsJsonObject("data")?.getAsJsonArray("reels_media") ?: return emptyList()
                     for (reel in reelsMedia) {
@@ -1426,38 +1486,61 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Tier 1A & 1B: Modern v1 REST endpoints (reels_media + dedicated user/{id}/story/) with full headers & UA fallback
+        AppLogger.i(TAG, "fetchActiveUserStories(@$cleanUser, uid=$resolvedUserId) start (hasSession=$hasSession)")
+
+        // Tier 1A & 1B: Mobile API (i.instagram.com) + Web v1 REST endpoints
         if (!resolvedUserId.isNullOrBlank() && hasSession) {
             val encodedId = URLEncoder.encode(resolvedUserId, "UTF-8")
-            val storyUrls = listOf(
-                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedId",
-                "https://www.instagram.com/api/v1/feed/user/$encodedId/story/"
+            val storyCandidates = listOf(
+                "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedId" to IG_ANDROID_APP_UA,
+                "https://i.instagram.com/api/v1/feed/user/$encodedId/story/" to IG_ANDROID_APP_UA,
+                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedId" to DESKTOP_CHROME_UA,
+                "https://www.instagram.com/api/v1/feed/user/$encodedId/story/" to DESKTOP_CHROME_UA
             )
             val referer = "https://www.instagram.com/stories/$cleanUser/"
-            for (v1Url in storyUrls) {
-                for (ua in listOf(DESKTOP_CHROME_UA, WEBVIEW_MOBILE_UA)) {
-                    try {
-                        val reqBuilder = applyAuthenticatedApiHeaders(
-                            builder = Request.Builder().url(v1Url),
-                            cookieString = cookieString!!,
-                            referer = referer,
-                            userAgent = ua
-                        )
-                        clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
-                            if (resp.isSuccessful) {
-                                val body = resp.body?.string().orEmpty()
-                                if (body.startsWith("{")) {
-                                    val parsed = parseReelsMediaJson(body, virtualHighlightId, resolvedUserId)
-                                    if (parsed.isNotEmpty()) return parsed
-                                }
-                            } else {
-                                Log.w(TAG, "v1 active stories HTTP ${resp.code} for @$cleanUser ($v1Url)")
+            for ((v1Url, ua) in storyCandidates) {
+                try {
+                    val reqBuilder = applyAuthenticatedApiHeaders(
+                        builder = Request.Builder().url(v1Url),
+                        cookieString = cookieString!!,
+                        referer = referer,
+                        userAgent = ua
+                    )
+                    clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                        val body = resp.body?.string().orEmpty()
+                        if (resp.isSuccessful && body.trimStart().startsWith("{")) {
+                            val parsed = parseReelsMediaJson(body, virtualHighlightId, resolvedUserId)
+                            if (parsed.isNotEmpty()) {
+                                AppLogger.i(TAG, "fetchActiveUserStories(@$cleanUser) Tier1 OK (${parsed.size} items)")
+                                return parsed
                             }
+                            AppLogger.w(TAG, "fetchActiveUserStories(@$cleanUser) HTTP 200 but 0 items: ${body.take(140)}")
+                        } else {
+                            AppLogger.w(TAG, "fetchActiveUserStories(@$cleanUser) HTTP ${resp.code} (${v1Url.substringBefore("?")}) body=${body.take(120)}")
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "v1 active stories failed for @$cleanUser: ${e.message}")
                     }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "fetchActiveUserStories(@$cleanUser) Tier1 error: ${e.message}")
                 }
+            }
+        }
+
+        // Tier 2 (Authenticated WebView Network Interceptor): executes Instagram's live web player
+        if (hasSession && headlessScraper != null) {
+            try {
+                val wvItems = runBlocking {
+                    headlessScraper.scrapeStoriesOrHighlight(
+                        targetUrl = "https://www.instagram.com/stories/$cleanUser/",
+                        highlightId = virtualHighlightId,
+                        cookieString = cookieString
+                    )
+                }
+                if (wvItems.isNotEmpty()) {
+                    AppLogger.i(TAG, "fetchActiveUserStories(@$cleanUser) Tier2-WebView OK (${wvItems.size} items)")
+                    return wvItems
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchActiveUserStories(@$cleanUser) Tier2-WebView error: ${e.message}")
             }
         }
 
@@ -2630,6 +2713,7 @@ class InstagramEngine(context: Context? = null) {
         private const val GUEST_COOKIE_TTL_MS = 20 * 60 * 1000L
         private const val DESKTOP_CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         private const val WEBVIEW_MOBILE_UA = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
+        private const val IG_ANDROID_APP_UA = "Instagram 350.0.0.0.0 Android (34/14; 420dpi; 1080x2400; Google; Pixel 8; shiba; zuma; en_US; 634000000)"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
     }
 }

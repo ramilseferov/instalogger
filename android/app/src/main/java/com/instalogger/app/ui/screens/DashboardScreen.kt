@@ -102,24 +102,36 @@ fun DashboardScreen(
         if (isGlobalRefreshing) return
         scope.launch {
             isGlobalRefreshing = true
+            var okCount = 0
+            var failCount = 0
             withContext(Dispatchers.IO) {
                 app.profileInspector.syncAllFromDaemon()
                 val activeTargets = app.database.targetDao().getActiveTargets().filter { !app.profileInspector.isTargetDeleted(it.username) }
                 for (t in activeTargets) {
                     try {
                         val result = app.profileInspector.inspectTarget(t.username)
-                        app.profileInspector.inspectHighlightsAndPosts(t.username)
-                        result.onSuccess { updated ->
+                        if (result.isSuccess) {
+                            okCount++
+                            app.profileInspector.inspectHighlightsAndPosts(t.username)
+                            val updated = result.getOrThrow()
                             val preservedTurbo = targets.find { it.username.equals(t.username, ignoreCase = true) }?.isTurbo ?: updated.isTurbo
                             targets = targets.map { if (it.username.equals(t.username, ignoreCase = true)) updated.copy(isTurbo = preservedTurbo) else it }
+                        } else {
+                            failCount++
                         }
                     } catch (e: Exception) {
-                        // Continue to next target
+                        failCount++
                     }
                 }
             }
             isGlobalRefreshing = false
-            snackbarHostState.showSnackbar(allCheckedMsg)
+            val summaryMsg = when {
+                failCount == 0 && okCount > 0 -> allCheckedMsg
+                okCount > 0 && failCount > 0 -> context.getString(R.string.msg_refresh_partial, okCount, failCount)
+                failCount > 0 -> context.getString(R.string.msg_refresh_all_failed, failCount)
+                else -> allCheckedMsg
+            }
+            snackbarHostState.showSnackbar(summaryMsg)
         }
     }
 

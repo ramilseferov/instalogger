@@ -330,4 +330,21 @@
     <string name="pool_badge_suggest_large">Large account · Enable pool</string>
     <string name="pool_msg_flushed">Pool flushed (%1$s)</string>
     <string name="pool_msg_reset">Pool baseline reset</string>
+    <!-- Developer Logs Terminal & Honest Refresh Feedback -->
+    <string name="dev_logs_title">Developer Logs</string>
+    <string name="dev_logs_desc">Encrypted terminal console for HTTP status codes, API tiers, downloads, and errors.</string>
+    <string name="dev_logs_open_btn">Open Log Terminal</string>
+    <string name="dev_logs_subtitle_stats">%1$d lines · %2$d errors · %3$d warnings</string>
+    <string name="dev_logs_encrypted_badge">AES-256-GCM encrypted · session tokens redacted</string>
+    <string name="dev_logs_search_hint">Filter (tag, HTTP 500, avatar...)</string>
+    <string name="dev_logs_copy_all">Copy all</string>
+    <string name="dev_logs_copied">Copied to clipboard</string>
+    <string name="dev_logs_clear">Clear</string>
+    <string name="dev_logs_cleared">Developer logs cleared</string>
+    <string name="dev_logs_empty">No log entries recorded yet.</string>
+    <string name="msg_target_checked_rate_limited">@%1$s profile updated, but media sync was rate-limited (429)</string>
+    <string name="msg_target_checked_session_needed">@%1$s profile updated; active session required for media</string>
+    <string name="msg_target_checked_media_partial">@%1$s profile updated, but posts/highlights failed (see Developer Logs)</string>
+    <string name="msg_refresh_partial">%1$d updated, %2$d failed (see Developer Logs)</string>
+    <string name="msg_refresh_all_failed">Refresh failed (%1$d errors) — see Developer Logs</string>
 </resources>

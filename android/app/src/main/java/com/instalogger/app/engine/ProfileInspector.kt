@@ -14,6 +14,7 @@ import com.instalogger.app.engine.media.MediaDownloadOrchestrator
 import com.instalogger.app.engine.pool.*
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.settings.AppSettingsManager
+import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.VaultStorageManager
@@ -146,26 +147,27 @@ class ProfileInspector(
                 daemonSnapshot
             }
         } else {
-            val freshInDb = targetDao.getTarget(cleanUser)
-            if (freshInDb != null) {
-                val updated = freshInDb.copy(lastCheckedAt = System.currentTimeMillis())
-                targetDao.insertTarget(updated)
-                return@withContext Result.success(updated)
-            }
-            return@withContext Result.failure(engineResult.exceptionOrNull() ?: Exception("Failed to fetch target data"))
+            val reason = engineResult.exceptionOrNull()?.message ?: "Profil məlumatları alına bilmədi"
+            AppLogger.e("ProfileInspector", "inspectTarget(@$cleanUser) FAILED: $reason")
+            return@withContext Result.failure(engineResult.exceptionOrNull() ?: Exception(reason))
         }
 
         val existing = targetDao.getTarget(cleanUser)
         val now = System.currentTimeMillis()
+        val vaultManager = VaultStorageManager.getInstance(context)
         var localAvatarPath = existing?.localAvatarPath
         var currentAvatarHash = existing?.avatarHash
 
-        // Verify if localAvatarPath actually exists on disk! If missing or 0 bytes, reset so it re-downloads cleanly
-        if (localAvatarPath != null) {
+        // Verify both internal Vault avatar AND localAvatarPath actually exist & decrypt cleanly!
+        val existingInternalVault = ArchiveDirectoryManager.getInternalAvatar(context, cleanUser)
+        val hasValidInternalAvatar = existingInternalVault != null && vaultManager.readEncryptedFile(existingInternalVault) != null
+        if (!hasValidInternalAvatar) {
+            localAvatarPath = null
+            currentAvatarHash = null
+        } else if (localAvatarPath != null) {
             val fileCheck = File(localAvatarPath)
             if (!fileCheck.exists() || fileCheck.length() == 0L) {
-                localAvatarPath = null
-                currentAvatarHash = null
+                localAvatarPath = existingInternalVault!!.absolutePath
             }
         }
 
@@ -174,98 +176,110 @@ class ProfileInspector(
             currentAvatarHash = computeFileSha256(File(localAvatarPath))
         }
 
-        // 1. Check avatar change (Dual check: URL diff + second-pass SHA-256 binary hash verification)
+        // 1. Check avatar change (Vault-First atomic save so external SAF restrictions NEVER drop avatars!)
         val avatarUrl = snapshot.profilePicUrl
         if (!avatarUrl.isNullOrBlank()) {
             if (avatarUrl.startsWith("/")) {
                 val f = File(avatarUrl)
-                if (f.exists()) {
+                if (f.exists() && f.length() > 0L) {
                     val internal = ArchiveDirectoryManager.copyToInternalAvatar(context, cleanUser, f)
                     localAvatarPath = internal?.absolutePath ?: f.absolutePath
                     currentAvatarHash = computeFileSha256(File(localAvatarPath))
                 }
-            } else if (localAvatarPath == null ||
+            } else if (!hasValidInternalAvatar ||
+                localAvatarPath == null ||
                 currentAvatarHash == null ||
                 extractAvatarAssetKey(avatarUrl) != extractAvatarAssetKey(existing?.avatarUrl)
             ) {
+                AppLogger.i("ProfileInspector", "Downloading avatar for @$cleanUser (hasValidVault=$hasValidInternalAvatar)")
                 val tempFile = downloadAvatarToTemp(cleanUser, avatarUrl)
                 if (tempFile != null) {
-                    val newHash = computeFileSha256(tempFile)
-                    val newDHash = computePerceptualDHash(tempFile)
-                    val existingAvatars = avatarHistoryDao.getAvatarsListForTarget(cleanUser)
-                    val isExactDup = (currentAvatarHash != null && newHash == currentAvatarHash) ||
-                        (newHash != null && existingAvatars.any { it.fileHash == newHash })
-                    val isVisualDup = newDHash != null && (
-                        (localAvatarPath != null && isVisuallyDuplicateAvatar(newDHash, File(localAvatarPath))) ||
-                            existingAvatars.any { isVisuallyDuplicateAvatar(newDHash, File(it.localPath)) }
-                        )
-                    val isDuplicateAvatar = isExactDup || isVisualDup
-
-                    if (isDuplicateAvatar && localAvatarPath != null && File(localAvatarPath).exists()) {
-                        // Image is byte-identical or perceptually identical (CDN JPEG re-encoding / resolution variant)
+                    val validated = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempFile)
+                    if (validated == null || validated.isVideo) {
+                        AppLogger.w("ProfileInspector", "Avatar validation rejected for @$cleanUser (non-image or empty response)")
                         tempFile.delete()
                     } else {
-                        // Genuinely NEW avatar (or initial avatar on first run)
-                        val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
-                        val timestamp = dateFormat.format(Date(now))
-                        val fileName = "avatar_${timestamp}.jpg"
+                        val plainBytes = try { tempFile.readBytes() } catch (_: Exception) { null }
+                        val newHash = validated.sha256
+                        val newDHash = computePerceptualDHash(tempFile)
+                        tempFile.delete()
 
-                        val targetDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/profile")
-                        targetDir.mkdirs()
-
-                        val destFile = File(targetDir, fileName)
-                        val currentFile = File(targetDir, "avatar_current.jpg")
-
-                        try {
-                            tempFile.copyTo(destFile, overwrite = true)
-                            tempFile.copyTo(currentFile, overwrite = true)
-                        } catch (e: Exception) {
-                            Log.e("ProfileInspector", "Failed to copy avatar files: ${e.message}")
-                        } finally {
-                            tempFile.delete()
-                        }
-
-                        ArchiveDirectoryManager.copyToInternalAvatar(context, cleanUser, destFile)
-
-                        val oldPath = localAvatarPath
-                        localAvatarPath = destFile.absolutePath
-                        val oldHash = currentAvatarHash
-                        currentAvatarHash = newHash
-
-                        avatarHistoryDao.insertAvatar(
-                            AvatarHistoryEntity(
-                                username = cleanUser,
-                                localPath = destFile.absolutePath,
-                                archivedAt = now,
-                                fileSize = destFile.length(),
-                                fileHash = newHash
-                            )
-                        )
-
-                        if (existing != null && oldPath != null && oldHash != null && newHash != oldHash) {
-                            val title = LanguageManager.getString(context, R.string.notif_avatar_changed_title, cleanUser)
-                            val desc = LanguageManager.getString(context, R.string.notif_avatar_changed_desc)
-                            changeLogDao.insertLog(
-                                ChangeLogEntity(
-                                    targetUsername = cleanUser,
-                                    eventType = "avatar_change",
-                                    title = title,
-                                    oldValue = oldHash,
-                                    newValue = newHash ?: destFile.absolutePath,
-                                    oldAvatarPath = oldPath,
-                                    newAvatarPath = destFile.absolutePath,
-                                    timestamp = now
+                        if (plainBytes != null && plainBytes.isNotEmpty()) {
+                            val existingAvatars = avatarHistoryDao.getAvatarsListForTarget(cleanUser)
+                            val isExactDup = (currentAvatarHash != null && newHash == currentAvatarHash) ||
+                                (newHash.isNotBlank() && existingAvatars.any { it.fileHash == newHash })
+                            val isVisualDup = newDHash != null && (
+                                (localAvatarPath != null && isVisuallyDuplicateAvatar(newDHash, File(localAvatarPath))) ||
+                                    existingAvatars.any { isVisuallyDuplicateAvatar(newDHash, File(it.localPath)) }
                                 )
-                            )
-                            dispatchAlert(
-                                targetUsername = cleanUser,
-                                eventType = "avatar_change",
-                                title = title,
-                                message = desc,
-                                timestamp = now
-                            )
+                            val isDuplicateAvatar = hasValidInternalAvatar && (isExactDup || isVisualDup)
+
+                            if (isDuplicateAvatar && localAvatarPath != null && File(localAvatarPath).exists()) {
+                                AppLogger.d("ProfileInspector", "Avatar for @$cleanUser unchanged (hash/dHash match)")
+                            } else {
+                                // Genuinely NEW or healed avatar -> encrypt directly into internal hardware Vault FIRST!
+                                val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
+                                val timestamp = dateFormat.format(Date(now))
+                                val fileName = "avatar_${timestamp}.jpg"
+
+                                val vaultCurrent = vaultManager.saveEncryptedFile(cleanUser, "profile", "avatar_current.jpg", plainBytes)
+                                val vaultHistory = vaultManager.saveEncryptedFile(cleanUser, "profile", fileName, plainBytes)
+
+                                // Optional best-effort mirror to external archive folder (never blocks Vault save)
+                                try {
+                                    val targetDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/profile")
+                                    targetDir.mkdirs()
+                                    File(targetDir, fileName).writeBytes(plainBytes)
+                                    File(targetDir, "avatar_current.jpg").writeBytes(plainBytes)
+                                } catch (e: Exception) {
+                                    AppLogger.d("ProfileInspector", "External avatar mirror skipped for @$cleanUser: ${e.message}")
+                                }
+
+                                val oldPath = localAvatarPath
+                                localAvatarPath = vaultHistory.absolutePath
+                                val oldHash = currentAvatarHash
+                                currentAvatarHash = newHash
+
+                                AppLogger.i("ProfileInspector", "Avatar saved to Vault for @$cleanUser (${plainBytes.size} B -> ${vaultCurrent.name})")
+
+                                avatarHistoryDao.insertAvatar(
+                                    AvatarHistoryEntity(
+                                        username = cleanUser,
+                                        localPath = vaultHistory.absolutePath,
+                                        archivedAt = now,
+                                        fileSize = plainBytes.size.toLong(),
+                                        fileHash = newHash
+                                    )
+                                )
+
+                                if (existing != null && oldPath != null && oldHash != null && newHash != oldHash) {
+                                    val title = LanguageManager.getString(context, R.string.notif_avatar_changed_title, cleanUser)
+                                    val desc = LanguageManager.getString(context, R.string.notif_avatar_changed_desc)
+                                    changeLogDao.insertLog(
+                                        ChangeLogEntity(
+                                            targetUsername = cleanUser,
+                                            eventType = "avatar_change",
+                                            title = title,
+                                            oldValue = oldHash,
+                                            newValue = newHash,
+                                            oldAvatarPath = oldPath,
+                                            newAvatarPath = vaultHistory.absolutePath,
+                                            timestamp = now
+                                        )
+                                    )
+                                    dispatchAlert(
+                                        targetUsername = cleanUser,
+                                        eventType = "avatar_change",
+                                        title = title,
+                                        message = desc,
+                                        timestamp = now
+                                    )
+                                }
+                            }
                         }
                     }
+                } else {
+                    AppLogger.w("ProfileInspector", "Avatar temp download returned null for @$cleanUser")
                 }
             }
         }
@@ -1685,21 +1699,26 @@ class ProfileInspector(
                 ArchiveDirectoryManager.ensureNoMedia(archiveDir)
                 val vaultManager = VaultStorageManager.getInstance(context)
 
-                // Phase A: Archive covers & immediately insert highlight circles so the UI tray appears at once
+                // Phase A: Archive covers directly into hardware Vault (cacheDir temp -> validate -> Vault)
                 for (hl in highlights) {
                     var localCover: String? = null
-                    if (!hl.coverUrl.isNullOrBlank()) {
-                        val safeId = hl.id.replace(":", "_")
-                        val coverFile = File(archiveDir, "${safeId}_cover.jpg")
-                        if (!coverFile.exists() || coverFile.length() == 0L) {
-                            instagramEngine.downloadMedia(hl.coverUrl, coverFile)
-                        }
-                        if (coverFile.exists() && coverFile.length() > 0L) {
-                            val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(coverFile)
+                    val safeId = hl.id.replace(":", "_")
+                    val existingVaultCover = vaultManager.getVaultMediaFile(cleanUser, "highlights", "${safeId}_cover.jpg")
+                    if (existingVaultCover != null && vaultManager.readEncryptedFile(existingVaultCover) != null) {
+                        localCover = existingVaultCover.absolutePath
+                    } else if (!hl.coverUrl.isNullOrBlank()) {
+                        val tempCover = File(context.cacheDir, "hl_cover_${safeId}_${System.currentTimeMillis()}.jpg")
+                        try {
+                            instagramEngine.downloadImage(hl.coverUrl, tempCover)
+                            val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempCover)
                             if (valid != null && !valid.isVideo) {
-                                val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", coverFile.name, coverFile.readBytes())
+                                val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", "${safeId}_cover.jpg", tempCover.readBytes())
                                 localCover = encCover.absolutePath
                             }
+                        } catch (e: Exception) {
+                            AppLogger.w("ProfileInspector", "Highlight cover download error ($safeId): ${e.message}")
+                        } finally {
+                            try { tempCover.delete() } catch (_: Exception) {}
                         }
                     }
 
@@ -1857,9 +1876,6 @@ class ProfileInspector(
         val stories = instagramEngine.fetchHighlightStories(highlight.id, cookie)
         if (stories.isEmpty()) return@withContext emptyList()
 
-        val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
-        archiveDir.mkdirs()
-        ArchiveDirectoryManager.ensureNoMedia(archiveDir)
         val vaultManager = VaultStorageManager.getInstance(context)
         val safeHlId = highlight.id.replace(":", "_")
         val mediaEntities = mutableListOf<HighlightMediaEntity>()
@@ -1867,20 +1883,27 @@ class ProfileInspector(
         for (story in stories) {
             val ext = if (story.mediaType == "video") "mp4" else "jpg"
             val fileName = "${safeHlId}_${story.id}.$ext"
-            val mediaFile = File(archiveDir, fileName)
+            val existingVault = vaultManager.getVaultMediaFile(cleanUser, "highlights", fileName)
+            var localPath = story.mediaUrl
+            var resolvedMediaType = story.mediaType
 
-            if (!mediaFile.exists() || mediaFile.length() == 0L) {
-                if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
-                    instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
+            if (existingVault != null && existingVault.exists() && existingVault.length() > 0L) {
+                localPath = existingVault.absolutePath
+            } else if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
+                val tempMedia = File(context.cacheDir, "hl_item_${story.id}_${System.currentTimeMillis()}.$ext")
+                try {
+                    instagramEngine.downloadMedia(story.mediaUrl, tempMedia)
+                    val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempMedia)
+                    if (valid != null) {
+                        val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, tempMedia.readBytes())
+                        localPath = encMedia.absolutePath
+                        resolvedMediaType = if (valid.isVideo) "video" else "image"
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w("ProfileInspector", "Highlight media cache failed (${story.id}): ${e.message}")
+                } finally {
+                    try { tempMedia.delete() } catch (_: Exception) {}
                 }
-            }
-
-            val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(mediaFile)
-            val localPath = if (valid != null) {
-                val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, mediaFile.readBytes())
-                encMedia.absolutePath
-            } else {
-                story.mediaUrl
             }
 
             mediaEntities.add(
@@ -1888,7 +1911,7 @@ class ProfileInspector(
                     id = story.id,
                     highlightId = highlight.id,
                     username = cleanUser,
-                    mediaType = if (valid != null) (if (valid.isVideo) "video" else "image") else story.mediaType,
+                    mediaType = resolvedMediaType,
                     mediaUrl = story.mediaUrl,
                     localPath = localPath,
                     takenAt = story.takenAt
@@ -1943,33 +1966,39 @@ class ProfileInspector(
         )
 
         if (freshStories.isNotEmpty()) {
-            val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/stories")
-            archiveDir.mkdirs()
-            ArchiveDirectoryManager.ensureNoMedia(archiveDir)
             val vaultManager = VaultStorageManager.getInstance(context)
             val entities = mutableListOf<HighlightMediaEntity>()
 
             for (story in freshStories) {
                 val ext = if (story.mediaType == "video") "mp4" else "jpg"
                 val fileName = "story_${story.id}.$ext"
-                val mediaFile = File(archiveDir, fileName)
-                if (!mediaFile.exists() || mediaFile.length() == 0L) {
-                    if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
-                        instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
+                val existingVault = vaultManager.getVaultMediaFile(cleanUser, "stories", fileName)
+                var localPath = story.mediaUrl
+                var resolvedMediaType = story.mediaType
+
+                if (existingVault != null && existingVault.exists() && existingVault.length() > 0L) {
+                    localPath = existingVault.absolutePath
+                } else if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
+                    val tempMedia = File(context.cacheDir, "story_item_${story.id}_${System.currentTimeMillis()}.$ext")
+                    try {
+                        instagramEngine.downloadMedia(story.mediaUrl, tempMedia)
+                        val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempMedia)
+                        if (valid != null) {
+                            localPath = vaultManager.saveEncryptedFile(cleanUser, "stories", fileName, tempMedia.readBytes()).absolutePath
+                            resolvedMediaType = if (valid.isVideo) "video" else "image"
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w("ProfileInspector", "Active story cache failed (${story.id}): ${e.message}")
+                    } finally {
+                        try { tempMedia.delete() } catch (_: Exception) {}
                     }
-                }
-                val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(mediaFile)
-                val localPath = if (valid != null) {
-                    vaultManager.saveEncryptedFile(cleanUser, "stories", fileName, mediaFile.readBytes()).absolutePath
-                } else {
-                    story.mediaUrl
                 }
                 entities.add(
                     HighlightMediaEntity(
                         id = story.id,
                         highlightId = virtualId,
                         username = cleanUser,
-                        mediaType = if (valid != null) (if (valid.isVideo) "video" else "image") else story.mediaType,
+                        mediaType = resolvedMediaType,
                         mediaUrl = story.mediaUrl,
                         localPath = localPath,
                         takenAt = story.takenAt
@@ -1988,14 +2017,14 @@ class ProfileInspector(
         database.highlightDao().getMediaListForHighlight(virtualId).filter { it.takenAt >= cutoff }
     }
 
-    suspend fun inspectHighlightsAndPosts(username: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun inspectHighlightsAndPosts(username: String): PostSyncStatus = withContext(Dispatchers.IO) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val target = database.targetDao().getTarget(cleanUser)
         val cookie = sessionManager.getCookieString()
         val targetId = target?.instagramId
         val isPrivate = target?.isPrivate ?: false
         archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic = false, isPrivate = isPrivate)
-        true
+        _postSyncState.value[cleanUser] ?: PostSyncStatus.FAILED
     }
 
     companion object {

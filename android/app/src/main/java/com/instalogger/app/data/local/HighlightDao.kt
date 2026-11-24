@@ -31,4 +31,7 @@ interface HighlightDao {
 
     @Query("DELETE FROM highlights")
     suspend fun clearAll()
+
+    @Query("DELETE FROM highlight_media")
+    suspend fun clearAllMedia()
 }

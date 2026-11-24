@@ -54,8 +54,10 @@ import com.instalogger.app.ui.components.SettingSwitchRow
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.theme.*
 import com.instalogger.app.util.AppLockManager
+import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.LanguageManager
+import com.instalogger.app.util.LogLevel
 import com.instalogger.app.util.VaultStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -64,7 +66,9 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onOpenDeveloperLogs: () -> Unit = {}
+) {
     val context = LocalContext.current
     val app = context.applicationContext as InstaLoggerApp
     val scope = rememberCoroutineScope()
@@ -1040,6 +1044,51 @@ fun SettingsScreen() {
                 }
             }
 
+            // 6.5. Developer Logs (Encrypted Terminal Console) Card
+            val devLogs by AppLogger.logs.collectAsStateWithLifecycle()
+            val devErrCount = remember(devLogs) { devLogs.count { it.level == LogLevel.ERROR } }
+            val devWarnCount = remember(devLogs) { devLogs.count { it.level == LogLevel.WARN } }
+
+            SettingsGroupCard(
+                icon = Icons.Default.Terminal,
+                title = stringResource(R.string.dev_logs_title),
+                description = stringResource(R.string.dev_logs_desc),
+                headerTrailing = {
+                    if (devErrCount > 0) {
+                        StatusBadge(
+                            text = "ERR: $devErrCount",
+                            containerColor = StatusRedLight,
+                            contentColor = StatusRed
+                        )
+                    } else if (devWarnCount > 0) {
+                        StatusBadge(
+                            text = "WARN: $devWarnCount",
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        StatusBadge(
+                            text = "${devLogs.size}",
+                            containerColor = AccentBlue.copy(alpha = 0.14f),
+                            contentColor = AccentBlue
+                        )
+                    }
+                }
+            ) {
+                Button(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onOpenDeveloperLogs()
+                    },
+                    shape = ShapeTokens.MediumShape,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.dev_logs_open_btn))
+                }
+            }
+
             // 7. Danger Zone Card (Clear All Data)
             SettingsGroupCard(
                 icon = Icons.Default.Warning,
@@ -1132,6 +1181,12 @@ fun SettingsScreen() {
                                 app.database.changeLogDao().clearAll()
                                 app.database.avatarHistoryDao().clearAll()
                                 app.database.notificationDao().clearAll()
+                                app.database.postDao().clearAll()
+                                app.database.highlightDao().clearAll()
+                                app.database.highlightDao().clearAllMedia()
+                                app.database.followerAuditDao().clearAll()
+                                app.database.followerHistoryDao().clearAll()
+                                app.database.mediaAssetDao().clearAll()
                             }
                             snackbarHostState.showSnackbar(dataClearedMsg)
                         }
