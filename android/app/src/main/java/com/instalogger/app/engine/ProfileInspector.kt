@@ -9,6 +9,7 @@ import com.instalogger.app.R
 import com.instalogger.app.data.local.*
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.util.ArchiveDirectoryManager
+import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.VaultStorageManager
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.Dispatchers
@@ -226,8 +227,8 @@ class ProfileInspector(
                         )
 
                         if (existing != null && oldPath != null && oldHash != null && newHash != oldHash) {
-                            val title = context.getString(R.string.notif_avatar_changed_title, cleanUser)
-                            val desc = context.getString(R.string.notif_avatar_changed_desc)
+                            val title = LanguageManager.getString(context, R.string.notif_avatar_changed_title, cleanUser)
+                            val desc = LanguageManager.getString(context, R.string.notif_avatar_changed_desc)
                             changeLogDao.insertLog(
                                 ChangeLogEntity(
                                     targetUsername = cleanUser,
@@ -262,12 +263,12 @@ class ProfileInspector(
         // 2. Check privacy change
         val wasPrivateToPublic = (existing != null && existing.isPrivate && !snapshot.isPrivate)
         if (existing != null && existing.isPrivate != snapshot.isPrivate) {
-            val oldVal = if (existing.isPrivate) context.getString(R.string.notif_privacy_private) else context.getString(R.string.notif_privacy_public)
-            val newVal = if (snapshot.isPrivate) context.getString(R.string.notif_privacy_private) else context.getString(R.string.notif_privacy_public)
+            val oldVal = if (existing.isPrivate) LanguageManager.getString(context, R.string.notif_privacy_private) else LanguageManager.getString(context, R.string.notif_privacy_public)
+            val newVal = if (snapshot.isPrivate) LanguageManager.getString(context, R.string.notif_privacy_private) else LanguageManager.getString(context, R.string.notif_privacy_public)
             val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "privacy_change")
             if (latestLog?.newValue != newVal) {
-                val title = context.getString(R.string.notif_privacy_changed_title, cleanUser)
-                val desc = context.getString(R.string.notif_privacy_changed_desc, newVal)
+                val title = LanguageManager.getString(context, R.string.notif_privacy_changed_title, cleanUser)
+                val desc = LanguageManager.getString(context, R.string.notif_privacy_changed_desc, newVal)
                 changeLogDao.insertLog(
                     ChangeLogEntity(
                         targetUsername = cleanUser,
@@ -294,8 +295,8 @@ class ProfileInspector(
             if (latestLog?.newValue != snapshot.mediaCount.toString()) {
                 val diff = snapshot.mediaCount - existing.mediaCount
                 val sign = if (diff > 0) "+$diff" else "$diff"
-                val title = context.getString(R.string.notif_posts_changed_title, cleanUser, sign)
-                val desc = context.getString(R.string.notif_posts_changed_desc, existing.mediaCount.toString(), snapshot.mediaCount.toString(), sign)
+                val title = LanguageManager.getString(context, R.string.notif_posts_changed_title, cleanUser, sign)
+                val desc = LanguageManager.getString(context, R.string.notif_posts_changed_desc, existing.mediaCount.toString(), snapshot.mediaCount.toString(), sign)
                 changeLogDao.insertLog(
                     ChangeLogEntity(
                         targetUsername = cleanUser,
@@ -320,7 +321,7 @@ class ProfileInspector(
         if (existing != null && snapshot.biography.isNotBlank() && existing.biography != snapshot.biography) {
             val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "bio_change")
             if (latestLog?.newValue != snapshot.biography) {
-                val title = context.getString(R.string.notif_bio_changed_title, cleanUser)
+                val title = LanguageManager.getString(context, R.string.notif_bio_changed_title, cleanUser)
                 val desc = snapshot.biography.take(80)
                 changeLogDao.insertLog(
                     ChangeLogEntity(
@@ -341,8 +342,8 @@ class ProfileInspector(
             if (latestLog?.newValue != snapshot.followersCount.toString()) {
                 val diff = snapshot.followersCount - existing.followersCount
                 val sign = if (diff > 0) "+$diff" else "$diff"
-                val title = context.getString(R.string.notif_followers_changed_title, cleanUser, sign)
-                val desc = context.getString(R.string.notif_followers_changed_desc, existing.followersCount, snapshot.followersCount, sign)
+                val title = LanguageManager.getString(context, R.string.notif_followers_changed_title, cleanUser, sign)
+                val desc = LanguageManager.getString(context, R.string.notif_followers_changed_desc, existing.followersCount, snapshot.followersCount, sign)
                 changeLogDao.insertLog(
                     ChangeLogEntity(
                         targetUsername = cleanUser,
@@ -369,8 +370,8 @@ class ProfileInspector(
             if (latestLog?.newValue != snapshot.followingCount.toString()) {
                 val diff = snapshot.followingCount - existing.followingCount
                 val sign = if (diff > 0) "+$diff" else "$diff"
-                val title = context.getString(R.string.notif_following_changed_title, cleanUser, sign)
-                val desc = context.getString(R.string.notif_following_changed_desc, existing.followingCount, snapshot.followingCount, sign)
+                val title = LanguageManager.getString(context, R.string.notif_following_changed_title, cleanUser, sign)
+                val desc = LanguageManager.getString(context, R.string.notif_following_changed_desc, existing.followingCount, snapshot.followingCount, sign)
                 changeLogDao.insertLog(
                     ChangeLogEntity(
                         targetUsername = cleanUser,
@@ -1480,8 +1481,8 @@ class ProfileInspector(
             // If account was private and became public, dispatch a special success alert
             if (wasPrivateToPublic) {
                 val now = System.currentTimeMillis()
-                val title = context.getString(R.string.notif_public_archived_title, cleanUser)
-                val message = context.getString(R.string.notif_public_archived_desc, hlCount, fetchedCount)
+                val title = LanguageManager.getString(context, R.string.notif_public_archived_title, cleanUser)
+                val message = LanguageManager.getString(context, R.string.notif_public_archived_desc, hlCount, fetchedCount)
                 dispatchAlert(
                     targetUsername = cleanUser,
                     eventType = "privacy_change",

@@ -111,11 +111,12 @@ class MainActivity : FragmentActivity() {
             val isAppLocked by app.appLockManager.isAppLocked.collectAsStateWithLifecycle()
             val isLockConfigured = remember(isAppLocked) { app.appLockManager.isLockConfigured() }
 
-            val localizedContext = remember(currentLanguage) {
-                LanguageManager.getLocalizedContext(this@MainActivity, currentLanguage)
+            val baseConfiguration = LocalConfiguration.current
+            val localizedConfiguration = remember(currentLanguage, baseConfiguration) {
+                LanguageManager.getLocalizedConfiguration(baseConfiguration, currentLanguage)
             }
-            val localizedConfiguration = remember(currentLanguage) {
-                LanguageManager.getLocalizedConfiguration(resources.configuration, currentLanguage)
+            val localizedContext = remember(currentLanguage, baseConfiguration) {
+                LanguageManager.getLocalizedContext(this@MainActivity, currentLanguage, baseConfiguration)
             }
 
             CompositionLocalProvider(

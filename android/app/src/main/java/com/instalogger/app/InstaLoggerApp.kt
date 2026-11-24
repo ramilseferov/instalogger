@@ -15,6 +15,7 @@ import com.instalogger.app.engine.SessionManager
 import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
 import com.instalogger.app.util.AppLockManager
+import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.VaultMediaFetcher
 import com.instalogger.app.util.VaultStorageManager
 
@@ -56,6 +57,7 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
 
+        LanguageManager.init(this)
         appLockManager = AppLockManager.getInstance(this)
         vaultStorageManager = VaultStorageManager.getInstance(this)
         settingsManager = AppSettingsManager.getInstance(this)
@@ -71,28 +73,29 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
             instagramEngine = instagramEngine
         )
 
-        createNotificationChannels()
+        refreshNotificationChannels()
     }
 
-    private fun createNotificationChannels() {
+    fun refreshNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val resCtx = LanguageManager.getLocalizedAppContext(this)
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             val foregroundChannel = NotificationChannel(
                 CHANNEL_FOREGROUND_ID,
-                getString(R.string.service_notification_channel),
+                resCtx.getString(R.string.service_notification_channel),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = getString(R.string.service_notification_desc)
+                description = resCtx.getString(R.string.service_notification_desc)
                 setShowBadge(false)
             }
 
             val alertsChannel = NotificationChannel(
                 CHANNEL_ALERTS_ID,
-                getString(R.string.alert_notification_channel),
+                resCtx.getString(R.string.alert_notification_channel),
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = getString(R.string.notifications_subtitle)
+                description = resCtx.getString(R.string.notifications_subtitle)
                 enableVibration(true)
                 setShowBadge(true)
             }
@@ -103,10 +106,10 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
             NotificationCategory.entries.forEach { cat ->
                 val catChannel = NotificationChannel(
                     cat.channelId,
-                    getString(cat.titleRes),
+                    resCtx.getString(cat.titleRes),
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = getString(cat.descRes)
+                    description = resCtx.getString(cat.descRes)
                     enableVibration(true)
                     setShowBadge(true)
                 }

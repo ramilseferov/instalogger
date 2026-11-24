@@ -12,6 +12,7 @@ import com.instalogger.app.MainActivity
 import com.instalogger.app.R
 import com.instalogger.app.engine.ProfileInspector
 import com.instalogger.app.settings.NotificationCategory
+import com.instalogger.app.util.LanguageManager
 import kotlinx.coroutines.*
 
 class InstaLoggerForegroundService : Service() {
@@ -27,7 +28,8 @@ class InstaLoggerForegroundService : Service() {
         startMonitoringLoop()
     }
 
-    private fun startInForeground() {
+    private fun buildForegroundNotification(): Notification {
+        val resCtx = LanguageManager.getLocalizedAppContext(this)
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -38,14 +40,18 @@ class InstaLoggerForegroundService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notification = NotificationCompat.Builder(this, InstaLoggerApp.CHANNEL_FOREGROUND_ID)
-            .setContentTitle(getString(R.string.service_notification_title))
-            .setContentText(getString(R.string.service_notification_desc))
+        return NotificationCompat.Builder(this, InstaLoggerApp.CHANNEL_FOREGROUND_ID)
+            .setContentTitle(resCtx.getString(R.string.service_notification_title))
+            .setContentText(resCtx.getString(R.string.service_notification_desc))
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+
+    private fun startInForeground() {
+        val notification = buildForegroundNotification()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -55,6 +61,15 @@ class InstaLoggerForegroundService : Service() {
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    private fun updateForegroundNotificationLanguage() {
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(NOTIFICATION_ID, buildForegroundNotification())
+        } catch (_: Exception) {
+            // Non-fatal
         }
     }
 
@@ -137,7 +152,7 @@ class InstaLoggerForegroundService : Service() {
             .setContentIntent(pendingContent)
             .addAction(
                 R.drawable.ic_notification,
-                getString(R.string.action_mark_read),
+                LanguageManager.getString(this, R.string.action_mark_read),
                 pendingMarkRead
             )
 
@@ -183,6 +198,10 @@ class InstaLoggerForegroundService : Service() {
         fun stop(context: Context) {
             val intent = Intent(context, InstaLoggerForegroundService::class.java)
             context.stopService(intent)
+        }
+
+        fun refreshLanguageNotification() {
+            instance?.updateForegroundNotificationLanguage()
         }
     }
 }
