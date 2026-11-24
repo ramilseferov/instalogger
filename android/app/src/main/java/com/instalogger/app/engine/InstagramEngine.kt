@@ -3,6 +3,7 @@ package com.instalogger.app.engine
 import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.instalogger.app.engine.media.CarouselSlideHint
 import com.instalogger.app.engine.media.ExtractedPostMetadata
@@ -1084,6 +1085,19 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
+        // 2.5. Tier B2: Desktop SSR Relay JSON Extraction (Zero-Login Public Profiles)
+        // Parses Instagram's Polaris SSR <script type="application/json"> (polaris_ordered_timeline_connection)
+        if (!isPrivate) {
+            try {
+                val ssrPosts = fetchPostsViaDesktopSsr(cleanUser, effectiveCookie, limit)
+                if (ssrPosts.isNotEmpty()) {
+                    return PostFetchResult.Success(ssrPosts)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Desktop SSR post extraction failed for @$cleanUser: ${e.message}")
+            }
+        }
+
         // 3. Tier C: On-Device Headless Chromium WebView Bridge (Zero-Login Public Extraction)
         if (!isPrivate && headlessScraper != null) {
             try {
@@ -1108,15 +1122,17 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // 4. Tier D: Direct Public Profile HTML Regex Fallback
+        // 4. Tier D: Direct Public Profile HTML Regex Fallback (Desktop UA)
         try {
             val htmlUrl = "https://www.instagram.com/$cleanUser/"
             val htmlReq = Request.Builder()
                 .url(htmlUrl)
-                .header("User-Agent", USER_AGENT)
-                .header("X-IG-App-ID", APP_ID)
+                .header("User-Agent", DESKTOP_CHROME_UA)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "none")
 
             if (!effectiveCookie.isNullOrBlank()) {
                 htmlReq.header("Cookie", effectiveCookie)
@@ -1130,7 +1146,7 @@ class InstagramEngine(context: Context? = null) {
                     if (html.contains("\"is_private\":true") && !hasRealSession) {
                         return PostFetchResult.RequiresSession
                     }
-                    val scPattern = Pattern.compile("\"shortcode\":\\s*\"([A-Za-z0-9_-]+)\"")
+                    val scPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"([A-Za-z0-9_-]{8,15})\"")
                     val scMatcher = scPattern.matcher(html)
                     val shortcodes = mutableListOf<String>()
                     while (scMatcher.find() && shortcodes.size < limit) {
@@ -1142,7 +1158,7 @@ class InstagramEngine(context: Context? = null) {
 
                     for (sc in shortcodes) {
                         var directUrl: String? = null
-                        val directPattern = Pattern.compile("\"shortcode\":\\s*\"" + Pattern.quote(sc) + "\"[^}]*?\"display_url\":\\s*\"([^\"]+)\"")
+                        val directPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"" + Pattern.quote(sc) + "\"[^}]*?\"(?:display_url|display_uri)\":\\s*\"([^\"]+)\"")
                         val directMatcher = directPattern.matcher(html)
                         if (directMatcher.find()) {
                             directUrl = unescapeJson(directMatcher.group(1) ?: "")
@@ -1173,6 +1189,292 @@ class InstagramEngine(context: Context? = null) {
         if (isPrivate && !hasRealSession) return PostFetchResult.RequiresSession
         if (sawRateLimit) return PostFetchResult.RateLimited
         return PostFetchResult.Error("No posts returned")
+    }
+
+    /**
+     * Parses Instagram's Desktop SSR Relay JSON payloads (<script type="application/json">)
+     * to extract public profile posts (polaris_ordered_timeline_connection / xdt_api / edge_owner_to_timeline_media)
+     * without requiring a login session.
+     */
+    private fun fetchPostsViaDesktopSsr(
+        username: String,
+        cookieString: String?,
+        limit: Int
+    ): List<InstagramPostItem> {
+        val url = "https://www.instagram.com/$username/"
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", DESKTOP_CHROME_UA)
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Sec-Fetch-Dest", "document")
+            .header("Sec-Fetch-Mode", "navigate")
+            .header("Sec-Fetch-Site", "none")
+
+        if (!cookieString.isNullOrBlank()) {
+            req.header("Cookie", cookieString)
+        }
+
+        val html = clientWithRedirects.newCall(req.build()).execute().use { resp ->
+            if (!resp.isSuccessful) return emptyList()
+            resp.body?.string().orEmpty()
+        }
+        if (html.isBlank()) return emptyList()
+
+        return parsePostsFromSsrHtml(html, limit)
+    }
+
+    internal fun parsePostsFromSsrHtml(html: String, limit: Int = 24): List<InstagramPostItem> {
+        val results = mutableListOf<InstagramPostItem>()
+        val seenCodes = hashSetOf<String>()
+        val now = System.currentTimeMillis()
+
+        val scriptPattern = Pattern.compile("<script[^>]*type=\"application/json\"[^>]*>(.*?)</script>", Pattern.DOTALL)
+        val matcher = scriptPattern.matcher(html)
+
+        fun collectEdgesFromJson(elem: JsonElement?) {
+            if (elem == null || results.size >= limit) return
+            when {
+                elem.isJsonObject -> {
+                    val obj = elem.asJsonObject
+                    val connectionKeys = listOf(
+                        "polaris_ordered_timeline_connection",
+                        "xdt_api__v1__feed__user_timeline_graphql_connection",
+                        "edge_owner_to_timeline_media"
+                    )
+                    for (connKey in connectionKeys) {
+                        val edges = obj.getAsJsonObject(connKey)?.getAsJsonArray("edges") ?: continue
+                        for (edgeEl in edges) {
+                            if (results.size >= limit) break
+                            val node = edgeEl.asJsonObject?.getAsJsonObject("node") ?: continue
+                            val code = node.get("code")?.takeIf { !it.isJsonNull }?.asString
+                                ?: node.get("shortcode")?.takeIf { !it.isJsonNull }?.asString
+                                ?: continue
+                            if (code.isBlank() || !seenCodes.add(code)) continue
+
+                            val typename = node.get("__typename")?.takeIf { !it.isJsonNull }?.asString.orEmpty()
+                            val mediaTypeInt = node.get("media_type")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val carouselCount = node.get("carousel_media_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                            val sidecarSlides = extractSidecarSlides(node)
+                            val carouselSlides = extractPolarisCarouselSlides(node)
+                            val slides = if (carouselSlides.isNotEmpty()) carouselSlides else sidecarSlides
+
+                            val isCarousel = typename.contains("Carousel", ignoreCase = true) ||
+                                typename.contains("Sidecar", ignoreCase = true) ||
+                                mediaTypeInt == 8 ||
+                                carouselCount > 1 ||
+                                slides.size > 1
+                            val isVideo = typename.contains("Video", ignoreCase = true) ||
+                                mediaTypeInt == 2 ||
+                                (node.get("is_video")?.takeIf { !it.isJsonNull }?.asBoolean == true)
+
+                            val resolvedType = when {
+                                isCarousel -> "carousel"
+                                isVideo -> "video"
+                                else -> "image"
+                            }
+
+                            val displayUrl = node.get("display_uri")?.takeIf { !it.isJsonNull }?.asString
+                                ?: node.get("display_url")?.takeIf { !it.isJsonNull }?.asString
+                                ?: node.getAsJsonObject("image_versions2")
+                                    ?.getAsJsonArray("candidates")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                                ?: ""
+                            val videoUrl = node.get("video_url")?.takeIf { !it.isJsonNull }?.asString
+                                ?: node.getAsJsonArray("video_versions")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+
+                            val caption = node.getAsJsonObject("caption")?.get("text")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText()
+                                ?: node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
+                                    ?.firstOrNull()?.asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText()
+                                ?: ""
+
+                            val likes = node.get("like_count")?.takeIf { !it.isJsonNull }?.asInt
+                                ?: node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
+                                ?: 0
+                            val comments = node.get("comment_count")?.takeIf { !it.isJsonNull }?.asInt
+                                ?: node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt
+                                ?: 0
+                            val takenAtSec = node.get("taken_at")?.takeIf { !it.isJsonNull }?.asLong
+                                ?: node.get("taken_at_timestamp")?.takeIf { !it.isJsonNull }?.asLong
+                            val timestampMs = if (takenAtSec != null && takenAtSec > 0L) {
+                                takenAtSec * 1000L
+                            } else {
+                                now - (results.size * 1000L)
+                            }
+
+                            results.add(
+                                InstagramPostItem(
+                                    id = code,
+                                    shortcode = code,
+                                    mediaType = resolvedType,
+                                    displayUrl = displayUrl.ifBlank { "https://www.instagram.com/p/$code/media/?size=l" },
+                                    videoUrl = videoUrl,
+                                    caption = caption,
+                                    timestamp = timestampMs,
+                                    likeCount = likes,
+                                    commentCount = comments,
+                                    slides = slides
+                                )
+                            )
+                        }
+                    }
+
+                    for ((_, value) in obj.entrySet()) {
+                        if (results.size >= limit) break
+                        collectEdgesFromJson(value)
+                    }
+                }
+                elem.isJsonArray -> {
+                    for (child in elem.asJsonArray) {
+                        if (results.size >= limit) break
+                        collectEdgesFromJson(child)
+                    }
+                }
+            }
+        }
+
+        while (matcher.find() && results.size < limit) {
+            val rawJson = matcher.group(1) ?: continue
+            if (!rawJson.contains("polaris_ordered_timeline_connection") &&
+                !rawJson.contains("xdt_api__v1__feed__user_timeline_graphql_connection") &&
+                !rawJson.contains("edge_owner_to_timeline_media")
+            ) {
+                continue
+            }
+            try {
+                val parsed = gson.fromJson(rawJson, JsonElement::class.java)
+                collectEdgesFromJson(parsed)
+            } catch (_: Exception) {
+                // Skip non-standard script payload
+            }
+        }
+
+        return results
+    }
+
+    private fun extractPolarisCarouselSlides(node: JsonObject): List<CarouselSlideHint> {
+        val arr = node.getAsJsonArray("carousel_media") ?: return emptyList()
+        val slides = mutableListOf<CarouselSlideHint>()
+        arr.forEachIndexed { idx, el ->
+            val cObj = el.asJsonObject ?: return@forEachIndexed
+            val vidUrl = cObj.getAsJsonArray("video_versions")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                ?: cObj.get("video_url")?.takeIf { !it.isJsonNull }?.asString
+            val imgObj = cObj.getAsJsonObject("image_versions2")?.getAsJsonArray("candidates")?.firstOrNull()?.asJsonObject
+            val imgUrl = imgObj?.get("url")?.asString
+                ?: cObj.get("display_uri")?.takeIf { !it.isJsonNull }?.asString
+                ?: cObj.get("display_url")?.takeIf { !it.isJsonNull }?.asString
+                ?: ""
+            val w = imgObj?.get("width")?.asInt ?: cObj.get("original_width")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+            val h = imgObj?.get("height")?.asInt ?: cObj.get("original_height")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+            val isVid = !vidUrl.isNullOrBlank() || (cObj.get("media_type")?.takeIf { !it.isJsonNull }?.asInt == 2)
+            if (imgUrl.isNotBlank() || !vidUrl.isNullOrBlank()) {
+                slides.add(
+                    CarouselSlideHint(
+                        position = idx,
+                        mediaType = if (isVid) "video" else "image",
+                        displayUrl = imgUrl,
+                        videoUrl = vidUrl,
+                        width = w,
+                        height = h
+                    )
+                )
+            }
+        }
+        return slides
+    }
+
+    /**
+     * Parses a single post's Desktop SSR HTML (<script type="application/json">) for
+     * xig_polaris_media (full multi-slide carousel_media, HD image_versions2, video_versions,
+     * like_count, comment_count, taken_at).
+     */
+    internal fun parsePostDetailsFromSsrHtml(html: String, shortcode: String): PostMediaDetails? {
+        val scriptPattern = Pattern.compile("<script[^>]*type=\"application/json\"[^>]*>(.*?)</script>", Pattern.DOTALL)
+        val matcher = scriptPattern.matcher(html)
+
+        var foundNode: JsonObject? = null
+        fun findMediaObject(elem: JsonElement?) {
+            if (elem == null || foundNode != null) return
+            when {
+                elem.isJsonObject -> {
+                    val obj = elem.asJsonObject
+                    val code = obj.get("code")?.takeIf { !it.isJsonNull }?.asString
+                    val hasPayload = obj.has("carousel_media") || obj.has("image_versions2") || obj.has("video_versions")
+                    if (code.equals(shortcode, ignoreCase = true) && hasPayload) {
+                        foundNode = obj
+                        return
+                    }
+                    val polaris = obj.getAsJsonObject("xig_polaris_media")?.getAsJsonObject("if_not_gated_logged_out")
+                    if (polaris != null) {
+                        foundNode = polaris
+                        return
+                    }
+                    for ((_, v) in obj.entrySet()) {
+                        if (foundNode != null) return
+                        findMediaObject(v)
+                    }
+                }
+                elem.isJsonArray -> {
+                    for (child in elem.asJsonArray) {
+                        if (foundNode != null) return
+                        findMediaObject(child)
+                    }
+                }
+            }
+        }
+
+        while (matcher.find() && foundNode == null) {
+            val raw = matcher.group(1) ?: continue
+            if (!raw.contains("xig_polaris_media") && !raw.contains("carousel_media")) continue
+            try {
+                val parsed = gson.fromJson(raw, JsonElement::class.java)
+                findMediaObject(parsed)
+            } catch (_: Exception) {
+            }
+        }
+
+        val mediaObj = foundNode ?: return null
+        val carouselSlides = extractPolarisCarouselSlides(mediaObj)
+        val slides = if (carouselSlides.isNotEmpty()) {
+            carouselSlides
+        } else {
+            val vidUrl = mediaObj.getAsJsonArray("video_versions")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+            val imgObj = mediaObj.getAsJsonObject("image_versions2")?.getAsJsonArray("candidates")?.firstOrNull()?.asJsonObject
+            val imgUrl = imgObj?.get("url")?.asString
+                ?: mediaObj.get("display_uri")?.takeIf { !it.isJsonNull }?.asString
+                ?: ""
+            if (imgUrl.isNotBlank() || !vidUrl.isNullOrBlank()) {
+                listOf(
+                    CarouselSlideHint(
+                        position = 0,
+                        mediaType = if (!vidUrl.isNullOrBlank()) "video" else "image",
+                        displayUrl = imgUrl,
+                        videoUrl = vidUrl,
+                        width = imgObj?.get("width")?.asInt ?: 0,
+                        height = imgObj?.get("height")?.asInt ?: 0
+                    )
+                )
+            } else emptyList()
+        }
+
+        if (slides.isEmpty()) return null
+
+        val caption = mediaObj.getAsJsonObject("caption")?.get("text")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText()
+        val likes = mediaObj.get("like_count")?.takeIf { !it.isJsonNull }?.asInt
+        val comments = mediaObj.get("comment_count")?.takeIf { !it.isJsonNull }?.asInt
+        val takenAt = mediaObj.get("taken_at")?.takeIf { !it.isJsonNull }?.asLong?.let { it * 1000L }
+        val duration = mediaObj.get("video_duration")?.takeIf { !it.isJsonNull }?.asDouble?.toInt()
+
+        return PostMediaDetails(
+            slides = slides,
+            metadata = ExtractedPostMetadata(
+                caption = caption?.ifBlank { null },
+                likeCount = likes,
+                commentCount = comments,
+                postedAtMillis = takenAt,
+                durationSeconds = duration,
+                displayUrl = slides.first().displayUrl.ifBlank { null }
+            )
+        )
     }
 
     /**
@@ -1346,6 +1648,35 @@ class InstagramEngine(context: Context? = null) {
             }
         } catch (e: Exception) {
             Log.d(TAG, "Post JSON detail fetch skipped for $cleanCode: ${e.message}")
+        }
+
+        // 1.5. Try Desktop SSR HTML on /p/<shortcode>/ (Zero-login full Carousel slides & HD URLs!)
+        try {
+            val postPageUrl = "https://www.instagram.com/p/$cleanCode/"
+            val req = Request.Builder()
+                .url(postPageUrl)
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "none")
+
+            if (!effectiveCookie.isNullOrBlank()) {
+                req.header("Cookie", effectiveCookie)
+            }
+
+            clientWithRedirects.newCall(req.build()).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string().orEmpty()
+                    val parsed = parsePostDetailsFromSsrHtml(html, cleanCode)
+                    if (parsed != null && parsed.slides.isNotEmpty()) {
+                        return parsed
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Post Desktop SSR fetch skipped for $cleanCode: ${e.message}")
         }
 
         // 2. Fallback to Embed enrichment

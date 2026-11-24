@@ -1,6 +1,8 @@
 package com.instalogger.app.engine
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -179,17 +181,25 @@ class ProfileInspector(
                     localAvatarPath = internal?.absolutePath ?: f.absolutePath
                     currentAvatarHash = computeFileSha256(File(localAvatarPath))
                 }
-            } else if (localAvatarPath == null || avatarUrl != existing?.avatarUrl || currentAvatarHash == null) {
+            } else if (localAvatarPath == null ||
+                currentAvatarHash == null ||
+                extractAvatarAssetKey(avatarUrl) != extractAvatarAssetKey(existing?.avatarUrl)
+            ) {
                 val tempFile = downloadAvatarToTemp(cleanUser, avatarUrl)
                 if (tempFile != null) {
                     val newHash = computeFileSha256(tempFile)
+                    val newDHash = computePerceptualDHash(tempFile)
                     val existingAvatars = avatarHistoryDao.getAvatarsListForTarget(cleanUser)
-                    val isDuplicateHash = (currentAvatarHash != null && newHash == currentAvatarHash) ||
-                            (newHash != null && existingAvatars.any { it.fileHash == newHash })
+                    val isExactDup = (currentAvatarHash != null && newHash == currentAvatarHash) ||
+                        (newHash != null && existingAvatars.any { it.fileHash == newHash })
+                    val isVisualDup = newDHash != null && (
+                        (localAvatarPath != null && isVisuallyDuplicateAvatar(newDHash, File(localAvatarPath))) ||
+                            existingAvatars.any { isVisuallyDuplicateAvatar(newDHash, File(it.localPath)) }
+                        )
+                    val isDuplicateAvatar = isExactDup || isVisualDup
 
-                    if (isDuplicateHash && localAvatarPath != null && File(localAvatarPath).exists()) {
-                        // Byte content is 100% IDENTICAL (Instagram CDN token rotation false-positive)
-                        // Discard temporary file immediately! Do NOT save duplicate file to disk or DB!
+                    if (isDuplicateAvatar && localAvatarPath != null && File(localAvatarPath).exists()) {
+                        // Image is byte-identical or perceptually identical (CDN JPEG re-encoding / resolution variant)
                         tempFile.delete()
                     } else {
                         // Genuinely NEW avatar (or initial avatar on first run)
@@ -971,7 +981,10 @@ class ProfileInspector(
                     if (file.name == "avatar_current.jpg" || file.name.startsWith(".")) continue
 
                     val hash = computeFileSha256(file)
-                    if (hash != null && existingHashes.contains(hash)) {
+                    val dHash = computePerceptualDHash(file)
+                    val isDupHash = hash != null && existingHashes.contains(hash)
+                    val isDupVisual = dHash != null && existingList.any { isVisuallyDuplicateAvatar(dHash, File(it.localPath)) }
+                    if (isDupHash || isDupVisual) {
                         // Redundant duplicate avatar file! Delete duplicate from disk if not already registered
                         if (!existingNames.contains(file.name)) {
                             try { file.delete() } catch (_: Exception) {}
@@ -1019,25 +1032,35 @@ class ProfileInspector(
     suspend fun deduplicateAvatars(username: String) {
         withContext(Dispatchers.IO) {
             try {
-                val cleanUser = username.trim().trimStart('@')
+                val cleanUser = username.trim().trimStart('@').lowercase()
                 val avatars = database.avatarHistoryDao().getAvatarsListForTarget(cleanUser)
                 if (avatars.size <= 1) return@withContext
 
                 // Sort by archivedAt ASCENDING so we keep the EARLIEST (original) archive
                 val sorted = avatars.sortedBy { it.archivedAt }
-                val seenHashes = mutableMapOf<String, AvatarHistoryEntity>()
+                val seenHashes = mutableSetOf<String>()
+                val seenDHashes = mutableListOf<Long>()
                 val toDelete = mutableListOf<AvatarHistoryEntity>()
 
                 for (item in sorted) {
-                    val hash = item.fileHash ?: computeFileSha256(File(item.localPath))
-                    if (hash != null) {
-                        if (seenHashes.containsKey(hash)) {
-                            toDelete.add(item)
-                        } else {
-                            seenHashes[hash] = item
-                            if (item.fileHash == null) {
-                                database.avatarHistoryDao().insertAvatar(item.copy(fileHash = hash))
+                    val file = File(item.localPath)
+                    val plainHash = computeFileSha256(file) ?: item.fileHash
+                    val dHash = computePerceptualDHash(file)
+
+                    val isExactDup = plainHash != null && seenHashes.contains(plainHash)
+                    val isVisualDup = dHash != null && seenDHashes.any { hammingDistance(it, dHash) <= AVATAR_DHASH_THRESHOLD }
+
+                    if (isExactDup || isVisualDup) {
+                        toDelete.add(item)
+                    } else {
+                        if (plainHash != null) {
+                            seenHashes.add(plainHash)
+                            if (item.fileHash != plainHash) {
+                                database.avatarHistoryDao().insertAvatar(item.copy(fileHash = plainHash))
                             }
+                        }
+                        if (dHash != null) {
+                            seenDHashes.add(dHash)
                         }
                     }
                 }
@@ -1046,7 +1069,7 @@ class ProfileInspector(
                     database.avatarHistoryDao().deleteAvatarById(dup.id)
                     try {
                         val f = File(dup.localPath)
-                        if (f.exists() && f.name != "avatar_current.jpg") {
+                        if (f.exists() && !f.name.startsWith("avatar_current")) {
                             f.delete()
                         }
                     } catch (_: Exception) {}
@@ -1057,21 +1080,86 @@ class ProfileInspector(
         }
     }
 
-    private fun computeFileSha256(file: File): String? {
+    private fun extractAvatarAssetKey(url: String?): String {
+        if (url.isNullOrBlank()) return ""
+        return try {
+            java.net.URI(url).path?.trim().orEmpty()
+        } catch (_: Exception) {
+            url.substringBefore("?")
+        }
+    }
+
+    private fun readPlaintextBytes(file: File): ByteArray? {
         if (!file.exists() || file.length() == 0L) return null
         return try {
-            val md = MessageDigest.getInstance("SHA-256")
-            file.inputStream().use { input ->
-                val buf = ByteArray(8192)
-                var read: Int
-                while (input.read(buf).also { read = it } != -1) {
-                    md.update(buf, 0, read)
-                }
+            val vault = VaultStorageManager.getInstance(context)
+            if (vault.isVaultFile(file)) {
+                vault.readEncryptedFile(file)
+            } else {
+                file.readBytes()
             }
-            md.digest().joinToString("") { "%02x".format(it) }
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Computes SHA-256 over the PLAINTEXT media bytes (automatically decrypting Vault .enc files first)
+     * so encrypted random-IV files never cause false-positive hash mismatches.
+     */
+    private fun computeFileSha256(file: File): String? {
+        val bytes = readPlaintextBytes(file) ?: return null
+        return try {
+            val md = MessageDigest.getInstance("SHA-256")
+            md.digest(bytes).joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Computes a 64-bit perceptual difference hash (dHash) over a 9x8 grayscale thumbnail.
+     * Catches visually identical avatars re-encoded or resized by Instagram CDN edges.
+     */
+    private fun computePerceptualDHash(file: File): Long? {
+        val bytes = readPlaintextBytes(file) ?: return null
+        return try {
+            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            val scaled = Bitmap.createScaledBitmap(decoded, 9, 8, true)
+            if (scaled !== decoded) decoded.recycle()
+            var hash = 0L
+            var bit = 0
+            for (y in 0 until 8) {
+                for (x in 0 until 8) {
+                    val left = luminance(scaled.getPixel(x, y))
+                    val right = luminance(scaled.getPixel(x + 1, y))
+                    if (left > right) {
+                        hash = hash or (1L shl bit)
+                    }
+                    bit++
+                }
+            }
+            scaled.recycle()
+            hash
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun luminance(pixel: Int): Int {
+        val r = (pixel shr 16) and 0xFF
+        val g = (pixel shr 8) and 0xFF
+        val b = pixel and 0xFF
+        return (299 * r + 587 * g + 114 * b) / 1000
+    }
+
+    private fun hammingDistance(a: Long, b: Long): Int {
+        return java.lang.Long.bitCount(a xor b)
+    }
+
+    private fun isVisuallyDuplicateAvatar(candidateDHash: Long, existingFile: File): Boolean {
+        val existingDHash = computePerceptualDHash(existingFile) ?: return false
+        return hammingDistance(candidateDHash, existingDHash) <= AVATAR_DHASH_THRESHOLD
     }
 
     private fun computeProfileStateHash(
@@ -1492,5 +1580,9 @@ class ProfileInspector(
         val isPrivate = target?.isPrivate ?: false
         archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic = false, isPrivate = isPrivate)
         true
+    }
+
+    companion object {
+        private const val AVATAR_DHASH_THRESHOLD = 6
     }
 }

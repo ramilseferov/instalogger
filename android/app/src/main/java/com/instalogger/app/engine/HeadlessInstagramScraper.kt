@@ -261,7 +261,7 @@ class HeadlessInstagramScraper(context: Context) {
         private const val VIEWPORT_WIDTH = 1080
         private const val VIEWPORT_HEIGHT = 1920
         private const val MOBILE_CHROME_UA =
-            "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
         private val EXTRACTION_JS = """
             (function() {
@@ -282,6 +282,42 @@ class HeadlessInstagramScraper(context: Context) {
                     }
                     const items = [];
                     const seen = new Set();
+
+                    // 1. Parse embedded SSR Relay JSON scripts (polaris_ordered_timeline_connection)
+                    try {
+                        const scripts = document.querySelectorAll('script[type="application/json"]');
+                        function walkJson(node) {
+                            if (!node || typeof node !== 'object') return;
+                            if (Array.isArray(node)) { node.forEach(walkJson); return; }
+                            const conn = node.polaris_ordered_timeline_connection || node.edge_owner_to_timeline_media;
+                            if (conn && Array.isArray(conn.edges)) {
+                                conn.edges.forEach(function(e) {
+                                    const n = e && e.node;
+                                    if (!n) return;
+                                    const sc = n.code || n.shortcode || '';
+                                    if (!sc || seen.has(sc)) return;
+                                    seen.add(sc);
+                                    const isVid = n.media_type === 2 || n.is_video === true || String(n.__typename || '').indexOf('Video') !== -1;
+                                    const cap = (n.caption && n.caption.text) ? n.caption.text : (n.accessibility_caption || '');
+                                    items.push({
+                                        shortcode: sc,
+                                        displayUrl: n.display_uri || n.display_url || '',
+                                        caption: cap,
+                                        isVideo: isVid
+                                    });
+                                });
+                            }
+                            Object.keys(node).forEach(function(k) { walkJson(node[k]); });
+                        }
+                        scripts.forEach(function(s) {
+                            const txt = s.textContent || '';
+                            if (txt.indexOf('polaris_ordered_timeline_connection') !== -1 || txt.indexOf('edge_owner_to_timeline_media') !== -1) {
+                                try { walkJson(JSON.parse(txt)); } catch (_) {}
+                            }
+                        });
+                    } catch (_) {}
+
+                    // 2. Also scan rendered DOM anchor links
                     const links = document.querySelectorAll('main a[href*="/p/"], main a[href*="/reel/"], article a[href*="/p/"], article a[href*="/reel/"]');
                     links.forEach(function(a) {
                         const href = a.getAttribute('href') || '';

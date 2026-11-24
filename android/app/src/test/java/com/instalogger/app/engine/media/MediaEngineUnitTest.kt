@@ -1,5 +1,6 @@
 package com.instalogger.app.engine.media
 
+import com.instalogger.app.engine.InstagramEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -115,5 +116,47 @@ class MediaEngineUnitTest {
         assertEquals("2.45MiB/s", YtDlpEmbeddedProvider.extractSpeedDetail("[download]  42.3% of 10.00MiB at 2.45MiB/s ETA 00:02"))
         assertEquals(YtDlpQualityPreset.HD_720, YtDlpQualityPreset.fromKey("HD_720"))
         assertEquals(YtDlpQualityPreset.BEST, YtDlpQualityPreset.fromKey("invalid_preset"))
+    }
+
+    @Test
+    fun desktopSsrParsers_extractPolarisTimelineAndCarouselSlides() {
+        val engine = InstagramEngine(null)
+        val profileHtml = """
+            <html><head></head><body>
+            <script type="application/json">{"data":{"xig_user_by_username":{"polaris_ordered_timeline_connection":{"edges":[
+              {"node":{"__typename":"XIGPolarisVideoMedia","code":"CUmMvHwDAgn","media_type":2,"display_uri":"https://scontent.cdninstagram.com/v/thumb1.jpg","caption":{"text":"Video caption"}}},
+              {"node":{"__typename":"XIGPolarisCarouselMedia","code":"CQ6VrjTHHR7","media_type":8,"carousel_media_count":5,"display_uri":"https://scontent.cdninstagram.com/v/thumb2.jpg","caption":{"text":"Carousel caption"}}}
+            ]}}}}</script>
+            </body></html>
+        """.trimIndent()
+
+        val posts = engine.parsePostsFromSsrHtml(profileHtml, limit = 10)
+        assertEquals(2, posts.size)
+        assertEquals("CUmMvHwDAgn", posts[0].shortcode)
+        assertEquals("video", posts[0].mediaType)
+        assertEquals("Video caption", posts[0].caption)
+        assertEquals("CQ6VrjTHHR7", posts[1].shortcode)
+        assertEquals("carousel", posts[1].mediaType)
+
+        val postHtml = """
+            <html><body>
+            <script type="application/json">{"result":{"data":{"xig_polaris_media":{"if_not_gated_logged_out":{
+              "code":"CQ6VrjTHHR7","like_count":1200,"comment_count":44,"taken_at":1625400000,"caption":{"text":"Pompaké"},
+              "carousel_media":[
+                {"media_type":1,"original_width":1080,"original_height":1080,"image_versions2":{"candidates":[{"url":"https://scontent.cdninstagram.com/v/s1.jpg","width":1080,"height":1080}]}},
+                {"media_type":2,"original_width":1080,"original_height":1350,"image_versions2":{"candidates":[{"url":"https://scontent.cdninstagram.com/v/s2.jpg","width":1080,"height":1350}]},"video_versions":[{"url":"https://scontent.cdninstagram.com/v/s2.mp4"}]}
+              ]
+            }}}}}</script>
+            </body></html>
+        """.trimIndent()
+
+        val details = engine.parsePostDetailsFromSsrHtml(postHtml, "CQ6VrjTHHR7")
+        assertNotNull(details)
+        assertEquals(2, details!!.slides.size)
+        assertEquals("image", details.slides[0].mediaType)
+        assertEquals("video", details.slides[1].mediaType)
+        assertEquals("https://scontent.cdninstagram.com/v/s2.mp4", details.slides[1].videoUrl)
+        assertEquals(1200, details.metadata?.likeCount)
+        assertEquals(44, details.metadata?.commentCount)
     }
 }
