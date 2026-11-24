@@ -159,4 +159,42 @@ class MediaEngineUnitTest {
         assertEquals(1200, details.metadata?.likeCount)
         assertEquals(44, details.metadata?.commentCount)
     }
+
+    @Test
+    fun highlightsSsrParsers_extractTrayAndStoryItems() {
+        val engine = InstagramEngine(null)
+        val trayHtml = """
+            <html><body>
+            <script type="application/json">{"result":{"data":{"user":{"lox_highlights_connection":{"edges":[
+              {"node":{"id":"18023864549864045","title":"BOTW 2027","cover_media_cropped_thumbnail_url":"https://scontent.cdninstagram.com/v/cover1.jpg","__typename":"XIGHighlightReel"}},
+              {"node":{"id":"highlight:18032893448824228","title":"Travel","cover_media_cropped_thumbnail_url":"https://scontent.cdninstagram.com/v/cover2.jpg","__typename":"XIGHighlightReel"}}
+            ]}}}}}</script>
+            </body></html>
+        """.trimIndent()
+
+        val trays = engine.parseHighlightsFromSsrHtml(trayHtml)
+        assertEquals(2, trays.size)
+        assertEquals("highlight:18023864549864045", trays[0].id)
+        assertEquals("BOTW 2027", trays[0].title)
+        assertEquals("https://scontent.cdninstagram.com/v/cover1.jpg", trays[0].coverUrl)
+        assertEquals("highlight:18032893448824228", trays[1].id)
+
+        val storiesHtml = """
+            <html><body>
+            <script type="application/json">{"result":{"data":{"xdt_api__v1__feed__reels_media__connection":{"edges":[
+              {"node":{"items":[
+                {"pk":"1001","media_type":1,"taken_at":1700000000,"image_versions2":{"candidates":[{"url":"https://scontent.cdninstagram.com/v/story1.jpg"}]}},
+                {"pk":"1002","media_type":2,"taken_at":1700000500,"video_versions":[{"url":"https://scontent.cdninstagram.com/v/story2.mp4"}],"image_versions2":{"candidates":[{"url":"https://scontent.cdninstagram.com/v/story2.jpg"}]}}
+              ]}}
+            ]}}}}</script>
+            </body></html>
+        """.trimIndent()
+
+        val items = engine.parseHighlightStoriesFromSsrHtml(storiesHtml, "highlight:18023864549864045")
+        assertEquals(2, items.size)
+        assertEquals("image", items[0].mediaType)
+        assertEquals("https://scontent.cdninstagram.com/v/story1.jpg", items[0].mediaUrl)
+        assertEquals("video", items[1].mediaType)
+        assertEquals("https://scontent.cdninstagram.com/v/story2.mp4", items[1].mediaUrl)
+    }
 }

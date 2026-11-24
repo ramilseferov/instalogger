@@ -94,6 +94,7 @@ fun ProfileDetailScreen(
     var selectedPostForViewer by remember { mutableStateOf<PostEntity?>(null) }
     var activeHighlight by remember { mutableStateOf<HighlightEntity?>(null) }
     var activeHighlightMedia by remember { mutableStateOf<List<HighlightMediaEntity>>(emptyList()) }
+    var isLoadingHighlightMedia by remember { mutableStateOf(false) }
     var showAuditSheet by remember { mutableStateOf(false) }
     var auditInitialTab by remember { mutableIntStateOf(0) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -212,9 +213,12 @@ fun ProfileDetailScreen(
                         InstagramHighlightRow(
                             highlights = highlights,
                             onHighlightClick = { hl ->
+                                activeHighlight = hl
+                                activeHighlightMedia = emptyList()
+                                isLoadingHighlightMedia = true
                                 scope.launch {
-                                    activeHighlightMedia = app.database.highlightDao().getMediaListForHighlight(hl.id)
-                                    activeHighlight = hl
+                                    activeHighlightMedia = app.profileInspector.fetchHighlightMediaOnDemand(hl)
+                                    isLoadingHighlightMedia = false
                                 }
                             },
                             modifier = Modifier.padding(vertical = 4.dp)
@@ -608,12 +612,25 @@ fun ProfileDetailScreen(
         )
     }
 
-    // Instagram Fullscreen Story Viewer
+    // Instagram Fullscreen Story Viewer (with on-demand fetch + Vault video decryption)
     activeHighlight?.let { hl ->
         InstagramStoryViewer(
             highlight = hl,
             mediaList = activeHighlightMedia,
-            onDismiss = { activeHighlight = null }
+            isLoading = isLoadingHighlightMedia,
+            hasSession = app.sessionManager.hasSession(),
+            onRetry = {
+                isLoadingHighlightMedia = true
+                scope.launch {
+                    activeHighlightMedia = app.profileInspector.fetchHighlightMediaOnDemand(hl)
+                    isLoadingHighlightMedia = false
+                }
+            },
+            onNavigateToSession = onNavigateToSession,
+            onDismiss = {
+                activeHighlight = null
+                isLoadingHighlightMedia = false
+            }
         )
     }
 

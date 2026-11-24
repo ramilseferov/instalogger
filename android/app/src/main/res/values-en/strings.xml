@@ -276,4 +276,11 @@
     <string name="download_stage_cancelled">Download cancelled</string>
     <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
     <string name="msg_ytdlp_update_failed">yt-dlp update failed: %1$s</string>
+
+    <!-- Highlights & Story Viewer -->
+    <string name="highlight_loading_stories">Loading highlight stories…</string>
+    <string name="highlight_session_required_title">Session Required for Story Items</string>
+    <string name="highlight_session_required_desc">Instagram requires a logged-in session to load story photos and videos inside highlights. Connect a session to view and archive them.</string>
+    <string name="highlight_empty_title">No Highlight Items Found</string>
+    <string name="highlight_empty_desc">Stories inside this highlight could not be loaded right now. Try refreshing.</string>
 </resources>

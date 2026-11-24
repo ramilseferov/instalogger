@@ -332,4 +332,11 @@
     <string name="download_stage_cancelled">Загрузка отменена</string>
     <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
     <string name="msg_ytdlp_update_failed">Ошибка обновления yt-dlp: %1$s</string>
+
+    <!-- Highlights & Story Viewer -->
+    <string name="highlight_loading_stories">Загрузка историй из актуального…</string>
+    <string name="highlight_session_required_title">Требуется сессия для историй</string>
+    <string name="highlight_session_required_desc">Instagram требует активную сессию для загрузки фото и видео внутри актуального. Подключите сессию для просмотра и архивации.</string>
+    <string name="highlight_empty_title">Истории не найдены</string>
+    <string name="highlight_empty_desc">Не удалось загрузить элементы этого альбома актуального. Попробуйте обновить.</string>
 </resources>

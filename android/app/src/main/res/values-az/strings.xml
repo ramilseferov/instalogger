@@ -346,4 +346,11 @@
     <string name="download_stage_cancelled">Endirmə ləğv edildi</string>
     <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
     <string name="msg_ytdlp_update_failed">yt-dlp yenilənmə xətası: %1$s</string>
+
+    <!-- Highlights & Story Viewer -->
+    <string name="highlight_loading_stories">Highlight hekayələri yüklənir…</string>
+    <string name="highlight_session_required_title">Hekayələr üçün Sessiya Tələb Olunur</string>
+    <string name="highlight_session_required_desc">Instagram highlight albomlarının daxilindəki foto və videoları göstərmək üçün giriş sessiyası tələb edir. Baxmaq və arxivləmək üçün sessiya qoşun.</string>
+    <string name="highlight_empty_title">Hekayə Elementi Tapılmadı</string>
+    <string name="highlight_empty_desc">Bu highlight daxilindəki hekayələr hazırda yüklənə bilmədi. Yenidən cəhd edin.</string>
 </resources>

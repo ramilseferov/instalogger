@@ -1363,89 +1363,61 @@ class ProfileInspector(
         }
 
         try {
-            // 2. Fetch highlights list if targetId is available
+            // 2. Fetch highlights list (works with v1 API when authenticated AND zero-login Desktop SSR by username)
             var hlCount = 0
-            if (!effectiveTargetId.isNullOrBlank()) {
-                val highlights = instagramEngine.fetchUserHighlights(effectiveTargetId, effectiveCookie)
-                if (highlights.isNotEmpty()) {
-                    hlCount = highlights.size
-                    val highlightDao = database.highlightDao()
-                    val highlightEntities = mutableListOf<HighlightEntity>()
-                    val mediaEntities = mutableListOf<HighlightMediaEntity>()
+            val highlights = instagramEngine.fetchUserHighlights(
+                userId = effectiveTargetId,
+                cookieString = effectiveCookie,
+                username = cleanUser
+            )
+            if (highlights.isNotEmpty()) {
+                hlCount = highlights.size
+                val highlightDao = database.highlightDao()
+                val highlightEntities = mutableListOf<HighlightEntity>()
 
-                    val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
-                    archiveDir.mkdirs()
-                    ArchiveDirectoryManager.ensureNoMedia(archiveDir)
-                    val internalDir = File(context.filesDir, "highlights/$cleanUser")
-                    internalDir.mkdirs()
-                    ArchiveDirectoryManager.ensureNoMedia(internalDir)
-                    val vaultManager = VaultStorageManager.getInstance(context)
+                val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
+                archiveDir.mkdirs()
+                ArchiveDirectoryManager.ensureNoMedia(archiveDir)
+                val vaultManager = VaultStorageManager.getInstance(context)
 
-                    for (hl in highlights) {
-                        var localCover: String? = null
-                        if (!hl.coverUrl.isNullOrBlank()) {
-                            val coverFile = File(archiveDir, "${hl.id.replace(":", "_")}_cover.jpg")
-                            if (!coverFile.exists() || coverFile.length() == 0L) {
-                                instagramEngine.downloadMedia(hl.coverUrl, coverFile)
-                            }
-                            if (coverFile.exists() && coverFile.length() > 0L) {
-                                val bytes = coverFile.readBytes()
-                                val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", coverFile.name, bytes)
+                // Phase A: Archive covers & immediately insert highlight circles so the UI tray appears at once
+                for (hl in highlights) {
+                    var localCover: String? = null
+                    if (!hl.coverUrl.isNullOrBlank()) {
+                        val safeId = hl.id.replace(":", "_")
+                        val coverFile = File(archiveDir, "${safeId}_cover.jpg")
+                        if (!coverFile.exists() || coverFile.length() == 0L) {
+                            instagramEngine.downloadMedia(hl.coverUrl, coverFile)
+                        }
+                        if (coverFile.exists() && coverFile.length() > 0L) {
+                            val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(coverFile)
+                            if (valid != null && !valid.isVideo) {
+                                val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", coverFile.name, coverFile.readBytes())
                                 localCover = encCover.absolutePath
                             }
                         }
+                    }
 
-                        highlightEntities.add(
-                            HighlightEntity(
-                                id = hl.id,
-                                username = cleanUser,
-                                title = hl.title.cleanDisplayText(),
-                                coverUrl = hl.coverUrl ?: "",
-                                localCoverPath = localCover,
-                                mediaCount = hl.mediaCount,
-                                archivedAt = System.currentTimeMillis()
-                            )
+                    highlightEntities.add(
+                        HighlightEntity(
+                            id = hl.id,
+                            username = cleanUser,
+                            title = hl.title.cleanDisplayText(),
+                            coverUrl = hl.coverUrl ?: "",
+                            localCoverPath = localCover,
+                            mediaCount = hl.mediaCount,
+                            archivedAt = System.currentTimeMillis()
                         )
+                    )
+                }
 
-                        // Fetch stories for this highlight
-                        val stories = instagramEngine.fetchHighlightStories(hl.id, effectiveCookie)
-                        for (story in stories) {
-                            val ext = if (story.mediaType == "video") "mp4" else "jpg"
-                            val fileName = "${hl.id.replace(":", "_")}_${story.id}.$ext"
-                            val mediaFile = File(archiveDir, fileName)
+                if (highlightEntities.isNotEmpty()) {
+                    highlightDao.insertHighlights(highlightEntities)
+                }
 
-                            if (!mediaFile.exists() || mediaFile.length() == 0L) {
-                                instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
-                            }
-
-                            val localPath = if (mediaFile.exists() && mediaFile.length() > 0L) {
-                                val bytes = mediaFile.readBytes()
-                                val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, bytes)
-                                encMedia.absolutePath
-                            } else {
-                                story.mediaUrl
-                            }
-
-                            mediaEntities.add(
-                                HighlightMediaEntity(
-                                    id = story.id,
-                                    highlightId = hl.id,
-                                    username = cleanUser,
-                                    mediaType = story.mediaType,
-                                    mediaUrl = story.mediaUrl,
-                                    localPath = localPath,
-                                    takenAt = story.takenAt
-                                )
-                            )
-                        }
-                    }
-
-                    if (highlightEntities.isNotEmpty()) {
-                        highlightDao.insertHighlights(highlightEntities)
-                    }
-                    if (mediaEntities.isNotEmpty()) {
-                        highlightDao.insertHighlightMedia(mediaEntities)
-                    }
+                // Phase B: Archive stories for each highlight into encrypted Vault
+                for (hlEntity in highlightEntities) {
+                    archiveHighlightStoriesForEntity(hlEntity, effectiveCookie)
                 }
             }
 
@@ -1570,6 +1542,71 @@ class ProfileInspector(
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
             Log.w("ProfileInspector", "Failed to archive highlights and posts for @$cleanUser: ${e.message}")
         }
+    }
+
+    private suspend fun archiveHighlightStoriesForEntity(
+        highlight: HighlightEntity,
+        cookie: String?
+    ): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
+        val cleanUser = highlight.username.trim().trimStart('@').lowercase()
+        val stories = instagramEngine.fetchHighlightStories(highlight.id, cookie)
+        if (stories.isEmpty()) return@withContext emptyList()
+
+        val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
+        archiveDir.mkdirs()
+        ArchiveDirectoryManager.ensureNoMedia(archiveDir)
+        val vaultManager = VaultStorageManager.getInstance(context)
+        val safeHlId = highlight.id.replace(":", "_")
+        val mediaEntities = mutableListOf<HighlightMediaEntity>()
+
+        for (story in stories) {
+            val ext = if (story.mediaType == "video") "mp4" else "jpg"
+            val fileName = "${safeHlId}_${story.id}.$ext"
+            val mediaFile = File(archiveDir, fileName)
+
+            if (!mediaFile.exists() || mediaFile.length() == 0L) {
+                if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
+                    instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
+                }
+            }
+
+            val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(mediaFile)
+            val localPath = if (valid != null) {
+                val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, mediaFile.readBytes())
+                encMedia.absolutePath
+            } else {
+                story.mediaUrl
+            }
+
+            mediaEntities.add(
+                HighlightMediaEntity(
+                    id = story.id,
+                    highlightId = highlight.id,
+                    username = cleanUser,
+                    mediaType = if (valid != null) (if (valid.isVideo) "video" else "image") else story.mediaType,
+                    mediaUrl = story.mediaUrl,
+                    localPath = localPath,
+                    takenAt = story.takenAt
+                )
+            )
+        }
+
+        if (mediaEntities.isNotEmpty()) {
+            val dao = database.highlightDao()
+            dao.insertHighlightMedia(mediaEntities)
+            if (highlight.mediaCount < mediaEntities.size) {
+                dao.insertHighlights(listOf(highlight.copy(mediaCount = mediaEntities.size)))
+            }
+        }
+        mediaEntities
+    }
+
+    suspend fun fetchHighlightMediaOnDemand(highlight: HighlightEntity): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
+        val cached = database.highlightDao().getMediaListForHighlight(highlight.id)
+        if (cached.isNotEmpty()) return@withContext cached
+        val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
+        val fresh = archiveHighlightStoriesForEntity(highlight, cookie)
+        if (fresh.isNotEmpty()) fresh else database.highlightDao().getMediaListForHighlight(highlight.id)
     }
 
     suspend fun inspectHighlightsAndPosts(username: String): Boolean = withContext(Dispatchers.IO) {
