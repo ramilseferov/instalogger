@@ -57,20 +57,21 @@ class VaultStorageManager private constructor(context: Context) {
     }
 
     fun encryptBytes(plaintext: ByteArray): ByteArray {
-        val iv = ByteArray(GCM_IV_LENGTH)
-        secureRandom.nextBytes(iv)
-
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-        cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(), spec)
+        // Android KeyStore enforces randomizedEncryptionRequired=true and generates the 12-byte GCM IV itself
+        cipher.init(Cipher.ENCRYPT_MODE, getSecretKey())
+        val iv = cipher.iv
+        require(iv != null && iv.size == GCM_IV_LENGTH) {
+            "Unexpected KeyStore GCM IV length: ${iv?.size}"
+        }
 
         val ciphertext = cipher.doFinal(plaintext)
 
         // Output format: [4 bytes MAGIC][12 bytes IV][CIPHERTEXT + 16 bytes TAG]
-        val result = ByteArray(MAGIC_HEADER.size + GCM_IV_LENGTH + ciphertext.size)
+        val result = ByteArray(MAGIC_HEADER.size + iv.size + ciphertext.size)
         System.arraycopy(MAGIC_HEADER, 0, result, 0, MAGIC_HEADER.size)
-        System.arraycopy(iv, 0, result, MAGIC_HEADER.size, GCM_IV_LENGTH)
-        System.arraycopy(ciphertext, 0, result, MAGIC_HEADER.size + GCM_IV_LENGTH, ciphertext.size)
+        System.arraycopy(iv, 0, result, MAGIC_HEADER.size, iv.size)
+        System.arraycopy(ciphertext, 0, result, MAGIC_HEADER.size + iv.size, ciphertext.size)
 
         return result
     }
