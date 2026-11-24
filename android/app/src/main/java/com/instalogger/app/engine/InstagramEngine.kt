@@ -115,6 +115,36 @@ class InstagramEngine(context: Context? = null) {
         return if (matcher.find()) matcher.group(1) else null
     }
 
+    internal fun extractDsUserId(cookieString: String?): String? {
+        if (cookieString.isNullOrBlank()) return null
+        val matcher = Pattern.compile("(?:^|;\\s*)ds_user_id=(\\d+)").matcher(cookieString)
+        return if (matcher.find()) matcher.group(1) else null
+    }
+
+    private fun applyAuthenticatedApiHeaders(
+        builder: Request.Builder,
+        cookieString: String,
+        referer: String,
+        userAgent: String = DESKTOP_CHROME_UA
+    ): Request.Builder {
+        builder
+            .header("User-Agent", userAgent)
+            .header("X-IG-App-ID", APP_ID)
+            .header("X-ASBD-ID", ASBD_ID)
+            .header("X-IG-WWW-Claim", "0")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Origin", "https://www.instagram.com")
+            .header("Referer", referer)
+            .header("Accept", "*/*")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Sec-Fetch-Dest", "empty")
+            .header("Sec-Fetch-Mode", "cors")
+            .header("Sec-Fetch-Site", "same-origin")
+            .header("Cookie", cookieString)
+        extractCsrfToken(cookieString)?.let { builder.header("X-CSRFToken", it) }
+        return builder
+    }
+
     private fun getOrFetchGuestCookies(): String? {
         val now = System.currentTimeMillis()
         val cached = cachedGuestCookies
@@ -184,27 +214,47 @@ class InstagramEngine(context: Context? = null) {
     fun fetchProfile(username: String, cookieString: String?): Result<InstagramProfileSnapshot> {
         val cleanUsername = username.trim().trimStart('@')
 
-        // 1. First attempt: Direct Navigation HTML Scraping (Browser navigation mode extracts embedded GraphQL queries)
+        // 1. First attempt: ZERO-LOGIN Anonymous Desktop SSR HTML (NEVER sends session cookie,
+        //    so logged-in viewer metadata can NEVER poison tracked targets' names, IDs, or avatars)
+        var bestSnapshot: InstagramProfileSnapshot? = null
         try {
-            val htmlSnapshot = fetchViaHtml(cleanUsername, cookieString)
+            val htmlSnapshot = fetchViaHtml(cleanUsername)
             if (htmlSnapshot != null) {
-                return Result.success(htmlSnapshot)
+                bestSnapshot = htmlSnapshot
+                // If we got complete public metadata (ID + counts or name), return immediately without touching user's session!
+                if (!htmlSnapshot.instagramId.isNullOrBlank() &&
+                    (htmlSnapshot.followersCount > 0L || htmlSnapshot.followingCount > 0L || htmlSnapshot.fullName.isNotBlank())
+                ) {
+                    return Result.success(htmlSnapshot)
+                }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "HTML navigation attempt failed for @$cleanUsername: ${e.message}")
+            Log.w(TAG, "Zero-login HTML navigation attempt failed for @$cleanUsername: ${e.message}")
         }
 
-        // 2. Second attempt: Instagram Web Profile Info API
+        // 2. Second attempt: ZERO-LOGIN Guest Web Profile Info API
         try {
-            val apiSnapshot = fetchViaWebApi(cleanUsername, cookieString)
-            if (apiSnapshot != null) {
-                return Result.success(apiSnapshot)
+            val guestApiSnapshot = fetchViaWebApi(cleanUsername, cookieString = null)
+            if (guestApiSnapshot != null) {
+                return Result.success(guestApiSnapshot)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Web API attempt failed for @$cleanUsername: ${e.message}")
+            Log.w(TAG, "Guest Web API attempt failed for @$cleanUsername: ${e.message}")
         }
 
-        // 3. Third attempt: GraphQL Hash-based Query Fallback
+        // 3. Third attempt: Authenticated Web Profile Info API (ONLY fallback when anonymous tiers failed or were incomplete)
+        if (!cookieString.isNullOrBlank()) {
+            try {
+                val authApiSnapshot = fetchViaWebApi(cleanUsername, cookieString = cookieString)
+                if (authApiSnapshot != null) {
+                    return Result.success(authApiSnapshot)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Authenticated Web API attempt failed for @$cleanUsername: ${e.message}")
+            }
+        }
+
+        // 4. Fourth attempt: GraphQL Hash fallback (strict username match)
         try {
             val hashSnapshot = fetchViaGraphQLHash(cleanUsername, cookieString)
             if (hashSnapshot != null) {
@@ -214,114 +264,210 @@ class InstagramEngine(context: Context? = null) {
             Log.w(TAG, "GraphQL Hash attempt failed for @$cleanUsername: ${e.message}")
         }
 
+        if (bestSnapshot != null) {
+            return Result.success(bestSnapshot)
+        }
+
         return Result.failure(Exception("Profil məlumatları alına bilmədi. İnternet əlaqəsini və ya Instagram sessiyasını yoxlayın."))
     }
 
-    private fun fetchViaHtml(username: String, cookieString: String?): InstagramProfileSnapshot? {
+    /**
+     * Parses structured <script type="application/json"> Desktop SSR user payload strictly matching
+     * the requested target username, preferring numeric REST `pk` over 17-digit GraphQL `id`.
+     */
+    internal fun parseProfileFromSsrHtml(html: String, targetUsername: String): InstagramProfileSnapshot? {
+        val cleanTarget = targetUsername.trim().trimStart('@').lowercase()
+        var matchedUser: JsonObject? = null
+        var bestScore = -1
+
+        fun scoreUserObj(obj: JsonObject): Int {
+            var score = 0
+            if (obj.has("pk")) score += 4
+            if (obj.has("follower_count") || obj.has("edge_followed_by")) score += 4
+            if (obj.has("following_count") || obj.has("edge_follow")) score += 2
+            if (obj.has("full_name")) score += 2
+            if (obj.has("biography")) score += 2
+            if (obj.has("profile_pic_url_hd") || obj.has("hd_profile_pic_url_info") || obj.has("profile_pic_url")) score += 2
+            if (obj.has("latest_reel_media")) score += 2
+            if (obj.has("media_count") || obj.has("edge_owner_to_timeline_media")) score += 1
+            return score
+        }
+
+        fun walk(elem: JsonElement?) {
+            if (elem == null) return
+            when {
+                elem.isJsonObject -> {
+                    val obj = elem.asJsonObject
+                    val uName = obj.get("username")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString?.trim()?.lowercase()
+                    if (uName == cleanTarget) {
+                        val s = scoreUserObj(obj)
+                        if (s > bestScore) {
+                            bestScore = s
+                            matchedUser = obj
+                        }
+                    }
+                    for ((_, v) in obj.entrySet()) {
+                        walk(v)
+                    }
+                }
+                elem.isJsonArray -> {
+                    for (child in elem.asJsonArray) {
+                        walk(child)
+                    }
+                }
+            }
+        }
+
+        val scriptPattern = Pattern.compile("<script[^>]*type=\"application/json\"[^>]*>(.*?)</script>", Pattern.DOTALL)
+        val matcher = scriptPattern.matcher(html)
+        while (matcher.find()) {
+            val raw = matcher.group(1) ?: continue
+            if (!raw.contains(cleanTarget, ignoreCase = true)) continue
+            try {
+                walk(gson.fromJson(raw, JsonElement::class.java))
+            } catch (_: Exception) {
+            }
+        }
+
+        val user = matchedUser ?: return null
+        val pk = user.get("pk")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString?.takeIf { it.all(Char::isDigit) }
+        val fallbackId = user.get("id")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString?.takeIf { it.all(Char::isDigit) }
+        val resolvedId = pk ?: fallbackId
+
+        val fullName = user.get("full_name")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString?.cleanDisplayText().orEmpty()
+        val bio = user.get("biography")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString?.cleanDisplayText().orEmpty()
+        val isPrivate = user.get("is_private")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asBoolean ?: false
+        val followers = user.get("follower_count")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asLong
+            ?: user.getAsJsonObject("edge_followed_by")?.get("count")?.takeIf { !it.isJsonNull }?.asLong
+            ?: 0L
+        val following = user.get("following_count")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asLong
+            ?: user.getAsJsonObject("edge_follow")?.get("count")?.takeIf { !it.isJsonNull }?.asLong
+            ?: 0L
+        val mediaCount = user.get("media_count")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asLong
+            ?: user.getAsJsonObject("edge_owner_to_timeline_media")?.get("count")?.takeIf { !it.isJsonNull }?.asLong
+            ?: 0L
+        val picUrl = user.getAsJsonObject("hd_profile_pic_url_info")?.get("url")?.takeIf { !it.isJsonNull }?.asString
+            ?: user.get("profile_pic_url_hd")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString
+            ?: user.get("profile_pic_url")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asString
+        val latestReelSec = user.get("latest_reel_media")?.takeIf { !it.isJsonNull && it.isJsonPrimitive }?.asLong ?: 0L
+
+        return InstagramProfileSnapshot(
+            username = targetUsername,
+            instagramId = resolvedId,
+            fullName = fullName,
+            biography = bio,
+            isPrivate = isPrivate,
+            followersCount = followers,
+            followingCount = following,
+            mediaCount = mediaCount,
+            profilePicUrl = picUrl,
+            latestStoryAt = if (latestReelSec > 0L) latestReelSec * 1000L else 0L
+        )
+    }
+
+    private fun fetchViaHtml(username: String): InstagramProfileSnapshot? {
         val url = "https://www.instagram.com/$username/"
         val requestBuilder = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+            .header("User-Agent", DESKTOP_CHROME_UA)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
             .header("Sec-Fetch-Dest", "document")
             .header("Sec-Fetch-Mode", "navigate")
             .header("Sec-Fetch-Site", "none")
 
-        if (!cookieString.isNullOrBlank()) {
-            requestBuilder.header("Cookie", cookieString)
-        }
-
+        // Strictly zero-login: NEVER attach logged-in user cookies to HTML profile scraping!
         client.newCall(requestBuilder.build()).execute().use { response ->
             if (response.code != 200) return null
             val html = response.body?.string() ?: return null
 
-            var followers = 0L
-            var following = 0L
-            var posts = 0L
-            var id: String? = null
-            var fullName = ""
-            var bio = ""
-            var isPrivate = false
-            var picUrl: String? = null
+            // Prefer exact structured SSR user JSON matched strictly by target username
+            val structured = parseProfileFromSsrHtml(html, username)
 
-            // 1. Extract follower_count
-            val followerPattern = Pattern.compile("\"follower_count\":\\s*(\\d+)")
-            val followerMatcher = followerPattern.matcher(html)
-            if (followerMatcher.find()) {
-                followers = followerMatcher.group(1)?.toLongOrNull() ?: 0L
-            }
+            var followers = structured?.followersCount ?: 0L
+            var following = structured?.followingCount ?: 0L
+            var posts = structured?.mediaCount ?: 0L
+            var id: String? = structured?.instagramId
+            var fullName = structured?.fullName.orEmpty()
+            var bio = structured?.biography.orEmpty()
+            var isPrivate = structured?.isPrivate ?: false
+            var picUrl: String? = structured?.profilePicUrl
+            var latestStoryAt = structured?.latestStoryAt ?: 0L
 
-            // 2. Extract following_count
-            val followingPattern = Pattern.compile("\"following_count\":\\s*(\\d+)")
-            val followingMatcher = followingPattern.matcher(html)
-            if (followingMatcher.find()) {
-                following = followingMatcher.group(1)?.toLongOrNull() ?: 0L
-            }
+            if (structured == null) {
+                // 1. Extract follower_count
+                val followerMatcher = Pattern.compile("\"follower_count\":\\s*(\\d+)").matcher(html)
+                if (followerMatcher.find()) {
+                    followers = followerMatcher.group(1)?.toLongOrNull() ?: 0L
+                }
 
-            // 3. Extract pk / ID (multi-pattern fallback)
-            val pkPatterns = listOf(
-                Pattern.compile("\"pk\":\\s*\"?(\\d+)\"?"),
-                Pattern.compile("\"profile_id\":\\s*\"?(\\d+)\"?"),
-                Pattern.compile("\"id\":\\s*\"?(\\d{6,})\"?"),
-                Pattern.compile("<meta\\s+property=\"instapp:owner_user_id\"\\s+content=\"(\\d+)\""),
-                Pattern.compile("<meta\\s+property=\"al:ios:url\"\\s+content=\"instagram://user\\?id=(\\d+)\""),
-                Pattern.compile("instagram://user\\?id=(\\d+)"),
-                Pattern.compile("\"owner\":\\s*\\{\\s*\"id\":\\s*\"?(\\d+)\"?")
-            )
-            for (p in pkPatterns) {
-                val m = p.matcher(html)
-                if (m.find()) {
-                    id = m.group(1)
-                    if (!id.isNullOrBlank()) break
+                // 2. Extract following_count
+                val followingMatcher = Pattern.compile("\"following_count\":\\s*(\\d+)").matcher(html)
+                if (followingMatcher.find()) {
+                    following = followingMatcher.group(1)?.toLongOrNull() ?: 0L
+                }
+
+                // 3. Extract pk / ID (multi-pattern fallback)
+                val pkPatterns = listOf(
+                    Pattern.compile("\"pk\":\\s*\"?(\\d+)\"?"),
+                    Pattern.compile("\"profile_id\":\\s*\"?(\\d+)\"?"),
+                    Pattern.compile("<meta\\s+property=\"instapp:owner_user_id\"\\s+content=\"(\\d+)\""),
+                    Pattern.compile("<meta\\s+property=\"al:ios:url\"\\s+content=\"instagram://user\\?id=(\\d+)\""),
+                    Pattern.compile("instagram://user\\?id=(\\d+)"),
+                    Pattern.compile("\"owner\":\\s*\\{\\s*\"id\":\\s*\"?(\\d+)\"?")
+                )
+                for (p in pkPatterns) {
+                    val m = p.matcher(html)
+                    if (m.find()) {
+                        id = m.group(1)
+                        if (!id.isNullOrBlank()) break
+                    }
+                }
+
+                // 4. Extract is_private
+                val privateMatcher = Pattern.compile("\"is_private\":\\s*(true|false)").matcher(html)
+                if (privateMatcher.find()) {
+                    isPrivate = privateMatcher.group(1).equals("true", ignoreCase = true)
+                }
+
+                // 5. Extract full_name
+                val nameMatcher = Pattern.compile("\"full_name\":\\s*\"([^\"]*)\"").matcher(html)
+                if (nameMatcher.find()) {
+                    fullName = unescapeJson(nameMatcher.group(1) ?: "")
+                }
+
+                // 6. Extract biography
+                val bioMatcher = Pattern.compile("\"biography\":\\s*\"([^\"]*)\"").matcher(html)
+                if (bioMatcher.find()) {
+                    bio = unescapeJson(bioMatcher.group(1) ?: "")
+                }
+
+                // 7. Extract profile_pic_url
+                val picMatcher = Pattern.compile("\"profile_pic_url_hd\":\"([^\"]+)\"|\"profile_pic_url\":\"([^\"]+)\"").matcher(html)
+                if (picMatcher.find()) {
+                    val rawUrl = picMatcher.group(1) ?: picMatcher.group(2)
+                    if (rawUrl != null) {
+                        picUrl = unescapeJson(rawUrl)
+                    }
                 }
             }
 
-            // 4. Extract is_private
-            val privatePattern = Pattern.compile("\"is_private\":\\s*(true|false)")
-            val privateMatcher = privatePattern.matcher(html)
-            if (privateMatcher.find()) {
-                isPrivate = privateMatcher.group(1).equals("true", ignoreCase = true)
-            }
-
-            // 5. Extract full_name
-            val namePattern = Pattern.compile("\"full_name\":\\s*\"([^\"]*)\"")
-            val nameMatcher = namePattern.matcher(html)
-            if (nameMatcher.find()) {
-                fullName = unescapeJson(nameMatcher.group(1) ?: "")
-            }
-
-            // 6. Extract biography
-            val bioPattern = Pattern.compile("\"biography\":\\s*\"([^\"]*)\"")
-            val bioMatcher = bioPattern.matcher(html)
-            if (bioMatcher.find()) {
-                bio = unescapeJson(bioMatcher.group(1) ?: "")
-            }
-
-            // 7. Extract profile_pic_url
-            val picPattern = Pattern.compile("\"profile_pic_url_hd\":\"([^\"]+)\"|\"profile_pic_url\":\"([^\"]+)\"")
-            val picMatcher = picPattern.matcher(html)
-            if (picMatcher.find()) {
-                val rawUrl = picMatcher.group(1) ?: picMatcher.group(2)
-                if (rawUrl != null) {
-                    picUrl = unescapeJson(rawUrl)
-                }
-            }
-
-            // 8. Extract media / post count (multi-pattern fallback)
-            val mediaPatterns = listOf(
-                Pattern.compile("\"edge_owner_to_timeline_media\":\\s*\\{\\s*\"count\":\\s*(\\d+)"),
-                Pattern.compile("\"media_count\":\\s*(\\d+)"),
-                Pattern.compile("\"posts_count\":\\s*(\\d+)"),
-                Pattern.compile("\"edge_felix_video_timeline\":\\s*\\{\\s*\"count\":\\s*(\\d+)")
-            )
-            for (p in mediaPatterns) {
-                val m = p.matcher(html)
-                if (m.find()) {
-                    val countVal = m.group(1)?.toLongOrNull() ?: 0L
-                    if (countVal > 0L) {
-                        posts = countVal
-                        break
+            // 8. Extract media / post count if still missing
+            if (posts == 0L) {
+                val mediaPatterns = listOf(
+                    Pattern.compile("\"edge_owner_to_timeline_media\":\\s*\\{\\s*\"count\":\\s*(\\d+)"),
+                    Pattern.compile("\"media_count\":\\s*(\\d+)"),
+                    Pattern.compile("\"posts_count\":\\s*(\\d+)"),
+                    Pattern.compile("\"edge_felix_video_timeline\":\\s*\\{\\s*\"count\":\\s*(\\d+)")
+                )
+                for (p in mediaPatterns) {
+                    val m = p.matcher(html)
+                    if (m.find()) {
+                        val countVal = m.group(1)?.toLongOrNull() ?: 0L
+                        if (countVal > 0L) {
+                            posts = countVal
+                            break
+                        }
                     }
                 }
             }
@@ -336,7 +482,6 @@ class InstagramEngine(context: Context? = null) {
                     val descMatcher = dp.matcher(html)
                     if (descMatcher.find()) {
                         val desc = descMatcher.group(1) ?: ""
-                        // 1) Match multilingual or standard count formats: "X Followers, Y Following, Z Posts"
                         val countPattern = Pattern.compile("([\\d,.]+[KkMmBb]?)\\s+(?:Followers|Takipçi|Подписчик|İzləyici)[^,;]*[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+(?:Following|Takip|Подписк|İzlənilən)[^,;]*[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+(?:Posts|Gönderi|Публикац|Paylaşım)", Pattern.CASE_INSENSITIVE)
                         val countMatcher = countPattern.matcher(desc)
                         if (countMatcher.find()) {
@@ -345,7 +490,6 @@ class InstagramEngine(context: Context? = null) {
                             if (posts == 0L) posts = parseFormattedNumber(countMatcher.group(3) ?: "0")
                             break
                         } else {
-                            // 2) Generic 3-part fallback: "X ..., Y ..., Z ..."
                             val genericPattern = Pattern.compile("([\\d,.]+[KkMmBb]?)\\s+[^,;]+[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+[^,;]+[,;]\\s*([\\d,.]+[KkMmBb]?)\\s+", Pattern.CASE_INSENSITIVE)
                             val gm = genericPattern.matcher(desc)
                             if (gm.find()) {
@@ -360,21 +504,21 @@ class InstagramEngine(context: Context? = null) {
             }
 
             if (fullName.isBlank()) {
-                val titlePattern = Pattern.compile("<meta\\s+property=\"og:title\"\\s+content=\"([^\"]+)\"")
-                val titleMatcher = titlePattern.matcher(html)
+                val titleMatcher = Pattern.compile("<meta\\s+property=\"og:title\"\\s+content=\"([^\"]+)\"").matcher(html)
                 if (titleMatcher.find()) {
                     val title = titleMatcher.group(1) ?: ""
                     fullName = title.substringBefore("(").trim()
                 }
             }
 
-            // 10. Extract active 24h story signal ("latest_reel_media": <epoch_sec>)
-            var latestStoryAt = 0L
-            val storyMatcher = Pattern.compile("\"latest_reel_media\"\\s*:\\s*(\\d+)").matcher(html)
-            if (storyMatcher.find()) {
-                val sec = storyMatcher.group(1)?.toLongOrNull() ?: 0L
-                if (sec > 0L) {
-                    latestStoryAt = sec * 1000L
+            // 10. Extract active 24h story signal if structured payload omitted it
+            if (latestStoryAt == 0L && structured == null) {
+                val storyMatcher = Pattern.compile("\"latest_reel_media\"\\s*:\\s*(\\d+)").matcher(html)
+                if (storyMatcher.find()) {
+                    val sec = storyMatcher.group(1)?.toLongOrNull() ?: 0L
+                    if (sec > 0L) {
+                        latestStoryAt = sec * 1000L
+                    }
                 }
             }
 
@@ -396,35 +540,48 @@ class InstagramEngine(context: Context? = null) {
     private fun fetchViaWebApi(username: String, cookieString: String?): InstagramProfileSnapshot? {
         val url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=$username"
         val effectiveCookie = if (!cookieString.isNullOrBlank()) cookieString else getOrFetchGuestCookies()
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .header("User-Agent", DESKTOP_CHROME_UA)
-            .header("X-IG-App-ID", APP_ID)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", "https://www.instagram.com/$username/")
-            .header("Accept", "*/*")
+        val requestBuilder = Request.Builder().url(url)
 
         if (!effectiveCookie.isNullOrBlank()) {
-            requestBuilder.header("Cookie", effectiveCookie)
-            extractCsrfToken(effectiveCookie)?.let { requestBuilder.header("X-CSRFToken", it) }
+            applyAuthenticatedApiHeaders(
+                builder = requestBuilder,
+                cookieString = effectiveCookie,
+                referer = "https://www.instagram.com/$username/"
+            )
+        } else {
+            requestBuilder
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("X-IG-App-ID", APP_ID)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Referer", "https://www.instagram.com/$username/")
+                .header("Accept", "*/*")
         }
 
         clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) return null
             val body = response.body?.string() ?: return null
+            if (!body.startsWith("{")) return null
 
             val root = gson.fromJson(body, JsonObject::class.java) ?: return null
             val data = root.getAsJsonObject("data") ?: return null
             val user = data.getAsJsonObject("user") ?: return null
 
-            val id = user.get("id")?.asString
-            val fullName = user.get("full_name")?.asString ?: ""
-            val bio = user.get("biography")?.asString ?: ""
-            val isPrivate = user.get("is_private")?.asBoolean ?: false
-            val followers = user.getAsJsonObject("edge_followed_by")?.get("count")?.asLong ?: 0L
-            val following = user.getAsJsonObject("edge_follow")?.get("count")?.asLong ?: 0L
-            val mediaCount = user.getAsJsonObject("edge_owner_to_timeline_media")?.get("count")?.asLong ?: 0L
-            val picUrl = user.get("profile_pic_url_hd")?.asString ?: user.get("profile_pic_url")?.asString
+            // Strict identity guard: reject any response whose username does not match requested target
+            val returnedUsername = user.get("username")?.takeIf { !it.isJsonNull }?.asString?.trim()
+            if (!returnedUsername.isNullOrBlank() && !returnedUsername.equals(username, ignoreCase = true)) {
+                Log.w(TAG, "web_profile_info username mismatch: requested=@$username got=@$returnedUsername; discarding")
+                return null
+            }
+
+            val id = user.get("id")?.takeIf { !it.isJsonNull }?.asString
+            val fullName = user.get("full_name")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText() ?: ""
+            val bio = user.get("biography")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText() ?: ""
+            val isPrivate = user.get("is_private")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+            val followers = user.getAsJsonObject("edge_followed_by")?.get("count")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            val following = user.getAsJsonObject("edge_follow")?.get("count")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            val mediaCount = user.getAsJsonObject("edge_owner_to_timeline_media")?.get("count")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            val picUrl = user.get("profile_pic_url_hd")?.takeIf { !it.isJsonNull }?.asString
+                ?: user.get("profile_pic_url")?.takeIf { !it.isJsonNull }?.asString
             val latestReelSec = user.get("latest_reel_media")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
             val latestStoryAt = if (latestReelSec > 0L) latestReelSec * 1000L else 0L
 
@@ -463,6 +620,11 @@ class InstagramEngine(context: Context? = null) {
                 val root = gson.fromJson(body, JsonObject::class.java) ?: return null
                 val data = root.getAsJsonObject("data") ?: return null
                 val user = data.getAsJsonObject("user") ?: return null
+
+                val returnedUsername = user.get("username")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                if (!returnedUsername.isNullOrBlank() && !returnedUsername.equals(username, ignoreCase = true)) {
+                    return null
+                }
 
                 val id = user.get("id")?.asString
                 val fullName = user.get("full_name")?.asString ?: ""
@@ -595,20 +757,32 @@ class InstagramEngine(context: Context? = null) {
 
     fun downloadImage(url: String, destFile: File): Long {
         destFile.parentFile?.mkdirs()
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .header("Referer", "https://www.instagram.com/")
-            .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-            .build()
-
-        clientWithRedirects.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return 0L
-            val body = response.body ?: return 0L
-            val bytes = body.bytes()
-            FileOutputStream(destFile).use { it.write(bytes) }
-            return bytes.size.toLong()
+        val attempts = listOf(
+            Request.Builder()
+                .url(url)
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("Referer", "https://www.instagram.com/")
+                .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+                .build(),
+            Request.Builder()
+                .url(url)
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("Accept", "image/*,*/*;q=0.8")
+                .build()
+        )
+        for (request in attempts) {
+            try {
+                clientWithRedirects.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val bytes = response.body?.bytes() ?: return@use
+                    if (bytes.isEmpty()) return@use
+                    FileOutputStream(destFile).use { it.write(bytes) }
+                    return bytes.size.toLong()
+                }
+            } catch (_: Exception) {
+            }
         }
+        return 0L
     }
 
     fun fetchFollowersList(userId: String, cookieString: String?, limit: Int = 50): List<InstagramUserSummary> {
@@ -819,63 +993,15 @@ class InstagramEngine(context: Context? = null) {
     fun fetchUserHighlights(
         userId: String?,
         cookieString: String?,
-        username: String? = null
+        username: String? = null,
+        isPrivate: Boolean = false
     ): List<InstagramHighlight> {
         val cleanUser = username?.trim()?.trimStart('@')?.lowercase().orEmpty()
         val hasSession = !cookieString.isNullOrBlank()
 
-        // Tier 1: Modern Instagram v1 REST Highlights Tray API (best when session + userId exist)
-        if (!userId.isNullOrBlank() && hasSession) {
-            try {
-                val trayUrl = "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/"
-                val reqBuilder = Request.Builder()
-                    .url(trayUrl)
-                    .header("User-Agent", DESKTOP_CHROME_UA)
-                    .header("X-IG-App-ID", APP_ID)
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Referer", if (cleanUser.isNotBlank()) "https://www.instagram.com/$cleanUser/" else "https://www.instagram.com/")
-                    .header("Accept", "*/*")
-                    .header("Cookie", cookieString!!)
-
-                extractCsrfToken(cookieString)?.let { reqBuilder.header("X-CSRFToken", it) }
-
-                clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty()
-                        if (body.startsWith("{")) {
-                            val root = gson.fromJson(body, JsonObject::class.java)
-                            val tray = root?.getAsJsonArray("tray")
-                            if (tray != null && tray.size() > 0) {
-                                val results = mutableListOf<InstagramHighlight>()
-                                for (el in tray) {
-                                    val obj = el.asJsonObject ?: continue
-                                    val id = obj.get("id")?.takeIf { !it.isJsonNull }?.asString ?: continue
-                                    val title = obj.get("title")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText()?.ifBlank { "Highlight" } ?: "Highlight"
-                                    val coverMedia = obj.getAsJsonObject("cover_media")
-                                    val coverUrl = coverMedia?.getAsJsonObject("cropped_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
-                                        ?: coverMedia?.getAsJsonObject("full_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
-                                    val count = obj.get("media_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
-                                    results.add(
-                                        InstagramHighlight(
-                                            id = id,
-                                            title = title,
-                                            coverUrl = coverUrl,
-                                            mediaCount = count
-                                        )
-                                    )
-                                }
-                                if (results.isNotEmpty()) return results
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "v1 highlights tray failed for user $userId: ${e.message}")
-            }
-        }
-
-        // Tier 2: Desktop SSR Polaris lox_highlights_connection (works ZERO-LOGIN on public profiles!)
-        if (cleanUser.isNotBlank()) {
+        // Tier 1 (Public Zero-Login First): Desktop SSR Polaris lox_highlights_connection
+        // Strictly WITHOUT session cookie so Instagram returns SSR highlight trays reliably!
+        if (!isPrivate && cleanUser.isNotBlank()) {
             try {
                 val profileUrl = "https://www.instagram.com/$cleanUser/"
                 val reqBuilder = Request.Builder()
@@ -887,10 +1013,6 @@ class InstagramEngine(context: Context? = null) {
                     .header("Sec-Fetch-Mode", "navigate")
                     .header("Sec-Fetch-Site", "none")
 
-                if (hasSession) {
-                    reqBuilder.header("Cookie", cookieString!!)
-                }
-
                 val html = clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
                     if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
                 }
@@ -899,23 +1021,70 @@ class InstagramEngine(context: Context? = null) {
                     if (ssrHighlights.isNotEmpty()) return ssrHighlights
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Desktop SSR highlights extraction failed for @$cleanUser: ${e.message}")
+                Log.w(TAG, "Zero-login Desktop SSR highlights extraction failed for @$cleanUser: ${e.message}")
+            }
+        }
+
+        // Tier 2: Authenticated Instagram v1 REST Highlights Tray API (required for private profiles & fallback)
+        if (!userId.isNullOrBlank() && hasSession) {
+            val trayUrl = "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/"
+            val referer = if (cleanUser.isNotBlank()) "https://www.instagram.com/$cleanUser/" else "https://www.instagram.com/"
+            for (ua in listOf(DESKTOP_CHROME_UA, WEBVIEW_MOBILE_UA)) {
+                try {
+                    val reqBuilder = applyAuthenticatedApiHeaders(
+                        builder = Request.Builder().url(trayUrl),
+                        cookieString = cookieString!!,
+                        referer = referer,
+                        userAgent = ua
+                    )
+                    clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string().orEmpty()
+                            if (body.startsWith("{")) {
+                                val root = gson.fromJson(body, JsonObject::class.java)
+                                val tray = root?.getAsJsonArray("tray")
+                                if (tray != null && tray.size() > 0) {
+                                    val results = mutableListOf<InstagramHighlight>()
+                                    for (el in tray) {
+                                        val obj = el.asJsonObject ?: continue
+                                        val id = obj.get("id")?.takeIf { !it.isJsonNull }?.asString ?: continue
+                                        val title = obj.get("title")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText()?.ifBlank { "Highlight" } ?: "Highlight"
+                                        val coverMedia = obj.getAsJsonObject("cover_media")
+                                        val coverUrl = coverMedia?.getAsJsonObject("cropped_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
+                                            ?: coverMedia?.getAsJsonObject("full_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
+                                        val count = obj.get("media_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                        results.add(
+                                            InstagramHighlight(
+                                                id = id,
+                                                title = title,
+                                                coverUrl = coverUrl,
+                                                mediaCount = count
+                                            )
+                                        )
+                                    }
+                                    if (results.isNotEmpty()) return results
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "v1 highlights tray failed for user $userId: ${e.message}")
+                }
             }
         }
 
         // Tier 3: Legacy GraphQL query_hash fallback (when userId is available)
         if (userId.isNullOrBlank()) return emptyList()
         val url = "https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables=%7B%22user_id%22%3A%22$userId%22%2C%22include_highlight_reels%22%3Atrue%7D"
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .header("User-Agent", DESKTOP_CHROME_UA)
-            .header("X-IG-App-ID", APP_ID)
-            .header("Referer", "https://www.instagram.com/")
-            .header("Accept", "*/*")
-
+        val requestBuilder = Request.Builder().url(url)
         if (hasSession) {
-            requestBuilder.header("Cookie", cookieString!!)
-            extractCsrfToken(cookieString)?.let { requestBuilder.header("X-CSRFToken", it) }
+            applyAuthenticatedApiHeaders(requestBuilder, cookieString!!, "https://www.instagram.com/")
+        } else {
+            requestBuilder
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("X-IG-App-ID", APP_ID)
+                .header("Referer", "https://www.instagram.com/")
+                .header("Accept", "*/*")
         }
 
         val list = mutableListOf<InstagramHighlight>()
@@ -1026,34 +1195,39 @@ class InstagramEngine(context: Context? = null) {
         val reelKey = "highlight:$numericId"
         val hasSession = !cookieString.isNullOrBlank()
 
-        // Tier 1: Modern Instagram v1 REST reels_media endpoint
-        try {
-            val encodedReelId = URLEncoder.encode(reelKey, "UTF-8")
-            val v1Url = "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId"
-            val reqBuilder = Request.Builder()
-                .url(v1Url)
-                .header("User-Agent", DESKTOP_CHROME_UA)
-                .header("X-IG-App-ID", APP_ID)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Referer", "https://www.instagram.com/stories/highlights/$numericId/")
-                .header("Accept", "*/*")
+        // Tier 1: Modern Instagram v1 REST reels_media endpoint (Desktop UA + Mobile WebView UA retry)
+        val encodedReelId = URLEncoder.encode(reelKey, "UTF-8")
+        val v1Url = "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId"
+        val referer = "https://www.instagram.com/stories/highlights/$numericId/"
+        val uaList = if (hasSession) listOf(DESKTOP_CHROME_UA, WEBVIEW_MOBILE_UA) else listOf(DESKTOP_CHROME_UA)
+        for (ua in uaList) {
+            try {
+                val reqBuilder = Request.Builder().url(v1Url)
+                if (hasSession) {
+                    applyAuthenticatedApiHeaders(reqBuilder, cookieString!!, referer, ua)
+                } else {
+                    reqBuilder
+                        .header("User-Agent", ua)
+                        .header("X-IG-App-ID", APP_ID)
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .header("Referer", referer)
+                        .header("Accept", "*/*")
+                }
 
-            if (hasSession) {
-                reqBuilder.header("Cookie", cookieString!!)
-                extractCsrfToken(cookieString)?.let { reqBuilder.header("X-CSRFToken", it) }
-            }
-
-            clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string().orEmpty()
-                    if (body.startsWith("{")) {
-                        val parsed = parseReelsMediaJson(body, highlightId, reelKey)
-                        if (parsed.isNotEmpty()) return parsed
+                clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string().orEmpty()
+                        if (body.startsWith("{")) {
+                            val parsed = parseReelsMediaJson(body, highlightId, reelKey)
+                            if (parsed.isNotEmpty()) return parsed
+                        }
+                    } else {
+                        Log.w(TAG, "v1 reels_media HTTP ${resp.code} for $highlightId (ua=${ua.take(30)})")
                     }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "v1 reels_media failed for $highlightId: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "v1 reels_media failed for $highlightId: ${e.message}")
         }
 
         // Tier 2: Desktop SSR on /stories/highlights/<numericId>/
@@ -1120,7 +1294,7 @@ class InstagramEngine(context: Context? = null) {
         return list
     }
 
-    private fun parseReelsMediaJson(body: String, highlightId: String, reelKey: String): List<InstagramHighlightItem> {
+    internal fun parseReelsMediaJson(body: String, highlightId: String, reelKey: String): List<InstagramHighlightItem> {
         val list = mutableListOf<InstagramHighlightItem>()
         val root = gson.fromJson(body, JsonObject::class.java) ?: return emptyList()
 
@@ -1138,6 +1312,12 @@ class InstagramEngine(context: Context? = null) {
             reelEl.asJsonObject?.getAsJsonArray("items")?.forEach { el ->
                 el.asJsonObject?.let { parseSingleStoryNode(it, highlightId)?.let(list::add) }
             }
+        }
+        if (list.isNotEmpty()) return list
+
+        // Format C: { "reel": { "items": [...] } } (returned by /api/v1/feed/user/{userId}/story/)
+        root.getAsJsonObject("reel")?.getAsJsonArray("items")?.forEach { el ->
+            el.asJsonObject?.let { parseSingleStoryNode(it, highlightId)?.let(list::add) }
         }
         return list
     }
@@ -1234,34 +1414,50 @@ class InstagramEngine(context: Context? = null) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val virtualHighlightId = "active_story:$cleanUser"
         val hasSession = !cookieString.isNullOrBlank()
+        val viewerDsUserId = extractDsUserId(cookieString)
 
-        // Tier 1: v1 REST reels_media by numeric userId
-        if (!userId.isNullOrBlank() && hasSession) {
-            try {
-                val encodedId = URLEncoder.encode(userId.trim(), "UTF-8")
-                val v1Url = "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedId"
-                val reqBuilder = Request.Builder()
-                    .url(v1Url)
-                    .header("User-Agent", DESKTOP_CHROME_UA)
-                    .header("X-IG-App-ID", APP_ID)
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Referer", "https://www.instagram.com/stories/$cleanUser/")
-                    .header("Accept", "*/*")
-                    .header("Cookie", cookieString!!)
+        // Ensure userId is valid and NOT poisoned by the logged-in viewer's own ds_user_id
+        var resolvedUserId = userId?.trim()?.takeIf { it.isNotBlank() }
+        if (resolvedUserId.isNullOrBlank() || (viewerDsUserId != null && resolvedUserId == viewerDsUserId)) {
+            val freshSnap = try { fetchViaHtml(cleanUser) } catch (_: Exception) { null }
+                ?: try { fetchViaWebApi(cleanUser, cookieString = null) } catch (_: Exception) { null }
+            if (!freshSnap?.instagramId.isNullOrBlank()) {
+                resolvedUserId = freshSnap!!.instagramId
+            }
+        }
 
-                extractCsrfToken(cookieString)?.let { reqBuilder.header("X-CSRFToken", it) }
-
-                clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty()
-                        if (body.startsWith("{")) {
-                            val parsed = parseReelsMediaJson(body, virtualHighlightId, userId.trim())
-                            if (parsed.isNotEmpty()) return parsed
+        // Tier 1A & 1B: Modern v1 REST endpoints (reels_media + dedicated user/{id}/story/) with full headers & UA fallback
+        if (!resolvedUserId.isNullOrBlank() && hasSession) {
+            val encodedId = URLEncoder.encode(resolvedUserId, "UTF-8")
+            val storyUrls = listOf(
+                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedId",
+                "https://www.instagram.com/api/v1/feed/user/$encodedId/story/"
+            )
+            val referer = "https://www.instagram.com/stories/$cleanUser/"
+            for (v1Url in storyUrls) {
+                for (ua in listOf(DESKTOP_CHROME_UA, WEBVIEW_MOBILE_UA)) {
+                    try {
+                        val reqBuilder = applyAuthenticatedApiHeaders(
+                            builder = Request.Builder().url(v1Url),
+                            cookieString = cookieString!!,
+                            referer = referer,
+                            userAgent = ua
+                        )
+                        clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                val body = resp.body?.string().orEmpty()
+                                if (body.startsWith("{")) {
+                                    val parsed = parseReelsMediaJson(body, virtualHighlightId, resolvedUserId)
+                                    if (parsed.isNotEmpty()) return parsed
+                                }
+                            } else {
+                                Log.w(TAG, "v1 active stories HTTP ${resp.code} for @$cleanUser ($v1Url)")
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "v1 active stories failed for @$cleanUser: ${e.message}")
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "v1 active stories failed for @$cleanUser: ${e.message}")
             }
         }
 
@@ -1293,19 +1489,15 @@ class InstagramEngine(context: Context? = null) {
         }
 
         // Tier 3: Legacy GraphQL query_hash fallback
-        if (!userId.isNullOrBlank() && hasSession) {
+        if (!resolvedUserId.isNullOrBlank() && hasSession) {
             try {
-                val encodedIds = URLEncoder.encode("[\"${userId.trim()}\"]", "UTF-8")
+                val encodedIds = URLEncoder.encode("[\"$resolvedUserId\"]", "UTF-8")
                 val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=452461bc5c9e67e8280862c4335b390c&variables=%7B%22reel_ids%22%3A$encodedIds%2C%22precomposed_overlay%22%3Afalse%7D"
-                val reqBuilder = Request.Builder()
-                    .url(gqlUrl)
-                    .header("User-Agent", DESKTOP_CHROME_UA)
-                    .header("X-IG-App-ID", APP_ID)
-                    .header("Referer", "https://www.instagram.com/")
-                    .header("Accept", "*/*")
-                    .header("Cookie", cookieString!!)
-
-                extractCsrfToken(cookieString)?.let { reqBuilder.header("X-CSRFToken", it) }
+                val reqBuilder = applyAuthenticatedApiHeaders(
+                    builder = Request.Builder().url(gqlUrl),
+                    cookieString = cookieString!!,
+                    referer = "https://www.instagram.com/stories/$cleanUser/"
+                )
 
                 clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
                     if (resp.isSuccessful) {
@@ -1346,92 +1538,173 @@ class InstagramEngine(context: Context? = null) {
 
         val list = mutableListOf<InstagramPostItem>()
         var sawRateLimit = false
-        val effectiveCookie = if (hasRealSession) cookieString else getOrFetchGuestCookies()
 
-        // 1. Tier A: Web Profile Info API (Session or Guest Cookie Handshake)
-        try {
-            val url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=$cleanUser"
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", DESKTOP_CHROME_UA)
-                .header("X-IG-App-ID", APP_ID)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Referer", "https://www.instagram.com/$cleanUser/")
-                .header("Accept", "*/*")
-
-            if (!effectiveCookie.isNullOrBlank()) {
-                req.header("Cookie", effectiveCookie)
-                extractCsrfToken(effectiveCookie)?.let { req.header("X-CSRFToken", it) }
+        // 0. Public Zero-Login First: Desktop SSR Relay JSON Extraction (NEVER sends logged-in session cookie!)
+        // Logged-in cookies cause Instagram to serve a client SPA shell without polaris_ordered_timeline_connection.
+        if (!isPrivate) {
+            try {
+                val ssrPosts = fetchPostsViaDesktopSsr(cleanUser, cookieString = null, limit = limit)
+                if (ssrPosts.isNotEmpty()) {
+                    return PostFetchResult.Success(ssrPosts)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Zero-login Desktop SSR post extraction failed for @$cleanUser: ${e.message}")
             }
+        }
 
-            clientWithRedirects.newCall(req.build()).execute().use { response ->
-                when (response.code) {
-                    429 -> sawRateLimit = true
-                    401, 403 -> {
-                        if (isPrivate && !hasRealSession) return PostFetchResult.RequiresSession
-                    }
-                    200 -> {
-                        val body = response.body?.string()
-                        if (body != null) {
-                            val needsLogin = body.contains("/accounts/login/") || body.contains("login_required")
-                            if (!needsLogin) {
-                                val root = gson.fromJson(body, JsonObject::class.java)
-                                val userObj = root?.getAsJsonObject("data")?.getAsJsonObject("user")
-                                val apiPrivate = userObj?.get("is_private")?.asBoolean ?: isPrivate
-                                if (apiPrivate && !hasRealSession) {
-                                    return PostFetchResult.RequiresSession
-                                }
-                                val edges = userObj
-                                    ?.getAsJsonObject("edge_owner_to_timeline_media")
-                                    ?.getAsJsonArray("edges")
-                                if (edges != null && edges.size() > 0) {
-                                    for (edge in edges) {
-                                        if (list.size >= limit) break
-                                        val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
-                                        val id = node.get("id")?.asString ?: continue
-                                        val shortcode = node.get("shortcode")?.asString ?: id
-                                        val isVideo = node.get("is_video")?.asBoolean ?: false
-                                        val displayUrl = node.get("display_url")?.asString ?: ""
-                                        val videoUrl = if (isVideo) node.get("video_url")?.asString else null
-                                        val slides = extractSidecarSlides(node)
-                                        val resolvedMediaType = when {
-                                            slides.size > 1 -> "carousel"
-                                            isVideo -> "video"
-                                            else -> "image"
-                                        }
-                                        val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
-                                        val caption = if (captionEdges != null && captionEdges.size() > 0) {
-                                            captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
-                                        } else ""
-                                        val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
-                                            ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
-                                        val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
-                                        val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
+        // 1. Tier A: Web Profile Info API (Guest cookie first for public profiles; session cookie for private/fallback)
+        val webApiCookies = if (!isPrivate) {
+            listOfNotNull(getOrFetchGuestCookies(), cookieString?.takeIf { it.isNotBlank() }).distinct()
+        } else {
+            listOfNotNull(cookieString?.takeIf { it.isNotBlank() })
+        }
+        for (effectiveCookie in webApiCookies) {
+            try {
+                val url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=$cleanUser"
+                val req = applyAuthenticatedApiHeaders(
+                    builder = Request.Builder().url(url),
+                    cookieString = effectiveCookie,
+                    referer = "https://www.instagram.com/$cleanUser/"
+                )
 
-                                        list.add(
-                                            InstagramPostItem(
-                                                id = shortcode,
-                                                shortcode = shortcode,
-                                                mediaType = resolvedMediaType,
-                                                displayUrl = displayUrl,
-                                                videoUrl = videoUrl,
-                                                caption = caption.cleanDisplayText(),
-                                                timestamp = timestamp * 1000L,
-                                                likeCount = likes,
-                                                commentCount = comments,
-                                                slides = slides
-                                            )
-                                        )
+                clientWithRedirects.newCall(req.build()).execute().use { response ->
+                    when (response.code) {
+                        429 -> sawRateLimit = true
+                        401, 403 -> {
+                            if (isPrivate && !hasRealSession) return PostFetchResult.RequiresSession
+                        }
+                        200 -> {
+                            val body = response.body?.string()
+                            if (body != null && body.startsWith("{")) {
+                                val needsLogin = body.contains("/accounts/login/") || body.contains("login_required")
+                                if (!needsLogin) {
+                                    val root = gson.fromJson(body, JsonObject::class.java)
+                                    val userObj = root?.getAsJsonObject("data")?.getAsJsonObject("user")
+                                    val returnedUsername = userObj?.get("username")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                                    if (!returnedUsername.isNullOrBlank() && !returnedUsername.equals(cleanUser, ignoreCase = true)) {
+                                        return@use
                                     }
-                                    return PostFetchResult.Success(list)
+                                    val apiPrivate = userObj?.get("is_private")?.asBoolean ?: isPrivate
+                                    if (apiPrivate && !hasRealSession) {
+                                        return PostFetchResult.RequiresSession
+                                    }
+                                    val edges = userObj
+                                        ?.getAsJsonObject("edge_owner_to_timeline_media")
+                                        ?.getAsJsonArray("edges")
+                                    if (edges != null && edges.size() > 0) {
+                                        for (edge in edges) {
+                                            if (list.size >= limit) break
+                                            val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
+                                            val id = node.get("id")?.asString ?: continue
+                                            val shortcode = node.get("shortcode")?.asString ?: id
+                                            val isVideo = node.get("is_video")?.asBoolean ?: false
+                                            val displayUrl = node.get("display_url")?.asString ?: ""
+                                            val videoUrl = if (isVideo) node.get("video_url")?.asString else null
+                                            val slides = extractSidecarSlides(node)
+                                            val resolvedMediaType = when {
+                                                slides.size > 1 -> "carousel"
+                                                isVideo -> "video"
+                                                else -> "image"
+                                            }
+                                            val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
+                                            val caption = if (captionEdges != null && captionEdges.size() > 0) {
+                                                captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
+                                            } else ""
+                                            val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
+                                                ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
+                                            val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
+                                            val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
+
+                                            list.add(
+                                                InstagramPostItem(
+                                                    id = shortcode,
+                                                    shortcode = shortcode,
+                                                    mediaType = resolvedMediaType,
+                                                    displayUrl = displayUrl,
+                                                    videoUrl = videoUrl,
+                                                    caption = caption.cleanDisplayText(),
+                                                    timestamp = timestamp * 1000L,
+                                                    likeCount = likes,
+                                                    commentCount = comments,
+                                                    slides = slides
+                                                )
+                                            )
+                                        }
+                                        return PostFetchResult.Success(list)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Web profile info posts query failed: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Web profile info posts query failed: ${e.message}")
+        }
+
+        // 1.5. Tier A2: Modern v1 REST User Feed API (authenticated private profiles & public fallback)
+        if (hasRealSession) {
+            try {
+                val feedUrl = "https://www.instagram.com/api/v1/feed/user/$cleanUser/username/?count=$limit"
+                val req = applyAuthenticatedApiHeaders(
+                    builder = Request.Builder().url(feedUrl),
+                    cookieString = cookieString!!,
+                    referer = "https://www.instagram.com/$cleanUser/"
+                )
+                clientWithRedirects.newCall(req.build()).execute().use { response ->
+                    if (response.code == 429) sawRateLimit = true
+                    if (response.isSuccessful) {
+                        val body = response.body?.string().orEmpty()
+                        if (body.startsWith("{")) {
+                            val root = gson.fromJson(body, JsonObject::class.java)
+                            val items = root?.getAsJsonArray("items")
+                            if (items != null && items.size() > 0) {
+                                for (itemEl in items) {
+                                    if (list.size >= limit) break
+                                    val node = itemEl.asJsonObject ?: continue
+                                    val code = node.get("code")?.takeIf { !it.isJsonNull }?.asString ?: continue
+                                    val mediaTypeInt = node.get("media_type")?.takeIf { !it.isJsonNull }?.asInt ?: 1
+                                    val slides = extractPolarisCarouselSlides(node)
+                                    val isCarousel = mediaTypeInt == 8 || slides.size > 1
+                                    val isVideo = mediaTypeInt == 2
+                                    val resolvedType = when {
+                                        isCarousel -> "carousel"
+                                        isVideo -> "video"
+                                        else -> "image"
+                                    }
+                                    val displayUrl = node.getAsJsonObject("image_versions2")
+                                        ?.getAsJsonArray("candidates")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                                        ?: slides.firstOrNull()?.displayUrl
+                                        ?: ""
+                                    val videoUrl = node.getAsJsonArray("video_versions")
+                                        ?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                                    val caption = node.getAsJsonObject("caption")?.get("text")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+                                    val likes = node.get("like_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                    val comments = node.get("comment_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                    val takenAtSec = node.get("taken_at")?.takeIf { !it.isJsonNull }?.asLong ?: (System.currentTimeMillis() / 1000L)
+                                    list.add(
+                                        InstagramPostItem(
+                                            id = code,
+                                            shortcode = code,
+                                            mediaType = resolvedType,
+                                            displayUrl = displayUrl.ifBlank { "https://www.instagram.com/p/$code/media/?size=l" },
+                                            videoUrl = videoUrl,
+                                            caption = caption,
+                                            timestamp = takenAtSec * 1000L,
+                                            likeCount = likes,
+                                            commentCount = comments,
+                                            slides = slides
+                                        )
+                                    )
+                                }
+                                if (list.isNotEmpty()) return PostFetchResult.Success(list)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "v1 feed/user/username failed for @$cleanUser: ${e.message}")
+            }
         }
 
         // 2. Tier B: GraphQL query hash if user_id is provided and real session cookie exists
@@ -1503,104 +1776,65 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // 2.5. Tier B2: Desktop SSR Relay JSON Extraction (Zero-Login Public Profiles)
-        // Parses Instagram's Polaris SSR <script type="application/json"> (polaris_ordered_timeline_connection)
+        // 4. Tier D: Direct Public Profile HTML Regex Fallback (Strictly Anonymous Desktop UA)
         if (!isPrivate) {
             try {
-                val ssrPosts = fetchPostsViaDesktopSsr(cleanUser, effectiveCookie, limit)
-                if (ssrPosts.isNotEmpty()) {
-                    return PostFetchResult.Success(ssrPosts)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Desktop SSR post extraction failed for @$cleanUser: ${e.message}")
-            }
-        }
+                val htmlUrl = "https://www.instagram.com/$cleanUser/"
+                val htmlReq = Request.Builder()
+                    .url(htmlUrl)
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Sec-Fetch-Dest", "document")
+                    .header("Sec-Fetch-Mode", "navigate")
+                    .header("Sec-Fetch-Site", "none")
 
-        // 3. Tier C: On-Device Headless Chromium WebView Bridge (Zero-Login Public Extraction)
-        if (!isPrivate && headlessScraper != null) {
-            try {
-                when (val scrape = headlessScraper.scrapePublicPosts(cleanUser, limit)) {
-                    is HeadlessScrapeResult.Success -> {
-                        if (scrape.posts.isNotEmpty()) {
-                            return PostFetchResult.Success(scrape.posts)
-                        }
-                    }
-                    is HeadlessScrapeResult.PrivateAccount -> {
-                        if (!hasRealSession) return PostFetchResult.RequiresSession
-                    }
-                    is HeadlessScrapeResult.RateLimited -> {
+                clientWithRedirects.newCall(htmlReq.build()).execute().use { resp ->
+                    if (resp.code == 429) {
                         sawRateLimit = true
-                    }
-                    is HeadlessScrapeResult.LoginWall, is HeadlessScrapeResult.Failed -> {
-                        Log.d(TAG, "Headless WebView fallback exhausted for @$cleanUser")
+                    } else if (resp.isSuccessful) {
+                        val html = resp.body?.string() ?: ""
+                        if (html.contains("\"is_private\":true") && !hasRealSession) {
+                            return PostFetchResult.RequiresSession
+                        }
+                        val scPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"([A-Za-z0-9_-]{8,15})\"")
+                        val scMatcher = scPattern.matcher(html)
+                        val shortcodes = mutableListOf<String>()
+                        while (scMatcher.find() && shortcodes.size < limit) {
+                            val sc = scMatcher.group(1)
+                            if (!sc.isNullOrBlank() && !shortcodes.contains(sc)) {
+                                shortcodes.add(sc)
+                            }
+                        }
+
+                        for (sc in shortcodes) {
+                            var directUrl: String? = null
+                            val directPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"" + Pattern.quote(sc) + "\"[^}]*?\"(?:display_url|display_uri)\":\\s*\"([^\"]+)\"")
+                            val directMatcher = directPattern.matcher(html)
+                            if (directMatcher.find()) {
+                                directUrl = unescapeJson(directMatcher.group(1) ?: "")
+                            }
+
+                            list.add(
+                                InstagramPostItem(
+                                    id = sc,
+                                    shortcode = sc,
+                                    mediaType = "image",
+                                    displayUrl = directUrl ?: "https://www.instagram.com/p/$sc/media/?size=l",
+                                    videoUrl = null,
+                                    caption = "",
+                                    timestamp = System.currentTimeMillis() - (list.size * 1000L),
+                                    likeCount = 0,
+                                    commentCount = 0
+                                )
+                            )
+                        }
+                        if (list.isNotEmpty()) return PostFetchResult.Success(list)
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Headless WebView scraping error for @$cleanUser: ${e.message}")
+                Log.w(TAG, "HTML post parsing fallback failed: ${e.message}")
             }
-        }
-
-        // 4. Tier D: Direct Public Profile HTML Regex Fallback (Desktop UA)
-        try {
-            val htmlUrl = "https://www.instagram.com/$cleanUser/"
-            val htmlReq = Request.Builder()
-                .url(htmlUrl)
-                .header("User-Agent", DESKTOP_CHROME_UA)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .header("Sec-Fetch-Dest", "document")
-                .header("Sec-Fetch-Mode", "navigate")
-                .header("Sec-Fetch-Site", "none")
-
-            if (!effectiveCookie.isNullOrBlank()) {
-                htmlReq.header("Cookie", effectiveCookie)
-            }
-
-            clientWithRedirects.newCall(htmlReq.build()).execute().use { resp ->
-                if (resp.code == 429) {
-                    sawRateLimit = true
-                } else if (resp.isSuccessful) {
-                    val html = resp.body?.string() ?: ""
-                    if (html.contains("\"is_private\":true") && !hasRealSession) {
-                        return PostFetchResult.RequiresSession
-                    }
-                    val scPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"([A-Za-z0-9_-]{8,15})\"")
-                    val scMatcher = scPattern.matcher(html)
-                    val shortcodes = mutableListOf<String>()
-                    while (scMatcher.find() && shortcodes.size < limit) {
-                        val sc = scMatcher.group(1)
-                        if (!sc.isNullOrBlank() && !shortcodes.contains(sc)) {
-                            shortcodes.add(sc)
-                        }
-                    }
-
-                    for (sc in shortcodes) {
-                        var directUrl: String? = null
-                        val directPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"" + Pattern.quote(sc) + "\"[^}]*?\"(?:display_url|display_uri)\":\\s*\"([^\"]+)\"")
-                        val directMatcher = directPattern.matcher(html)
-                        if (directMatcher.find()) {
-                            directUrl = unescapeJson(directMatcher.group(1) ?: "")
-                        }
-
-                        list.add(
-                            InstagramPostItem(
-                                id = sc,
-                                shortcode = sc,
-                                mediaType = "image",
-                                displayUrl = directUrl ?: "https://www.instagram.com/p/$sc/media/?size=l",
-                                videoUrl = null,
-                                caption = "",
-                                timestamp = System.currentTimeMillis() - (list.size * 1000L),
-                                likeCount = 0,
-                                commentCount = 0
-                            )
-                        )
-                    }
-                    if (list.isNotEmpty()) return PostFetchResult.Success(list)
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "HTML post parsing fallback failed: ${e.message}")
         }
 
         if (list.isNotEmpty()) return PostFetchResult.Success(list)
@@ -1937,22 +2171,47 @@ class InstagramEngine(context: Context? = null) {
         isVideoHint: Boolean = false
     ): PostMediaDetails? {
         val cleanCode = shortcode.trim()
+
+        // 0. Zero-Login First: Desktop SSR HTML on /p/<shortcode>/ (NEVER sends session cookie,
+        //    returns full Carousel slides, HD URLs, likes, comments & taken_at for public posts!)
+        try {
+            val postPageUrl = "https://www.instagram.com/p/$cleanCode/"
+            val req = Request.Builder()
+                .url(postPageUrl)
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "none")
+
+            clientWithRedirects.newCall(req.build()).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val html = resp.body?.string().orEmpty()
+                    val parsed = parsePostDetailsFromSsrHtml(html, cleanCode)
+                    if (parsed != null && parsed.slides.isNotEmpty()) {
+                        return parsed
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Zero-login Post Desktop SSR fetch skipped for $cleanCode: ${e.message}")
+        }
+
         val effectiveCookie = cookieString?.takeIf { it.isNotBlank() } ?: getOrFetchGuestCookies()
 
-        // 1. Try Instagram post JSON endpoint (?__a=1&__d=dis)
+        // 1. Try Instagram post JSON endpoint (?__a=1&__d=dis) — mainly for private posts / fallback
         try {
             val url = "https://www.instagram.com/p/$cleanCode/?__a=1&__d=dis"
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", DESKTOP_CHROME_UA)
-                .header("X-IG-App-ID", APP_ID)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Referer", "https://www.instagram.com/p/$cleanCode/")
-                .header("Accept", "*/*")
-
+            val req = Request.Builder().url(url)
             if (!effectiveCookie.isNullOrBlank()) {
-                req.header("Cookie", effectiveCookie)
-                extractCsrfToken(effectiveCookie)?.let { req.header("X-CSRFToken", it) }
+                applyAuthenticatedApiHeaders(req, effectiveCookie, "https://www.instagram.com/p/$cleanCode/")
+            } else {
+                req.header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("X-IG-App-ID", APP_ID)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Referer", "https://www.instagram.com/p/$cleanCode/")
+                    .header("Accept", "*/*")
             }
 
             clientWithRedirects.newCall(req.build()).execute().use { resp ->
@@ -2367,8 +2626,10 @@ class InstagramEngine(context: Context? = null) {
     companion object {
         private const val TAG = "InstagramEngine"
         private const val APP_ID = "936619743392459"
+        private const val ASBD_ID = "129477"
         private const val GUEST_COOKIE_TTL_MS = 20 * 60 * 1000L
         private const val DESKTOP_CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        private const val WEBVIEW_MOBILE_UA = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
     }
 }

@@ -211,4 +211,43 @@ class MediaEngineUnitTest {
         val expiredStory = TargetEntity(username = "gamma", latestStoryAt = now - 25L * 60L * 60L * 1000L)
         assertFalse(expiredStory.hasActiveStory)
     }
+
+    @Test
+    fun ssrProfileParser_ignoresLoggedInViewerAndPrefersRestPk() {
+        val engine = InstagramEngine(null)
+        val htmlWithViewerFirst = """
+            <html><body>
+            <script type="application/json">{"viewer":{"pk":"111222333","username":"my_logged_in_self","full_name":"Logged In Owner","profile_pic_url":"https://scontent.cdninstagram.com/v/owner.jpg","latest_reel_media":1799999999}}</script>
+            <script type="application/json">{"data":{"xig_user_by_username":{"id":"17841409051692701","pk":"8901613723","username":"husameddint","full_name":"Hüsam","biography":"@husamviyuviyu","is_private":false,"follower_count":45574,"following_count":543,"profile_pic_url":"https://scontent.cdninstagram.com/v/target.jpg","latest_reel_media":1795551297}}}</script>
+            </body></html>
+        """.trimIndent()
+
+        val snap = engine.parseProfileFromSsrHtml(htmlWithViewerFirst, "husameddint")
+        assertNotNull(snap)
+        assertEquals("8901613723", snap!!.instagramId)
+        assertEquals("Hüsam", snap.fullName)
+        assertEquals(45574L, snap.followersCount)
+        assertEquals(543L, snap.followingCount)
+        assertEquals("https://scontent.cdninstagram.com/v/target.jpg", snap.profilePicUrl)
+        assertEquals(1795551297000L, snap.latestStoryAt)
+
+        assertEquals("111222333", engine.extractDsUserId("csrftoken=abc; ds_user_id=111222333; sessionid=xyz"))
+    }
+
+    @Test
+    fun reelsMediaParser_supportsSingleUserStoryReelFormat() {
+        val engine = InstagramEngine(null)
+        val storyJson = """
+            {"reel":{"id":8901613723,"items":[
+              {"pk":"55501","media_type":1,"taken_at":1795551297,"image_versions2":{"candidates":[{"url":"https://scontent.cdninstagram.com/v/active1.jpg"}]}},
+              {"pk":"55502","media_type":2,"taken_at":1795551399,"video_versions":[{"url":"https://scontent.cdninstagram.com/v/active2.mp4"}]}
+            ]}}
+        """.trimIndent()
+        val items = engine.parseReelsMediaJson(storyJson, "active_story:husameddint", "8901613723")
+        assertEquals(2, items.size)
+        assertEquals("image", items[0].mediaType)
+        assertEquals("https://scontent.cdninstagram.com/v/active1.jpg", items[0].mediaUrl)
+        assertEquals("video", items[1].mediaType)
+        assertEquals("https://scontent.cdninstagram.com/v/active2.mp4", items[1].mediaUrl)
+    }
 }

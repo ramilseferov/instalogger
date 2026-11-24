@@ -198,7 +198,7 @@ fun InstagramSessionScreen() {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton(
                                     onClick = {
-                                        val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
+                                        val cookies = captureMergedInstagramCookies()
                                         if (cookies != null && cookies.contains("sessionid=")) {
                                             app.sessionManager.saveCookieString(cookies)
                                             hasSession = true
@@ -287,7 +287,7 @@ fun InstagramSessionScreen() {
                                                 override fun onPageFinished(view: WebView?, url: String?) {
                                                     super.onPageFinished(view, url)
                                                     isLoadingWeb = false
-                                                    val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
+                                                    val cookies = captureMergedInstagramCookies()
                                                     if (cookies != null && cookies.contains("sessionid=")) {
                                                         app.sessionManager.saveCookieString(cookies)
                                                         hasSession = true
@@ -407,4 +407,31 @@ fun InstagramSessionScreen() {
             }
         }
     }
+}
+
+private fun captureMergedInstagramCookies(): String? {
+    val cm = CookieManager.getInstance()
+    cm.flush()
+    val merged = linkedMapOf<String, String>()
+    val domains = listOf(
+        "https://instagram.com",
+        "https://www.instagram.com",
+        "https://i.instagram.com"
+    )
+    for (url in domains) {
+        val raw = cm.getCookie(url) ?: continue
+        for (part in raw.split(";")) {
+            val trimmed = part.trim()
+            val eqIdx = trimmed.indexOf('=')
+            if (eqIdx > 0) {
+                val key = trimmed.substring(0, eqIdx).trim()
+                val value = trimmed.substring(eqIdx + 1).trim()
+                if (key.isNotBlank() && value.isNotBlank() && value != "\"\"") {
+                    merged[key] = value
+                }
+            }
+        }
+    }
+    if (!merged.containsKey("sessionid")) return null
+    return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
 }

@@ -1667,12 +1667,13 @@ class ProfileInspector(
         }
 
         try {
-            // 2. Fetch highlights list (works with v1 API when authenticated AND zero-login Desktop SSR by username)
+            // 2. Fetch highlights list (Zero-login Desktop SSR first for public profiles; v1 API for private/fallback)
             var hlCount = 0
             val highlights = instagramEngine.fetchUserHighlights(
                 userId = effectiveTargetId,
                 cookieString = effectiveCookie,
-                username = cleanUser
+                username = cleanUser,
+                isPrivate = resolvedPrivate
             )
             if (highlights.isNotEmpty()) {
                 hlCount = highlights.size
@@ -1917,8 +1918,26 @@ class ProfileInspector(
         val cleanUser = target.username.trim().trimStart('@').lowercase()
         val virtualId = "active_story:$cleanUser"
         val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
+        val viewerDsUserId = instagramEngine.extractDsUserId(cookie)
+
+        // Auto-heal target instagramId if missing or previously poisoned with logged-in viewer's ds_user_id
+        var resolvedTargetId = target.instagramId?.takeIf { it.isNotBlank() }
+        if (resolvedTargetId == null || (viewerDsUserId != null && resolvedTargetId == viewerDsUserId)) {
+            val fresh = instagramEngine.fetchProfile(cleanUser, cookieString = null).getOrNull()
+            if (!fresh?.instagramId.isNullOrBlank()) {
+                resolvedTargetId = fresh!!.instagramId
+                database.targetDao().insertTarget(
+                    target.copy(
+                        instagramId = resolvedTargetId,
+                        fullName = fresh.fullName.ifBlank { target.fullName },
+                        avatarUrl = fresh.profilePicUrl ?: target.avatarUrl
+                    )
+                )
+            }
+        }
+
         val freshStories = instagramEngine.fetchActiveUserStories(
-            userId = target.instagramId,
+            userId = resolvedTargetId,
             username = cleanUser,
             cookieString = cookie
         )
