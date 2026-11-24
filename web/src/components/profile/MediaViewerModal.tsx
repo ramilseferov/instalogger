@@ -69,16 +69,16 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
         </div>
 
         {/* Metadata Footer */}
-        <div className="p-5 bg-white border-t border-gray-100 space-y-3">
+        <div className="p-5 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 space-y-3">
           {media.caption && (
-            <p className="text-xs text-gray-800 font-normal leading-relaxed max-h-24 overflow-y-auto whitespace-pre-line">
+            <p className="text-xs text-gray-800 dark:text-slate-200 font-normal leading-relaxed max-h-24 overflow-y-auto whitespace-pre-line">
               {media.caption}
             </p>
           )}
 
-          <div className="flex items-center justify-between text-[11px] text-gray-400 font-medium pt-2 border-t border-gray-50">
+          <div className="flex items-center justify-between text-[11px] text-gray-400 font-medium pt-2 border-t border-gray-50 dark:border-slate-800">
             <span className="flex items-center gap-1">
-              <Calendar size={13} /> {media.taken_at || media.created_at}
+              <Calendar size={13} /> {media.posted_at ? new Date(media.posted_at).toLocaleString() : '—'}
             </span>
             <a
               href={mediaUrl}

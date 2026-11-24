@@ -13,9 +13,9 @@ export const Card: React.FC<CardProps> = ({ children, className = '', onClick, i
   return (
     <div
       onClick={onClick}
-      className={`bg-white rounded-3xl p-5 border border-[#E5E8EC] shadow-[0_2px_12px_rgba(0,0,0,0.03)] transition-all duration-200 ease-out animate-fade-up ${staggerClass} ${
+      className={`bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-150 ${staggerClass} ${
         onClick
-          ? 'cursor-pointer hover:border-gray-300 hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] hover:-translate-y-0.5 active:scale-[0.985] active:shadow-sm'
+          ? 'cursor-pointer hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md active:scale-[0.99]'
           : ''
       } ${className}`}
     >

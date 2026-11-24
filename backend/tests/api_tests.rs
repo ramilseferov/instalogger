@@ -38,6 +38,7 @@ async fn test_api_health_and_targets_list() {
 
     // Test targets list endpoint
     let targets_res = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/targets")
@@ -48,4 +49,43 @@ async fn test_api_health_and_targets_list() {
         .unwrap();
 
     assert_eq!(targets_res.status(), StatusCode::OK);
+
+    // Test developer logs redaction & endpoint
+    instalogger_backend::api::dev_logs::push_dev_log(
+        "E",
+        "TestSuite",
+        "HTTP 500 sessionid=SECRET_COOKIE_999&oh=SIGNED_123",
+    );
+    let logs_res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/dev-logs")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(logs_res.status(), StatusCode::OK);
+    let logs_bytes = logs_res.into_body().collect().await.unwrap().to_bytes();
+    let logs_text = String::from_utf8_lossy(&logs_bytes);
+    assert!(!logs_text.contains("SECRET_COOKIE_999"));
+    assert!(!logs_text.contains("SIGNED_123"));
+    assert!(logs_text.contains("[REDACTED]"));
+
+    // Test global pool settings round-trip
+    let settings_res = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/settings")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(settings_res.status(), StatusCode::OK);
+    let settings_bytes = settings_res.into_body().collect().await.unwrap().to_bytes();
+    let settings_json: serde_json::Value = serde_json::from_slice(&settings_bytes).unwrap();
+    assert_eq!(settings_json["settings"]["pool_mode"], "OFF");
+    assert_eq!(settings_json["settings"]["list_completeness_guard"], true);
 }

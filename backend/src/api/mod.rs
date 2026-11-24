@@ -1,3 +1,4 @@
+pub mod dev_logs;
 pub mod media;
 pub mod settings;
 pub mod targets;
@@ -45,12 +46,21 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         )
         .route("/targets/{id}/turbo", post(targets::toggle_turbo))
         .route("/targets/{id}/check-now", post(targets::check_target_now))
+        .route(
+            "/targets/{id}/pool",
+            get(targets::get_target_pool).post(targets::update_target_pool),
+        )
+        .route("/targets/{id}/pool/flush", post(targets::flush_target_pool))
         .route("/targets/{id}/logs", get(targets::get_target_logs))
         .route("/targets/{id}/avatars", get(targets::get_target_avatars))
         .route("/targets/{id}/media", get(media::list_media))
         .route(
             "/settings",
             get(settings::get_settings).post(settings::update_settings),
+        )
+        .route(
+            "/dev-logs",
+            get(dev_logs::get_dev_logs).delete(dev_logs::clear_dev_logs),
         )
         .route("/ws", get(ws::ws_handler));
 

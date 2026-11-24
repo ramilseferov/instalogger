@@ -198,12 +198,98 @@ pub async fn check_target_now(
     };
 
     match state.scheduler.check_target(&target).await {
-        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok" }))),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "status": "error", "message": e.to_string() })),
-        ),
+        Ok(_) => {
+            crate::api::dev_logs::push_dev_log("I", "Inspector", &format!("Checked @{} successfully", target.username));
+            let fresh = state.db.get_target(&target.id).ok().flatten().unwrap_or(target);
+            (StatusCode::OK, Json(json!({ "status": "ok", "target": fresh })))
+        }
+        Err(e) => {
+            crate::api::dev_logs::push_dev_log("E", "Inspector", &format!("Check failed for @{}: {}", target.username, e));
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error", "message": e.to_string() })),
+            )
+        }
     }
+}
+
+#[derive(Deserialize)]
+pub struct TargetPoolPayload {
+    pub override_mode: Option<String>, // GLOBAL | OFF | FIXED_COUNT | PERCENTAGE | AUTO_ADAPTIVE
+    pub custom_threshold: Option<i64>,
+    pub custom_percent: Option<f64>,
+    pub custom_digest_minutes: Option<i64>,
+    pub custom_cooldown_minutes: Option<i64>,
+}
+
+pub async fn get_target_pool(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let key = format!("target_pool:{}", id);
+    let stored = state.db.get_setting(&key).unwrap_or(None);
+    let config: serde_json::Value = stored
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| {
+            json!({
+                "override_mode": "GLOBAL",
+                "custom_threshold": 50,
+                "custom_percent": 0.5,
+                "custom_digest_minutes": -1,
+                "custom_cooldown_minutes": -1,
+                "last_flushed_at": null
+            })
+        });
+    (StatusCode::OK, Json(json!({ "status": "ok", "pool": config })))
+}
+
+pub async fn update_target_pool(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<TargetPoolPayload>,
+) -> impl IntoResponse {
+    let key = format!("target_pool:{}", id);
+    let mode = match payload
+        .override_mode
+        .unwrap_or_else(|| "GLOBAL".to_string())
+        .to_uppercase()
+        .as_str()
+    {
+        "OFF" => "OFF",
+        "FIXED_COUNT" => "FIXED_COUNT",
+        "PERCENTAGE" => "PERCENTAGE",
+        "AUTO_ADAPTIVE" => "AUTO_ADAPTIVE",
+        _ => "GLOBAL",
+    };
+    let config = json!({
+        "override_mode": mode,
+        "custom_threshold": payload.custom_threshold.unwrap_or(50).clamp(1, 1_000_000),
+        "custom_percent": payload.custom_percent.unwrap_or(0.5).clamp(0.01, 100.0),
+        "custom_digest_minutes": payload.custom_digest_minutes.unwrap_or(-1),
+        "custom_cooldown_minutes": payload.custom_cooldown_minutes.unwrap_or(-1),
+        "updated_at": Utc::now().to_rfc3339()
+    });
+    let _ = state.db.set_setting(&key, &config.to_string());
+    crate::api::dev_logs::push_dev_log("I", "PoolPolicy", &format!("Updated pool override for {} -> {}", id, mode));
+    (StatusCode::OK, Json(json!({ "status": "ok", "pool": config })))
+}
+
+pub async fn flush_target_pool(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let key = format!("target_pool:{}", id);
+    let mut config: serde_json::Value = state
+        .db
+        .get_setting(&key)
+        .unwrap_or(None)
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({ "override_mode": "GLOBAL", "custom_threshold": 50, "custom_percent": 0.5 }));
+    let now = Utc::now().to_rfc3339();
+    config["last_flushed_at"] = json!(now);
+    let _ = state.db.set_setting(&key, &config.to_string());
+    crate::api::dev_logs::push_dev_log("I", "PoolPolicy", &format!("Manual pool flush/reset executed for {}", id));
+    (StatusCode::OK, Json(json!({ "status": "ok", "pool": config })))
 }
 
 pub async fn get_target_logs(
