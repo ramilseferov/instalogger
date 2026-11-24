@@ -51,25 +51,45 @@ flowchart TD
 
 ## Post Archiving Subsystem
 
-InstaLogger separates post discovery, media extraction, integrity validation, and encrypted local storage into a pluggable multi-provider pipeline. Because `yt-dlp` is dedicated to video, Reels, and DASH stream muxing (and does not extract image-only publications), the orchestrator routes each publication to the appropriate provider with automatic circuit-breaker failover:
+InstaLogger separates post discovery, media extraction, binary verification, and encrypted local storage into a pluggable multi-provider pipeline. Because `yt-dlp` targets video, Reels, and DASH stream muxing (and does not extract image-only posts), the orchestrator routes each item by media capability with automatic circuit-breaker failover.
 
 ```mermaid
-flowchart LR
-    Discovery["Post Discovery (Web API · GraphQL · Headless WebView)"] --> DBMeta["Room v7: Immediate Post Metadata"]
-    Discovery --> Queue["MediaDownloadOrchestrator (Semaphore: 2 · Health Circuit Breaker)"]
-    Queue -->|"Video / Reel / DASH"| YtDlp["YtDlpEmbeddedProvider (yt-dlp + FFmpeg · Ephemeral 0600 Cookies)"]
-    Queue -->|"Photo / Carousel"| Native["NativeGraphProvider (Sidecar Carousel · Embed/OEmbed · HTTP)"]
-    Queue -. "Optional Daemon" .-> Daemon["DaemonBridgeProvider (Python: gallery-dl · yt-dlp · Instaloader)"]
-    YtDlp -->|"NoVideoInPost / 429 Fallback"| Native
-    YtDlp --> Integrity["MediaUrlGuard · Magic-Byte MIME Validator · SHA-256 Dedup"]
-    Native --> Integrity
-    Daemon --> Integrity
-    Integrity --> Vault["VaultStorageManager (AES-256-GCM .enc)"]
-    Vault --> DBAssets["Room v7: posts & media_assets (1..N Carousel Slides)"]
-    DBAssets --> Playback["VaultPlaybackBridge (On-Demand Temp Decrypt + FileProvider)"]
+flowchart TB
+    A["1. Post Discovery<br/>Web API / GraphQL / Headless WebView"]
+    B["2. MediaDownloadOrchestrator<br/>Queue / Semaphore(2) / Circuit Breaker"]
+
+    subgraph Providers["3. Pluggable Extraction Providers"]
+        direction LR
+        P1["YtDlpEmbeddedProvider<br/>Reels / Videos / FFmpeg Mux"]
+        P2["NativeGraphProvider<br/>Photos / Carousels / Embed"]
+        P3["DaemonBridgeProvider<br/>Optional gallery-dl / yt-dlp"]
+    end
+
+    C["4. Security & Integrity<br/>Host Guard / Magic Bytes / SHA-256 Dedup"]
+    D["5. Encrypted Persistence<br/>AES-256-GCM Vault / Room DB v7"]
+    E["6. Playback & Export<br/>VaultPlaybackBridge / FileProvider"]
+
+    A -->|"Instant Metadata"| D
+    A -->|"Enqueue Jobs"| B
+    B -->|"Video / Reel"| P1
+    B -->|"Photo / Carousel"| P2
+    B -. "If Enabled" .-> P3
+    P1 -->|"NoVideo / 429"| P2
+    P1 --> C
+    P2 --> C
+    P3 --> C
+    C --> D
+    D --> E
+
+    classDef stage fill:#1e293b,stroke:#475569,color:#f8fafc,stroke-width:1px;
+    classDef engine fill:#0f172a,stroke:#3b82f6,color:#e2e8f0,stroke-width:1.5px;
+    classDef store fill:#064e3b,stroke:#10b981,color:#ecfdf5,stroke-width:1px;
+    class A,B,C,E stage;
+    class P1,P2,P3 engine;
+    class D store;
 ```
 
-Detailed sequence flows, provider routing tables, circuit-breaker state machines, Room `v7` entity schemas, and security controls are documented in [docs/MEDIA_ARCHIVING_ARCHITECTURE.md](docs/MEDIA_ARCHIVING_ARCHITECTURE.md).
+Full architectural specification, routing tables, sequence diagrams, circuit-breaker state machines, and Room `v7` schemas are documented in [docs/MEDIA_ARCHIVING_ARCHITECTURE.md](docs/MEDIA_ARCHIVING_ARCHITECTURE.md).
 
 ---
 
