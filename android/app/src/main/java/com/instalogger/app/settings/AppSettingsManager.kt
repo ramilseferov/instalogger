@@ -14,8 +14,12 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.instalogger.app.R
+import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.engine.media.YtDlpQualityPreset
 import com.instalogger.app.engine.media.YtDlpUpdateChannel
+import com.instalogger.app.engine.pool.FollowerPoolMode
+import com.instalogger.app.engine.pool.FollowerPoolPolicy
+import com.instalogger.app.engine.pool.TargetPoolOverride
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,7 +77,19 @@ enum class NotificationCategory(
             return when (eventType?.lowercase()) {
                 "avatar_change", "bio_change", "name_change" -> PROFILE_CHANGES
                 "privacy_change" -> PRIVACY_ALERTS
-                "post_count_change", "follower_count_change", "following_count_change" -> ACTIVITY_UPDATES
+                "post_count_change",
+                "follower_count_change",
+                "following_count_change",
+                "followers_change",
+                "following_change",
+                "follower_pool_flush",
+                "following_pool_flush",
+                "follower_spike",
+                "follower_gained",
+                "follower_lost",
+                "following_gained",
+                "following_lost",
+                "story_posted" -> ACTIVITY_UPDATES
                 else -> SYSTEM_ALERTS
             }
         }
@@ -123,6 +139,52 @@ class AppSettingsManager(private val context: Context) {
         YtDlpUpdateChannel.fromKey(prefs.getString(KEY_YTDLP_CHANNEL, YtDlpUpdateChannel.STABLE.key))
     )
     val ytDlpUpdateChannel: StateFlow<YtDlpUpdateChannel> = _ytDlpUpdateChannel.asStateFlow()
+
+    // Follower Change Pool & High-Velocity Protection Global Controls
+    private val _poolMode = MutableStateFlow(
+        FollowerPoolMode.fromKey(prefs.getString(KEY_POOL_MODE, FollowerPoolMode.OFF.key))
+    )
+    val poolMode: StateFlow<FollowerPoolMode> = _poolMode.asStateFlow()
+
+    private val _poolFixedThreshold = MutableStateFlow(
+        prefs.getLong(KEY_POOL_FIXED_THRESHOLD, DEFAULT_POOL_FIXED_THRESHOLD).coerceAtLeast(1L)
+    )
+    val poolFixedThreshold: StateFlow<Long> = _poolFixedThreshold.asStateFlow()
+
+    private val _poolPercentThreshold = MutableStateFlow(
+        prefs.getFloat(KEY_POOL_PERCENT_THRESHOLD, DEFAULT_POOL_PERCENT_THRESHOLD).toDouble().coerceIn(0.01, 100.0)
+    )
+    val poolPercentThreshold: StateFlow<Double> = _poolPercentThreshold.asStateFlow()
+
+    private val _poolApplyToFollowing = MutableStateFlow(loadBoolean(KEY_POOL_APPLY_FOLLOWING, false))
+    val poolApplyToFollowing: StateFlow<Boolean> = _poolApplyToFollowing.asStateFlow()
+
+    private val _poolDigestWindowMinutes = MutableStateFlow(
+        prefs.getInt(KEY_POOL_DIGEST_MINUTES, 0).coerceAtLeast(0)
+    )
+    val poolDigestWindowMinutes: StateFlow<Int> = _poolDigestWindowMinutes.asStateFlow()
+
+    private val _poolCooldownMinutes = MutableStateFlow(
+        prefs.getInt(KEY_POOL_COOLDOWN_MINUTES, 0).coerceAtLeast(0)
+    )
+    val poolCooldownMinutes: StateFlow<Int> = _poolCooldownMinutes.asStateFlow()
+
+    private val _poolAntiFlickerEnabled = MutableStateFlow(loadBoolean(KEY_POOL_ANTI_FLICKER, true))
+    val poolAntiFlickerEnabled: StateFlow<Boolean> = _poolAntiFlickerEnabled.asStateFlow()
+
+    private val _poolSpikeAlertEnabled = MutableStateFlow(loadBoolean(KEY_POOL_SPIKE_ALERT, true))
+    val poolSpikeAlertEnabled: StateFlow<Boolean> = _poolSpikeAlertEnabled.asStateFlow()
+
+    private val _poolSpikeMultiplier = MutableStateFlow(
+        prefs.getFloat(KEY_POOL_SPIKE_MULTIPLIER, DEFAULT_POOL_SPIKE_MULTIPLIER).toDouble().coerceIn(1.5, 20.0)
+    )
+    val poolSpikeMultiplier: StateFlow<Double> = _poolSpikeMultiplier.asStateFlow()
+
+    private val _poolSuppressMinorAuditLogs = MutableStateFlow(loadBoolean(KEY_POOL_SUPPRESS_MINOR_LOGS, true))
+    val poolSuppressMinorAuditLogs: StateFlow<Boolean> = _poolSuppressMinorAuditLogs.asStateFlow()
+
+    private val _listCompletenessGuardEnabled = MutableStateFlow(loadBoolean(KEY_LIST_COMPLETENESS_GUARD, true))
+    val listCompletenessGuardEnabled: StateFlow<Boolean> = _listCompletenessGuardEnabled.asStateFlow()
 
     private val _categoryStates: Map<NotificationCategory, MutableStateFlow<Boolean>> =
         NotificationCategory.entries.associateWith { cat ->
@@ -210,6 +272,105 @@ class AppSettingsManager(private val context: Context) {
         prefs.edit().putString(KEY_YTDLP_CHANNEL, channel.key).apply()
     }
 
+    fun setPoolMode(mode: FollowerPoolMode) {
+        _poolMode.value = mode
+        prefs.edit().putString(KEY_POOL_MODE, mode.key).apply()
+    }
+
+    fun setPoolFixedThreshold(value: Long) {
+        val safe = value.coerceIn(1L, 1_000_000L)
+        _poolFixedThreshold.value = safe
+        prefs.edit().putLong(KEY_POOL_FIXED_THRESHOLD, safe).apply()
+    }
+
+    fun setPoolPercentThreshold(percent: Double) {
+        val safe = percent.coerceIn(0.01, 100.0)
+        _poolPercentThreshold.value = safe
+        prefs.edit().putFloat(KEY_POOL_PERCENT_THRESHOLD, safe.toFloat()).apply()
+    }
+
+    fun setPoolApplyToFollowing(enabled: Boolean) {
+        _poolApplyToFollowing.value = enabled
+        prefs.edit().putBoolean(KEY_POOL_APPLY_FOLLOWING, enabled).apply()
+    }
+
+    fun setPoolDigestWindowMinutes(minutes: Int) {
+        val safe = minutes.coerceAtLeast(0)
+        _poolDigestWindowMinutes.value = safe
+        prefs.edit().putInt(KEY_POOL_DIGEST_MINUTES, safe).apply()
+    }
+
+    fun setPoolCooldownMinutes(minutes: Int) {
+        val safe = minutes.coerceAtLeast(0)
+        _poolCooldownMinutes.value = safe
+        prefs.edit().putInt(KEY_POOL_COOLDOWN_MINUTES, safe).apply()
+    }
+
+    fun setPoolAntiFlickerEnabled(enabled: Boolean) {
+        _poolAntiFlickerEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_POOL_ANTI_FLICKER, enabled).apply()
+    }
+
+    fun setPoolSpikeAlertEnabled(enabled: Boolean) {
+        _poolSpikeAlertEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_POOL_SPIKE_ALERT, enabled).apply()
+    }
+
+    fun setPoolSpikeMultiplier(multiplier: Double) {
+        val safe = multiplier.coerceIn(1.5, 20.0)
+        _poolSpikeMultiplier.value = safe
+        prefs.edit().putFloat(KEY_POOL_SPIKE_MULTIPLIER, safe.toFloat()).apply()
+    }
+
+    fun setPoolSuppressMinorAuditLogs(enabled: Boolean) {
+        _poolSuppressMinorAuditLogs.value = enabled
+        prefs.edit().putBoolean(KEY_POOL_SUPPRESS_MINOR_LOGS, enabled).apply()
+    }
+
+    fun setListCompletenessGuardEnabled(enabled: Boolean) {
+        _listCompletenessGuardEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_LIST_COMPLETENESS_GUARD, enabled).apply()
+    }
+
+    /**
+     * Resolves the effective FollowerPoolPolicy by combining global defaults with per-target overrides.
+     */
+    fun resolvePoolPolicy(target: TargetEntity?, isFollowing: Boolean = false): FollowerPoolPolicy {
+        val override = TargetPoolOverride.fromKey(target?.poolOverrideMode)
+        val applyToFollowing = when (target?.poolApplyToFollowing ?: -1) {
+            1 -> true
+            0 -> false
+            else -> _poolApplyToFollowing.value
+        }
+
+        val resolvedMode = when (override) {
+            TargetPoolOverride.GLOBAL -> _poolMode.value
+            TargetPoolOverride.OFF -> FollowerPoolMode.OFF
+            TargetPoolOverride.FIXED_COUNT -> FollowerPoolMode.FIXED_COUNT
+            TargetPoolOverride.PERCENTAGE -> FollowerPoolMode.PERCENTAGE
+            TargetPoolOverride.AUTO_ADAPTIVE -> FollowerPoolMode.AUTO_ADAPTIVE
+        }
+
+        val finalMode = if (isFollowing && !applyToFollowing) FollowerPoolMode.OFF else resolvedMode
+        val useCustom = override != TargetPoolOverride.GLOBAL && override != TargetPoolOverride.OFF
+        val fixed = if (useCustom && target != null) target.poolCustomThreshold.coerceAtLeast(1L) else _poolFixedThreshold.value
+        val percent = if (useCustom && target != null) target.poolCustomPercent.coerceIn(0.01, 100.0) else _poolPercentThreshold.value
+        val digest = if (target != null && target.poolCustomDigestMinutes >= 0) target.poolCustomDigestMinutes else _poolDigestWindowMinutes.value
+        val cooldown = if (target != null && target.poolCustomCooldownMinutes >= 0) target.poolCustomCooldownMinutes else _poolCooldownMinutes.value
+
+        return FollowerPoolPolicy(
+            mode = finalMode,
+            fixedThreshold = fixed,
+            percentThreshold = percent,
+            digestWindowMinutes = digest,
+            cooldownMinutes = cooldown,
+            antiFlickerEnabled = _poolAntiFlickerEnabled.value,
+            spikeAlertEnabled = _poolSpikeAlertEnabled.value,
+            spikeMultiplier = _poolSpikeMultiplier.value,
+            suppressMinorAuditLogs = _poolSuppressMinorAuditLogs.value
+        )
+    }
+
     fun isNotificationAllowed(eventType: String?): Boolean {
         if (!_statusBarNotifications.value) return false
         val cat = NotificationCategory.fromEventType(eventType)
@@ -246,6 +407,20 @@ class AppSettingsManager(private val context: Context) {
         const val KEY_YTDLP_WIFI_ONLY = "pref_ytdlp_wifi_only"
         const val KEY_YTDLP_QUALITY = "pref_ytdlp_quality"
         const val KEY_YTDLP_CHANNEL = "pref_ytdlp_channel"
+        const val KEY_POOL_MODE = "pref_pool_mode"
+        const val KEY_POOL_FIXED_THRESHOLD = "pref_pool_fixed_threshold"
+        const val KEY_POOL_PERCENT_THRESHOLD = "pref_pool_percent_threshold"
+        const val KEY_POOL_APPLY_FOLLOWING = "pref_pool_apply_following"
+        const val KEY_POOL_DIGEST_MINUTES = "pref_pool_digest_minutes"
+        const val KEY_POOL_COOLDOWN_MINUTES = "pref_pool_cooldown_minutes"
+        const val KEY_POOL_ANTI_FLICKER = "pref_pool_anti_flicker"
+        const val KEY_POOL_SPIKE_ALERT = "pref_pool_spike_alert"
+        const val KEY_POOL_SPIKE_MULTIPLIER = "pref_pool_spike_multiplier"
+        const val KEY_POOL_SUPPRESS_MINOR_LOGS = "pref_pool_suppress_minor_logs"
+        const val KEY_LIST_COMPLETENESS_GUARD = "pref_list_completeness_guard"
+        const val DEFAULT_POOL_FIXED_THRESHOLD = 50L
+        const val DEFAULT_POOL_PERCENT_THRESHOLD = 0.5f
+        const val DEFAULT_POOL_SPIKE_MULTIPLIER = 3.0f
         const val DEFAULT_DAEMON_URL = "http://127.0.0.1:3000"
 
         @Volatile

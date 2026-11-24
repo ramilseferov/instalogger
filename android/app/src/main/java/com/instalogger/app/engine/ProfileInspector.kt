@@ -11,7 +11,9 @@ import com.instalogger.app.R
 import com.instalogger.app.data.local.*
 import com.instalogger.app.engine.media.CarouselSlideHint
 import com.instalogger.app.engine.media.MediaDownloadOrchestrator
+import com.instalogger.app.engine.pool.*
 import com.instalogger.app.service.InstaLoggerForegroundService
+import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.VaultStorageManager
@@ -350,60 +352,225 @@ class ProfileInspector(
             }
         }
 
-        // 5. Check followers count change (Strict deduplication guard against race-conditions)
-        if (existing != null && existing.followersCount > 0 && snapshot.followersCount > 0 && existing.followersCount != snapshot.followersCount) {
-            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "followers_change")
-            if (latestLog?.newValue != snapshot.followersCount.toString()) {
-                val diff = snapshot.followersCount - existing.followersCount
-                val sign = if (diff > 0) "+$diff" else "$diff"
-                val title = LanguageManager.getString(context, R.string.notif_followers_changed_title, cleanUser, sign)
-                val desc = LanguageManager.getString(context, R.string.notif_followers_changed_desc, existing.followersCount, snapshot.followersCount, sign)
-                changeLogDao.insertLog(
-                    ChangeLogEntity(
-                        targetUsername = cleanUser,
-                        eventType = "followers_change",
-                        title = title,
-                        oldValue = existing.followersCount.toString(),
-                        newValue = snapshot.followersCount.toString(),
-                        timestamp = now
-                    )
+        // 5. Check followers count change via FollowerPoolEngine (Classic Instant OR Pooled + Protections)
+        val settingsManager = (context.applicationContext as? InstaLoggerApp)?.settingsManager
+            ?: AppSettingsManager.getInstance(context)
+        val followerPolicy = settingsManager.resolvePoolPolicy(existing, isFollowing = false)
+        var nextFollowerPoolState = existing?.followerPoolState() ?: PoolMetricState(
+            baseline = snapshot.followersCount,
+            startedAt = now
+        )
+        var keepPreviousFollowerCountForFlicker = false
+
+        if (existing != null && existing.followersCount > 0 && snapshot.followersCount > 0) {
+            val shouldEvaluateFollowers = existing.followersCount != snapshot.followersCount ||
+                (followerPolicy.mode != FollowerPoolMode.OFF && followerPolicy.digestWindowMinutes > 0 &&
+                    nextFollowerPoolState.baseline > 0L && nextFollowerPoolState.baseline != snapshot.followersCount)
+            if (shouldEvaluateFollowers) {
+                val eval = FollowerPoolEngine.evaluateChange(
+                    state = nextFollowerPoolState,
+                    previousCount = existing.followersCount,
+                    newCount = snapshot.followersCount,
+                    policy = followerPolicy,
+                    nowMs = now
                 )
-                dispatchAlert(
-                    targetUsername = cleanUser,
-                    eventType = "followers_change",
-                    title = title,
-                    message = desc,
-                    timestamp = now
-                )
+                nextFollowerPoolState = eval.updatedState
+                if (eval.action == PoolAction.SUPPRESSED_FLICKER && followerPolicy.mode == FollowerPoolMode.OFF) {
+                    keepPreviousFollowerCountForFlicker = true
+                }
+
+                when (eval.action) {
+                    PoolAction.INSTANT_ALERT -> {
+                        val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "followers_change")
+                        if (latestLog?.newValue != snapshot.followersCount.toString()) {
+                            val sign = if (eval.netDelta > 0) "+${eval.netDelta}" else "${eval.netDelta}"
+                            val title = LanguageManager.getString(context, R.string.notif_followers_changed_title, cleanUser, sign)
+                            val desc = LanguageManager.getString(context, R.string.notif_followers_changed_desc, eval.baselineCount, eval.newCount, sign)
+                            changeLogDao.insertLog(
+                                ChangeLogEntity(
+                                    targetUsername = cleanUser,
+                                    eventType = "followers_change",
+                                    title = title,
+                                    oldValue = eval.baselineCount.toString(),
+                                    newValue = eval.newCount.toString(),
+                                    timestamp = now
+                                )
+                            )
+                            dispatchAlert(cleanUser, "followers_change", title, desc, now)
+                        }
+                    }
+                    PoolAction.FLUSH_THRESHOLD -> {
+                        val sign = if (eval.netDelta > 0) "+${eval.netDelta}" else "${eval.netDelta}"
+                        val title = LanguageManager.getString(context, R.string.notif_pool_flush_title, cleanUser, sign)
+                        val desc = LanguageManager.getString(
+                            context,
+                            R.string.notif_pool_flush_desc,
+                            eval.baselineCount,
+                            eval.newCount,
+                            sign,
+                            eval.grossGain,
+                            eval.grossLoss
+                        )
+                        changeLogDao.insertLog(
+                            ChangeLogEntity(
+                                targetUsername = cleanUser,
+                                eventType = "follower_pool_flush",
+                                title = title,
+                                oldValue = eval.baselineCount.toString(),
+                                newValue = eval.newCount.toString(),
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(cleanUser, "follower_pool_flush", title, desc, now)
+                    }
+                    PoolAction.FLUSH_DIGEST -> {
+                        val sign = if (eval.netDelta > 0) "+${eval.netDelta}" else "${eval.netDelta}"
+                        val title = LanguageManager.getString(context, R.string.notif_pool_digest_title, cleanUser, sign)
+                        val desc = LanguageManager.getString(
+                            context,
+                            R.string.notif_pool_flush_desc,
+                            eval.baselineCount,
+                            eval.newCount,
+                            sign,
+                            eval.grossGain,
+                            eval.grossLoss
+                        )
+                        changeLogDao.insertLog(
+                            ChangeLogEntity(
+                                targetUsername = cleanUser,
+                                eventType = "follower_pool_flush",
+                                title = title,
+                                oldValue = eval.baselineCount.toString(),
+                                newValue = eval.newCount.toString(),
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(cleanUser, "follower_pool_flush", title, desc, now)
+                    }
+                    PoolAction.FLUSH_SPIKE -> {
+                        val sign = if (eval.netDelta > 0) "+${eval.netDelta}" else "${eval.netDelta}"
+                        val title = LanguageManager.getString(context, R.string.notif_pool_spike_title, cleanUser, sign)
+                        val desc = LanguageManager.getString(
+                            context,
+                            R.string.notif_pool_flush_desc,
+                            eval.baselineCount,
+                            eval.newCount,
+                            sign,
+                            eval.grossGain,
+                            eval.grossLoss
+                        )
+                        changeLogDao.insertLog(
+                            ChangeLogEntity(
+                                targetUsername = cleanUser,
+                                eventType = "follower_spike",
+                                title = title,
+                                oldValue = eval.baselineCount.toString(),
+                                newValue = eval.newCount.toString(),
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(cleanUser, "follower_spike", title, desc, now)
+                    }
+                    PoolAction.ACCUMULATE, PoolAction.SUPPRESSED_COOLDOWN -> {
+                        if (eval.shouldWriteAuditLog && eval.tickDelta != 0L) {
+                            val sign = if (eval.tickDelta > 0) "+${eval.tickDelta}" else "${eval.tickDelta}"
+                            val title = LanguageManager.getString(context, R.string.notif_followers_changed_title, cleanUser, sign)
+                            changeLogDao.insertLog(
+                                ChangeLogEntity(
+                                    targetUsername = cleanUser,
+                                    eventType = "followers_change",
+                                    title = title,
+                                    oldValue = existing.followersCount.toString(),
+                                    newValue = snapshot.followersCount.toString(),
+                                    timestamp = now
+                                )
+                            )
+                        }
+                    }
+                    PoolAction.NONE, PoolAction.SUPPRESSED_FLICKER -> Unit
+                }
             }
+        } else if (nextFollowerPoolState.baseline <= 0L && snapshot.followersCount > 0L) {
+            nextFollowerPoolState = nextFollowerPoolState.copy(baseline = snapshot.followersCount, startedAt = now)
         }
 
-        // 6. Check following count change (Strict deduplication guard against race-conditions)
-        if (existing != null && existing.followingCount > 0 && snapshot.followingCount > 0 && existing.followingCount != snapshot.followingCount) {
-            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "following_change")
-            if (latestLog?.newValue != snapshot.followingCount.toString()) {
-                val diff = snapshot.followingCount - existing.followingCount
-                val sign = if (diff > 0) "+$diff" else "$diff"
-                val title = LanguageManager.getString(context, R.string.notif_following_changed_title, cleanUser, sign)
-                val desc = LanguageManager.getString(context, R.string.notif_following_changed_desc, existing.followingCount, snapshot.followingCount, sign)
-                changeLogDao.insertLog(
-                    ChangeLogEntity(
-                        targetUsername = cleanUser,
-                        eventType = "following_change",
-                        title = title,
-                        oldValue = existing.followingCount.toString(),
-                        newValue = snapshot.followingCount.toString(),
-                        timestamp = now
-                    )
+        // 6. Check following count change (Classic Instant OR Pooled when user enables poolApplyToFollowing)
+        val followingPolicy = settingsManager.resolvePoolPolicy(existing, isFollowing = true)
+        var nextFollowingPoolState = existing?.followingPoolState() ?: PoolMetricState(
+            baseline = snapshot.followingCount,
+            startedAt = now
+        )
+
+        if (existing != null && existing.followingCount > 0 && snapshot.followingCount > 0) {
+            val shouldEvaluateFollowing = existing.followingCount != snapshot.followingCount ||
+                (followingPolicy.mode != FollowerPoolMode.OFF && followingPolicy.digestWindowMinutes > 0 &&
+                    nextFollowingPoolState.baseline > 0L && nextFollowingPoolState.baseline != snapshot.followingCount)
+            if (shouldEvaluateFollowing) {
+                val eval = FollowerPoolEngine.evaluateChange(
+                    state = nextFollowingPoolState,
+                    previousCount = existing.followingCount,
+                    newCount = snapshot.followingCount,
+                    policy = followingPolicy,
+                    nowMs = now
                 )
-                dispatchAlert(
-                    targetUsername = cleanUser,
-                    eventType = "following_change",
-                    title = title,
-                    message = desc,
-                    timestamp = now
-                )
+                nextFollowingPoolState = eval.updatedState
+                when (eval.action) {
+                    PoolAction.INSTANT_ALERT -> {
+                        val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "following_change")
+                        if (latestLog?.newValue != snapshot.followingCount.toString()) {
+                            val sign = if (eval.netDelta > 0) "+${eval.netDelta}" else "${eval.netDelta}"
+                            val title = LanguageManager.getString(context, R.string.notif_following_changed_title, cleanUser, sign)
+                            val desc = LanguageManager.getString(context, R.string.notif_following_changed_desc, eval.baselineCount, eval.newCount, sign)
+                            changeLogDao.insertLog(
+                                ChangeLogEntity(
+                                    targetUsername = cleanUser,
+                                    eventType = "following_change",
+                                    title = title,
+                                    oldValue = eval.baselineCount.toString(),
+                                    newValue = eval.newCount.toString(),
+                                    timestamp = now
+                                )
+                            )
+                            dispatchAlert(cleanUser, "following_change", title, desc, now)
+                        }
+                    }
+                    PoolAction.FLUSH_THRESHOLD, PoolAction.FLUSH_DIGEST, PoolAction.FLUSH_SPIKE -> {
+                        val sign = if (eval.netDelta > 0) "+${eval.netDelta}" else "${eval.netDelta}"
+                        val title = LanguageManager.getString(context, R.string.notif_following_changed_title, cleanUser, sign)
+                        val desc = LanguageManager.getString(context, R.string.notif_following_changed_desc, eval.baselineCount, eval.newCount, sign)
+                        changeLogDao.insertLog(
+                            ChangeLogEntity(
+                                targetUsername = cleanUser,
+                                eventType = "following_pool_flush",
+                                title = title,
+                                oldValue = eval.baselineCount.toString(),
+                                newValue = eval.newCount.toString(),
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(cleanUser, "following_pool_flush", title, desc, now)
+                    }
+                    PoolAction.ACCUMULATE, PoolAction.SUPPRESSED_COOLDOWN -> {
+                        if (eval.shouldWriteAuditLog && eval.tickDelta != 0L) {
+                            val sign = if (eval.tickDelta > 0) "+${eval.tickDelta}" else "${eval.tickDelta}"
+                            val title = LanguageManager.getString(context, R.string.notif_following_changed_title, cleanUser, sign)
+                            changeLogDao.insertLog(
+                                ChangeLogEntity(
+                                    targetUsername = cleanUser,
+                                    eventType = "following_change",
+                                    title = title,
+                                    oldValue = existing.followingCount.toString(),
+                                    newValue = snapshot.followingCount.toString(),
+                                    timestamp = now
+                                )
+                            )
+                        }
+                    }
+                    PoolAction.NONE, PoolAction.SUPPRESSED_FLICKER -> Unit
+                }
             }
+        } else if (nextFollowingPoolState.baseline <= 0L && snapshot.followingCount > 0L) {
+            nextFollowingPoolState = nextFollowingPoolState.copy(baseline = snapshot.followingCount, startedAt = now)
         }
 
         // 7. Check active 24-hour story update (zero-login latest_reel_media signal)
@@ -477,14 +644,27 @@ class ProfileInspector(
             avatarHash = currentAvatarHash
         )
 
+        val storedFollowersCount = if (keepPreviousFollowerCountForFlicker && existing != null) {
+            existing.followersCount
+        } else if (snapshot.followersCount > 0) {
+            snapshot.followersCount
+        } else {
+            freshInDb?.followersCount ?: existing?.followersCount ?: 0L
+        }
+        val storedFollowingCount = if (snapshot.followingCount > 0) {
+            snapshot.followingCount
+        } else {
+            freshInDb?.followingCount ?: existing?.followingCount ?: 0L
+        }
+
         val updatedTarget = TargetEntity(
             username = cleanUser,
             instagramId = snapshot.instagramId ?: freshInDb?.instagramId ?: existing?.instagramId,
             fullName = if (snapshot.fullName.isNotBlank()) snapshot.fullName else (freshInDb?.fullName ?: existing?.fullName ?: ""),
             biography = if (snapshot.biography.isNotBlank()) snapshot.biography else (freshInDb?.biography ?: existing?.biography ?: ""),
             isPrivate = snapshot.isPrivate,
-            followersCount = if (snapshot.followersCount > 0) snapshot.followersCount else (freshInDb?.followersCount ?: existing?.followersCount ?: 0L),
-            followingCount = if (snapshot.followingCount > 0) snapshot.followingCount else (freshInDb?.followingCount ?: existing?.followingCount ?: 0L),
+            followersCount = storedFollowersCount,
+            followingCount = storedFollowingCount,
             mediaCount = resolvedMediaCount,
             avatarUrl = snapshot.profilePicUrl ?: freshInDb?.avatarUrl ?: existing?.avatarUrl,
             localAvatarPath = localAvatarPath,
@@ -496,7 +676,22 @@ class ProfileInspector(
             lastCheckedAt = now,
             lastStatusChangeAt = if (freshInDb != null && freshInDb.isPrivate != snapshot.isPrivate) now else (freshInDb?.lastStatusChangeAt ?: existing?.lastStatusChangeAt),
             createdAt = freshInDb?.createdAt ?: existing?.createdAt ?: now,
-            latestStoryAt = resolvedLatestStoryAt
+            latestStoryAt = resolvedLatestStoryAt,
+            poolOverrideMode = freshInDb?.poolOverrideMode ?: existing?.poolOverrideMode ?: "GLOBAL",
+            poolCustomThreshold = freshInDb?.poolCustomThreshold ?: existing?.poolCustomThreshold ?: 50L,
+            poolCustomPercent = freshInDb?.poolCustomPercent ?: existing?.poolCustomPercent ?: 0.5,
+            poolCustomDigestMinutes = freshInDb?.poolCustomDigestMinutes ?: existing?.poolCustomDigestMinutes ?: -1,
+            poolCustomCooldownMinutes = freshInDb?.poolCustomCooldownMinutes ?: existing?.poolCustomCooldownMinutes ?: -1,
+            poolApplyToFollowing = freshInDb?.poolApplyToFollowing ?: existing?.poolApplyToFollowing ?: -1,
+            poolFollowerBaseline = if (nextFollowerPoolState.baseline > 0L) nextFollowerPoolState.baseline else storedFollowersCount,
+            poolFollowerStartedAt = if (nextFollowerPoolState.startedAt > 0L) nextFollowerPoolState.startedAt else now,
+            poolFollowerLastAlertAt = nextFollowerPoolState.lastAlertAt,
+            poolFollowerGrossGain = nextFollowerPoolState.grossGain,
+            poolFollowerGrossLoss = nextFollowerPoolState.grossLoss,
+            poolFollowingBaseline = if (nextFollowingPoolState.baseline > 0L) nextFollowingPoolState.baseline else storedFollowingCount,
+            poolFollowingStartedAt = if (nextFollowingPoolState.startedAt > 0L) nextFollowingPoolState.startedAt else now,
+            poolFollowingLastAlertAt = nextFollowingPoolState.lastAlertAt,
+            poolPendingFlickerCount = nextFollowerPoolState.pendingFlickerCount
         )
 
         if (isTargetDeleted(cleanUser)) {
@@ -506,12 +701,12 @@ class ProfileInspector(
         // IMMEDIATE DATABASE COMMIT: Guarantees that any concurrent/subsequent check reads fresh state
         targetDao.insertTarget(updatedTarget)
 
-        // 7. Check and archive followers & following lists in background
+        // 7. Check and archive followers & following lists in background (protected by ListCompletenessGuard)
         val targetId = snapshot.instagramId ?: existing?.instagramId
         if (!targetId.isNullOrBlank()) {
             if (!cookie.isNullOrBlank() || wasPrivateToPublic || !snapshot.isPrivate) {
-                inspectFollowersList(cleanUser, targetId, cookie, now)
-                inspectFollowingList(cleanUser, targetId, cookie, now)
+                inspectFollowersList(cleanUser, targetId, cookie, now, storedFollowersCount, settingsManager.listCompletenessGuardEnabled.value)
+                inspectFollowingList(cleanUser, targetId, cookie, now, storedFollowingCount, settingsManager.listCompletenessGuardEnabled.value)
             }
         }
 
@@ -1206,13 +1401,78 @@ class ProfileInspector(
         return md.digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 
-    private suspend fun inspectFollowersList(username: String, targetId: String, cookie: String?, now: Long) {
+    /**
+     * Manually flushes and resets a target's follower/following change pool.
+     * Returns the flushed net follower delta (0 if no accumulated difference).
+     */
+    suspend fun flushTargetPool(username: String, writeSummaryLog: Boolean = true): Long = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val target = database.targetDao().getTarget(cleanUser) ?: return@withContext 0L
+        val now = System.currentTimeMillis()
+        val (netDelta, resetState) = FollowerPoolEngine.manualFlush(
+            state = target.followerPoolState(),
+            currentCount = target.followersCount,
+            nowMs = now
+        )
+
+        if (writeSummaryLog && netDelta != 0L) {
+            val baseline = if (target.poolFollowerBaseline > 0L) target.poolFollowerBaseline else target.followersCount
+            val sign = if (netDelta > 0L) "+$netDelta" else "$netDelta"
+            val title = LanguageManager.getString(context, R.string.notif_pool_flush_title, cleanUser, sign)
+            val desc = LanguageManager.getString(
+                context,
+                R.string.notif_pool_flush_desc,
+                baseline,
+                target.followersCount,
+                sign,
+                target.poolFollowerGrossGain,
+                target.poolFollowerGrossLoss
+            )
+            database.changeLogDao().insertLog(
+                ChangeLogEntity(
+                    targetUsername = cleanUser,
+                    eventType = "follower_pool_flush",
+                    title = title,
+                    oldValue = baseline.toString(),
+                    newValue = target.followersCount.toString(),
+                    timestamp = now
+                )
+            )
+            dispatchAlert(cleanUser, "follower_pool_flush", title, desc, now)
+        }
+
+        database.targetDao().resetPoolAccumulators(
+            username = cleanUser,
+            followerBaseline = target.followersCount,
+            followingBaseline = target.followingCount,
+            lastAlertAt = resetState.lastAlertAt,
+            nowMs = now
+        )
+        netDelta
+    }
+
+    private suspend fun inspectFollowersList(
+        username: String,
+        targetId: String,
+        cookie: String?,
+        now: Long,
+        reportedTotalCount: Long = 0L,
+        completenessGuardEnabled: Boolean = true
+    ) {
         try {
             val freshUsers = instagramEngine.fetchFollowersList(targetId, cookie, limit = 50)
-            if (freshUsers.isEmpty()) return
+            val decision = ListCompletenessGuard.evaluate(
+                fetchedCount = freshUsers.size,
+                reportedTotalCount = reportedTotalCount,
+                guardEnabled = completenessGuardEnabled
+            )
+            if (!decision.allowArchiveOverwrite) {
+                Log.d("ProfileInspector", "Followers list completeness=${decision.status} for @$username (fetched=${freshUsers.size}, total=$reportedTotalCount); skipping diff")
+                return
+            }
 
             val oldJson = ArchiveDirectoryManager.getUserArchiveJson(context, username, "followers.json")
-            if (!oldJson.isNullOrBlank()) {
+            if (!oldJson.isNullOrBlank() && (decision.allowGainAlerts || decision.allowLossAlerts)) {
                 val oldType = object : com.google.gson.reflect.TypeToken<List<InstagramUserSummary>>() {}.type
                 val oldUsers: List<InstagramUserSummary> = try {
                     gson.fromJson(oldJson, oldType) ?: emptyList()
@@ -1224,8 +1484,8 @@ class ProfileInspector(
                     val oldSet = oldUsers.map { it.username.lowercase() }.toSet()
                     val newSet = freshUsers.map { it.username.lowercase() }.toSet()
 
-                    val gained = freshUsers.filter { it.username.lowercase() !in oldSet }
-                    val lost = oldUsers.filter { it.username.lowercase() !in newSet }
+                    val gained = if (decision.allowGainAlerts) freshUsers.filter { it.username.lowercase() !in oldSet } else emptyList()
+                    val lost = if (decision.allowLossAlerts) oldUsers.filter { it.username.lowercase() !in newSet } else emptyList()
 
                     for (u in gained) {
                         val title = "@$username gained new follower: @${u.username}"
@@ -1287,13 +1547,28 @@ class ProfileInspector(
         }
     }
 
-    private suspend fun inspectFollowingList(username: String, targetId: String, cookie: String?, now: Long) {
+    private suspend fun inspectFollowingList(
+        username: String,
+        targetId: String,
+        cookie: String?,
+        now: Long,
+        reportedTotalCount: Long = 0L,
+        completenessGuardEnabled: Boolean = true
+    ) {
         try {
             val freshUsers = instagramEngine.fetchFollowingList(targetId, cookie, limit = 50)
-            if (freshUsers.isEmpty()) return
+            val decision = ListCompletenessGuard.evaluate(
+                fetchedCount = freshUsers.size,
+                reportedTotalCount = reportedTotalCount,
+                guardEnabled = completenessGuardEnabled
+            )
+            if (!decision.allowArchiveOverwrite) {
+                Log.d("ProfileInspector", "Following list completeness=${decision.status} for @$username (fetched=${freshUsers.size}, total=$reportedTotalCount); skipping diff")
+                return
+            }
 
             val oldJson = ArchiveDirectoryManager.getUserArchiveJson(context, username, "following.json")
-            if (!oldJson.isNullOrBlank()) {
+            if (!oldJson.isNullOrBlank() && (decision.allowGainAlerts || decision.allowLossAlerts)) {
                 val oldType = object : com.google.gson.reflect.TypeToken<List<InstagramUserSummary>>() {}.type
                 val oldUsers: List<InstagramUserSummary> = try {
                     gson.fromJson(oldJson, oldType) ?: emptyList()
@@ -1305,8 +1580,8 @@ class ProfileInspector(
                     val oldSet = oldUsers.map { it.username.lowercase() }.toSet()
                     val newSet = freshUsers.map { it.username.lowercase() }.toSet()
 
-                    val gained = freshUsers.filter { it.username.lowercase() !in oldSet }
-                    val lost = oldUsers.filter { it.username.lowercase() !in newSet }
+                    val gained = if (decision.allowGainAlerts) freshUsers.filter { it.username.lowercase() !in oldSet } else emptyList()
+                    val lost = if (decision.allowLossAlerts) oldUsers.filter { it.username.lowercase() !in newSet } else emptyList()
 
                     for (u in gained) {
                         val title = "@$username followed: @${u.username}"

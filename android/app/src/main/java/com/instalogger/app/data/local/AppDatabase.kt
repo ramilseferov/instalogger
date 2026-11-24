@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MediaAssetEntity::class,
         ProviderHealthEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -113,6 +113,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolOverrideMode TEXT NOT NULL DEFAULT 'GLOBAL'")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolCustomThreshold INTEGER NOT NULL DEFAULT 50")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolCustomPercent REAL NOT NULL DEFAULT 0.5")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolCustomDigestMinutes INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolCustomCooldownMinutes INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolApplyToFollowing INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowerBaseline INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowerStartedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowerLastAlertAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowerGrossGain INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowerGrossLoss INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowingBaseline INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowingStartedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolFollowingLastAlertAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE targets ADD COLUMN poolPendingFlickerCount INTEGER NOT NULL DEFAULT -1")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -120,7 +140,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "instalogger_standalone.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -51,6 +52,8 @@ import com.instalogger.app.data.local.PostEntity
 import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.engine.PostSyncStatus
 import com.instalogger.app.engine.media.PostDownloadState
+import com.instalogger.app.engine.pool.FollowerPoolEngine
+import com.instalogger.app.engine.pool.FollowerPoolMode
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
@@ -98,8 +101,10 @@ fun ProfileDetailScreen(
     var isLoadingHighlightMedia by remember { mutableStateOf(false) }
     var showAuditSheet by remember { mutableStateOf(false) }
     var auditInitialTab by remember { mutableIntStateOf(0) }
+    var showPoolSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var avatarToDelete by remember { mutableStateOf<AvatarHistoryEntity?>(null) }
+    val globalPoolMode by app.settingsManager.poolMode.collectAsStateWithLifecycle()
 
     // Auto-fetch posts & highlights immediately upon opening screen and clean duplicate avatars
     LaunchedEffect(username) {
@@ -150,6 +155,24 @@ fun ProfileDetailScreen(
                         RotatingRefreshButton(
                             isRefreshing = isRefreshing,
                             onClick = { refreshTargetData() }
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .size(38.dp)
+                            .clip(actionBtnShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .border(0.75.dp, MaterialTheme.colorScheme.outlineVariant, actionBtnShape)
+                            .bouncyClickable(pressScale = 0.90f, onClick = { showPoolSheet = true }),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = stringResource(R.string.pool_global_title),
+                            tint = AccentBlue,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -209,9 +232,22 @@ fun ProfileDetailScreen(
                                 isLoadingHighlightMedia = false
                             }
                         }
+                        val resolvedPoolPolicy = remember(currentTarget, globalPoolMode) {
+                            app.settingsManager.resolvePoolPolicy(currentTarget, isFollowing = false)
+                        }
+                        val effectivePoolThreshold = remember(currentTarget, resolvedPoolPolicy) {
+                            FollowerPoolEngine.resolveEffectiveThreshold(
+                                mode = resolvedPoolPolicy.mode,
+                                fixedThreshold = resolvedPoolPolicy.fixedThreshold,
+                                percentThreshold = resolvedPoolPolicy.percentThreshold,
+                                referenceCount = maxOf(currentTarget.followersCount, currentTarget.poolFollowerBaseline)
+                            )
+                        }
                         ProfileHeroSection(
                             target = currentTarget,
                             localPostsCount = posts.size,
+                            effectivePoolMode = resolvedPoolPolicy.mode,
+                            effectivePoolThreshold = effectivePoolThreshold,
                             onAvatarClick = { avatarPath ->
                                 if (currentTarget.hasActiveStory) {
                                     openActiveStory()
@@ -220,6 +256,7 @@ fun ProfileDetailScreen(
                                 }
                             },
                             onStoryBadgeClick = openActiveStory,
+                            onPoolBadgeClick = { showPoolSheet = true },
                             onFollowersClick = {
                                 auditInitialTab = 0
                                 showAuditSheet = true
@@ -676,6 +713,25 @@ fun ProfileDetailScreen(
         )
     }
 
+    // Per-Target Follower Change Pool Settings Bottom Sheet
+    if (showPoolSheet && target != null) {
+        TargetPoolSettingsBottomSheet(
+            target = target!!,
+            onDismissRequest = { showPoolSheet = false },
+            onFlushed = { flushedDelta ->
+                scope.launch {
+                    val msg = if (flushedDelta != 0L) {
+                        val sign = if (flushedDelta > 0L) "+$flushedDelta" else "$flushedDelta"
+                        context.getString(R.string.pool_msg_flushed, sign)
+                    } else {
+                        context.getString(R.string.pool_msg_reset)
+                    }
+                    snackbarHostState.showSnackbar(msg)
+                }
+            }
+        )
+    }
+
     // Delete Target Confirmation Dialog
     if (showDeleteDialog) {
         AlertDialog(
@@ -791,8 +847,11 @@ private fun resolveAvatarSource(context: android.content.Context, t: TargetEntit
 private fun ProfileHeroSection(
     target: TargetEntity,
     localPostsCount: Int = 0,
+    effectivePoolMode: FollowerPoolMode = FollowerPoolMode.OFF,
+    effectivePoolThreshold: Long = 1L,
     onAvatarClick: (String) -> Unit,
     onStoryBadgeClick: () -> Unit = {},
+    onPoolBadgeClick: () -> Unit = {},
     onFollowersClick: () -> Unit,
     onFollowingClick: () -> Unit
 ) {
@@ -927,6 +986,47 @@ private fun ProfileHeroSection(
                         }
                         AnimatedVisibility(visible = target.isTurbo) {
                             TurboBadge(isTurbo = true)
+                        }
+                    }
+
+                    // Live Pool Status / Quick Opt-In Chip
+                    val showActivePoolPill = effectivePoolMode != FollowerPoolMode.OFF
+                    val showLargeAccountHint = effectivePoolMode == FollowerPoolMode.OFF && target.followersCount >= 10_000L
+                    if (showActivePoolPill || showLargeAccountHint) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val baseline = if (target.poolFollowerBaseline > 0L) target.poolFollowerBaseline else target.followersCount
+                        val netDelta = target.followersCount - baseline
+                        val sign = if (netDelta > 0L) "+$netDelta" else "$netDelta"
+                        Surface(
+                            shape = ShapeTokens.PillShape,
+                            color = AccentBlue.copy(alpha = if (showActivePoolPill) 0.14f else 0.08f),
+                            border = BorderStroke(0.75.dp, AccentBlue.copy(alpha = if (showActivePoolPill) 0.45f else 0.25f)),
+                            modifier = Modifier.bouncyClickable(pressScale = 0.94f, onClick = onPoolBadgeClick)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = null,
+                                    tint = AccentBlue,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = if (showActivePoolPill) {
+                                        stringResource(R.string.pool_badge_active, sign, effectivePoolThreshold)
+                                    } else {
+                                        stringResource(R.string.pool_badge_suggest_large)
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = AccentBlue,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }

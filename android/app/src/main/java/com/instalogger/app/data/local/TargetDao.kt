@@ -29,6 +29,55 @@ interface TargetDao {
     @Query("UPDATE targets SET lastCheckedAt = :timestamp WHERE LOWER(username) = LOWER(:username)")
     suspend fun updateLastChecked(username: String, timestamp: Long)
 
+    @Query(
+        """
+        UPDATE targets
+        SET poolOverrideMode = :overrideMode,
+            poolCustomThreshold = :customThreshold,
+            poolCustomPercent = :customPercent,
+            poolCustomDigestMinutes = :customDigestMinutes,
+            poolCustomCooldownMinutes = :customCooldownMinutes,
+            poolApplyToFollowing = :applyToFollowing,
+            poolFollowerBaseline = CASE WHEN poolFollowerBaseline <= 0 THEN followersCount ELSE poolFollowerBaseline END,
+            poolFollowerStartedAt = CASE WHEN poolFollowerStartedAt <= 0 THEN :nowMs ELSE poolFollowerStartedAt END,
+            poolFollowingBaseline = CASE WHEN poolFollowingBaseline <= 0 THEN followingCount ELSE poolFollowingBaseline END,
+            poolFollowingStartedAt = CASE WHEN poolFollowingStartedAt <= 0 THEN :nowMs ELSE poolFollowingStartedAt END
+        WHERE LOWER(username) = LOWER(:username)
+        """
+    )
+    suspend fun updatePoolConfig(
+        username: String,
+        overrideMode: String,
+        customThreshold: Long,
+        customPercent: Double,
+        customDigestMinutes: Int,
+        customCooldownMinutes: Int,
+        applyToFollowing: Int,
+        nowMs: Long
+    )
+
+    @Query(
+        """
+        UPDATE targets
+        SET poolFollowerBaseline = :followerBaseline,
+            poolFollowerStartedAt = :nowMs,
+            poolFollowerLastAlertAt = :lastAlertAt,
+            poolFollowerGrossGain = 0,
+            poolFollowerGrossLoss = 0,
+            poolFollowingBaseline = :followingBaseline,
+            poolFollowingStartedAt = :nowMs,
+            poolPendingFlickerCount = -1
+        WHERE LOWER(username) = LOWER(:username)
+        """
+    )
+    suspend fun resetPoolAccumulators(
+        username: String,
+        followerBaseline: Long,
+        followingBaseline: Long,
+        lastAlertAt: Long,
+        nowMs: Long
+    )
+
     @Query("DELETE FROM targets WHERE LOWER(username) = LOWER(:username)")
     suspend fun deleteTarget(username: String)
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -25,19 +26,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
+import com.instalogger.app.engine.pool.FollowerPoolMode
 import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NotificationSettingsBottomSheet(
     onDismissRequest: () -> Unit
@@ -51,6 +54,20 @@ fun NotificationSettingsBottomSheet(
     val inAppEnabled by settingsManager.inAppNotifications.collectAsStateWithLifecycle()
     val soundEnabled by settingsManager.soundEnabled.collectAsStateWithLifecycle()
     val vibrationEnabled by settingsManager.vibrationEnabled.collectAsStateWithLifecycle()
+
+    val poolMode by settingsManager.poolMode.collectAsStateWithLifecycle()
+    val poolFixed by settingsManager.poolFixedThreshold.collectAsStateWithLifecycle()
+    val poolPercent by settingsManager.poolPercentThreshold.collectAsStateWithLifecycle()
+    val poolApplyFollowing by settingsManager.poolApplyToFollowing.collectAsStateWithLifecycle()
+    val poolDigest by settingsManager.poolDigestWindowMinutes.collectAsStateWithLifecycle()
+    val poolCooldown by settingsManager.poolCooldownMinutes.collectAsStateWithLifecycle()
+    val poolAntiFlicker by settingsManager.poolAntiFlickerEnabled.collectAsStateWithLifecycle()
+    val poolSpikeEnabled by settingsManager.poolSpikeAlertEnabled.collectAsStateWithLifecycle()
+    val poolSuppressLogs by settingsManager.poolSuppressMinorAuditLogs.collectAsStateWithLifecycle()
+    val listCompletenessGuard by settingsManager.listCompletenessGuardEnabled.collectAsStateWithLifecycle()
+
+    var fixedInputText by remember(poolFixed) { mutableStateOf(poolFixed.toString()) }
+    var percentInputText by remember(poolPercent) { mutableStateOf(poolPercent.toString()) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -288,6 +305,222 @@ fun NotificationSettingsBottomSheet(
                             )
                         }
                     }
+                }
+            }
+
+            // 2.5. Follower Change Pool & High-Velocity Account Protection Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = ShapeTokens.LargeShape,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ),
+                border = BorderStroke(ShapeTokens.BorderStandard, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.pool_global_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(R.string.pool_global_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val modes = listOf(
+                            FollowerPoolMode.OFF to stringResource(R.string.pool_mode_off),
+                            FollowerPoolMode.FIXED_COUNT to stringResource(R.string.pool_mode_fixed),
+                            FollowerPoolMode.PERCENTAGE to stringResource(R.string.pool_mode_percent),
+                            FollowerPoolMode.AUTO_ADAPTIVE to stringResource(R.string.pool_mode_auto)
+                        )
+                        modes.forEach { (mode, label) ->
+                            FilterChip(
+                                selected = poolMode == mode,
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    settingsManager.setPoolMode(mode)
+                                },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(visible = poolMode == FollowerPoolMode.FIXED_COUNT) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(R.string.pool_threshold_label),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(10L, 50L, 100L, 250L, 500L, 1000L).forEach { preset ->
+                                    FilterChip(
+                                        selected = poolFixed == preset,
+                                        onClick = {
+                                            fixedInputText = preset.toString()
+                                            settingsManager.setPoolFixedThreshold(preset)
+                                        },
+                                        label = { Text("±$preset") }
+                                    )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = fixedInputText,
+                                onValueChange = { input ->
+                                    val digits = input.filter { it.isDigit() }.take(7)
+                                    fixedInputText = digits
+                                    digits.toLongOrNull()?.takeIf { it >= 1L }?.let {
+                                        settingsManager.setPoolFixedThreshold(it)
+                                    }
+                                },
+                                label = { Text(stringResource(R.string.pool_custom_value_hint)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(visible = poolMode == FollowerPoolMode.PERCENTAGE) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = stringResource(R.string.pool_percent_label),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(0.1, 0.5, 1.0, 2.0, 5.0).forEach { pct ->
+                                    FilterChip(
+                                        selected = poolPercent == pct,
+                                        onClick = {
+                                            percentInputText = pct.toString()
+                                            settingsManager.setPoolPercentThreshold(pct)
+                                        },
+                                        label = { Text("$pct%") }
+                                    )
+                                }
+                            }
+                            OutlinedTextField(
+                                value = percentInputText,
+                                onValueChange = { input ->
+                                    val filtered = input.filter { it.isDigit() || it == '.' || it == ',' }.take(6)
+                                    percentInputText = filtered
+                                    filtered.replace(',', '.').toDoubleOrNull()?.takeIf { it in 0.01..100.0 }?.let {
+                                        settingsManager.setPoolPercentThreshold(it)
+                                    }
+                                },
+                                label = { Text(stringResource(R.string.pool_custom_percent_hint)) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // Time-Window Digest
+                    Text(
+                        text = stringResource(R.string.pool_digest_title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            0 to stringResource(R.string.pool_option_off),
+                            15 to "15m",
+                            60 to "1h",
+                            360 to "6h",
+                            1440 to "24h"
+                        ).forEach { (mins, label) ->
+                            FilterChip(
+                                selected = poolDigest == mins,
+                                onClick = { settingsManager.setPoolDigestWindowMinutes(mins) },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+
+                    // Cooldown between alerts
+                    Text(
+                        text = stringResource(R.string.pool_cooldown_title),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            0 to stringResource(R.string.pool_option_off),
+                            1 to "1m",
+                            5 to "5m",
+                            15 to "15m",
+                            60 to "1h"
+                        ).forEach { (mins, label) ->
+                            FilterChip(
+                                selected = poolCooldown == mins,
+                                onClick = { settingsManager.setPoolCooldownMinutes(mins) },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    SettingSwitchRow(
+                        title = stringResource(R.string.pool_anti_flicker_title),
+                        description = stringResource(R.string.pool_anti_flicker_desc),
+                        checked = poolAntiFlicker,
+                        onCheckedChange = { settingsManager.setPoolAntiFlickerEnabled(it) }
+                    )
+
+                    SettingSwitchRow(
+                        title = stringResource(R.string.pool_spike_title),
+                        description = stringResource(R.string.pool_spike_desc),
+                        checked = poolSpikeEnabled,
+                        onCheckedChange = { settingsManager.setPoolSpikeAlertEnabled(it) }
+                    )
+
+                    SettingSwitchRow(
+                        title = stringResource(R.string.pool_apply_following_title),
+                        description = stringResource(R.string.pool_apply_following_desc),
+                        checked = poolApplyFollowing,
+                        onCheckedChange = { settingsManager.setPoolApplyToFollowing(it) }
+                    )
+
+                    SettingSwitchRow(
+                        title = stringResource(R.string.pool_suppress_logs_title),
+                        description = stringResource(R.string.pool_suppress_logs_desc),
+                        checked = poolSuppressLogs,
+                        onCheckedChange = { settingsManager.setPoolSuppressMinorAuditLogs(it) }
+                    )
+
+                    SettingSwitchRow(
+                        title = stringResource(R.string.pool_completeness_guard_title),
+                        description = stringResource(R.string.pool_completeness_guard_desc),
+                        checked = listCompletenessGuard,
+                        onCheckedChange = { settingsManager.setListCompletenessGuardEnabled(it) }
+                    )
                 }
             }
 
