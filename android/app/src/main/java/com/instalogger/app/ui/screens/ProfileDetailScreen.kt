@@ -49,6 +49,7 @@ import com.instalogger.app.data.local.HighlightMediaEntity
 import com.instalogger.app.data.local.PostEntity
 import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.engine.PostSyncStatus
+import com.instalogger.app.engine.media.PostDownloadState
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.*
 import com.instalogger.app.ui.theme.AccentBlue
@@ -81,6 +82,7 @@ fun ProfileDetailScreen(
     val history by app.database.followerHistoryDao().getHistoryForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val audits by app.database.followerAuditDao().getAuditsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val syncStateMap by app.profileInspector.postSyncState.collectAsStateWithLifecycle()
+    val downloadStates by app.mediaDownloadOrchestrator.downloadStates.collectAsStateWithLifecycle()
     val cleanUserLower = remember(username) { username.trim().trimStart('@').lowercase() }
     val targetSyncStatus = syncStateMap[cleanUserLower] ?: PostSyncStatus.IDLE
     val hasSession = remember { app.sessionManager.hasSession() }
@@ -542,6 +544,7 @@ fun ProfileDetailScreen(
                                         Box(modifier = Modifier.weight(1f)) {
                                             PostGridItem(
                                                 post = post,
+                                                downloadState = downloadStates[post.id] ?: PostDownloadState.Idle,
                                                 onClick = { selectedPostForViewer = post }
                                             )
                                         }
@@ -587,10 +590,11 @@ fun ProfileDetailScreen(
         }
     }
 
-    // Full-screen post detail viewer dialog
-    selectedPostForViewer?.let { post ->
+    // Full-screen post detail viewer dialog (always reads live post record from DB)
+    selectedPostForViewer?.let { selected ->
+        val livePost = posts.firstOrNull { it.id == selected.id } ?: selected
         InstagramPostViewerDialog(
-            post = post,
+            post = livePost,
             targetAvatarModel = target?.let { resolveAvatarSource(context, it) },
             onDismiss = { selectedPostForViewer = null }
         )

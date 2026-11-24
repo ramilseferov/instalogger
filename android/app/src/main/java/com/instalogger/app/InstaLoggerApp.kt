@@ -12,6 +12,11 @@ import com.instalogger.app.data.repository.NotificationRepository
 import com.instalogger.app.engine.InstagramEngine
 import com.instalogger.app.engine.ProfileInspector
 import com.instalogger.app.engine.SessionManager
+import com.instalogger.app.engine.media.DaemonBridgeProvider
+import com.instalogger.app.engine.media.MediaDownloadOrchestrator
+import com.instalogger.app.engine.media.NativeGraphProvider
+import com.instalogger.app.engine.media.ProviderHealthTracker
+import com.instalogger.app.engine.media.YtDlpEmbeddedProvider
 import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
 import com.instalogger.app.util.AppLockManager
@@ -45,6 +50,15 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
     lateinit var vaultStorageManager: VaultStorageManager
         private set
 
+    lateinit var ytDlpProvider: YtDlpEmbeddedProvider
+        private set
+
+    lateinit var providerHealthTracker: ProviderHealthTracker
+        private set
+
+    lateinit var mediaDownloadOrchestrator: MediaDownloadOrchestrator
+        private set
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .components {
@@ -66,11 +80,29 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
         instagramEngine = InstagramEngine(this)
         notificationRepository = NotificationRepository(database.notificationDao())
 
+        ytDlpProvider = YtDlpEmbeddedProvider(this)
+        val nativeGraphProvider = NativeGraphProvider(instagramEngine)
+        val daemonBridgeProvider = DaemonBridgeProvider(settingsManager)
+        providerHealthTracker = ProviderHealthTracker(database.providerHealthDao())
+        mediaDownloadOrchestrator = MediaDownloadOrchestrator(
+            context = this,
+            database = database,
+            sessionManager = sessionManager,
+            settingsManager = settingsManager,
+            vaultStorageManager = vaultStorageManager,
+            ytDlpProvider = ytDlpProvider,
+            nativeGraphProvider = nativeGraphProvider,
+            daemonBridgeProvider = daemonBridgeProvider,
+            healthTracker = providerHealthTracker
+        )
+        ytDlpProvider.warmUpAsync()
+
         profileInspector = ProfileInspector(
             context = this,
             database = database,
             sessionManager = sessionManager,
-            instagramEngine = instagramEngine
+            instagramEngine = instagramEngine,
+            mediaDownloadOrchestrator = mediaDownloadOrchestrator
         )
 
         refreshNotificationChannels()

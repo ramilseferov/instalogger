@@ -49,6 +49,30 @@ flowchart TD
 
 ---
 
+## Post Archiving Subsystem
+
+InstaLogger separates post discovery, media extraction, integrity validation, and encrypted local storage into a pluggable multi-provider pipeline. Because `yt-dlp` is dedicated to video, Reels, and DASH stream muxing (and does not extract image-only publications), the orchestrator routes each publication to the appropriate provider with automatic circuit-breaker failover:
+
+```mermaid
+flowchart LR
+    Discovery["Post Discovery (Web API · GraphQL · Headless WebView)"] --> DBMeta["Room v7: Immediate Post Metadata"]
+    Discovery --> Queue["MediaDownloadOrchestrator (Semaphore: 2 · Health Circuit Breaker)"]
+    Queue -->|"Video / Reel / DASH"| YtDlp["YtDlpEmbeddedProvider (yt-dlp + FFmpeg · Ephemeral 0600 Cookies)"]
+    Queue -->|"Photo / Carousel"| Native["NativeGraphProvider (Sidecar Carousel · Embed/OEmbed · HTTP)"]
+    Queue -. "Optional Daemon" .-> Daemon["DaemonBridgeProvider (Python: gallery-dl · yt-dlp · Instaloader)"]
+    YtDlp -->|"NoVideoInPost / 429 Fallback"| Native
+    YtDlp --> Integrity["MediaUrlGuard · Magic-Byte MIME Validator · SHA-256 Dedup"]
+    Native --> Integrity
+    Daemon --> Integrity
+    Integrity --> Vault["VaultStorageManager (AES-256-GCM .enc)"]
+    Vault --> DBAssets["Room v7: posts & media_assets (1..N Carousel Slides)"]
+    DBAssets --> Playback["VaultPlaybackBridge (On-Demand Temp Decrypt + FileProvider)"]
+```
+
+Detailed sequence flows, provider routing tables, circuit-breaker state machines, Room `v7` entity schemas, and security controls are documented in [docs/MEDIA_ARCHIVING_ARCHITECTURE.md](docs/MEDIA_ARCHIVING_ARCHITECTURE.md).
+
+---
+
 ## Installation & Deployment
 
 ### Android (Termux)
@@ -128,12 +152,15 @@ instalogger/
 
 The `android/` directory contains an independent native Android application developed with Jetpack Compose:
 
-- **Framework:** Kotlin, Jetpack Compose, Material 3, Room SQLite, Coroutines & Flow.
+- **Native Android Application:** Kotlin, Jetpack Compose, Material 3, Room SQLite (`v7`), Coroutines & Flow.
+- **Pluggable Multi-Provider Media Archiver:** Combines embedded `yt-dlp` + `FFmpeg` (Reels, Videos, DASH muxing, runtime `STABLE`/`NIGHTLY` self-updates), `NativeGraphProvider` (HD Photos, multi-slide Carousels via `edge_sidecar_to_children` and Embed/OEmbed), `HeadlessInstagramScraper` (zero-login public discovery), and optional `DaemonBridgeProvider` (`gallery-dl` CLI subprocess, `yt-dlp`, `Instaloader`).
+- **Cryptographic Integrity & Vault Storage:** Enforces CDN host allowlisting, binary magic-byte verification (rejecting HTML login redirects), SHA-256 content-addressed deduplication, ephemeral `0600` zero-wiped cookie files, AES-256-GCM encrypted Vault storage, and on-demand `FileProvider` decryption for video playback and export.
+- **Circuit-Breaker Fault Tolerance:** Persists per-provider health metrics (`provider_health`) with exponential cooldowns on `HTTP 429` rate limits and automatic fallback across healthy providers.
 - **Foreground Monitoring:** Background service (`InstaLoggerForegroundService`) executes scheduled profile checks with battery optimization exclusion (`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`).
-- **Story & Highlight Archival:** High-speed parallel blitz downloads full Instagram highlights, stories, and posts with sidecar metadata and full-screen story viewer.
 - **Follower Growth & Audit:** Real-time tracking of follower gained/lost and following changes with Bezier growth charts and diff audits.
-- **Rendering & Aesthetics:** Hardware-accelerated frosted glass blur transitions via `RenderEffect` on Android 12+, dynamic SVG avatar fallbacks, and low-latency interaction handling.
 - **Multilingual Support:** Localized string catalogs for Azerbaijani (`AZ`), English (`EN`), and Russian (`RU`).
+
+For full technical specifications, sequence diagrams, circuit-breaker state machines, and Room `v7` entity schemas of the post archiving pipeline, see [Media Archiving Architecture](docs/MEDIA_ARCHIVING_ARCHITECTURE.md).
 
 ---
 

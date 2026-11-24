@@ -310,4 +310,40 @@
     <string name="dialog_delete_avatar_title">Avatarı Sil</string>
     <string name="dialog_delete_avatar_desc">Bu tarixi avatar qeydini və faylını arxivdən silmək istədiyinizdən əminsiniz?</string>
     <string name="msg_avatar_deleted">Avatar arxivi silindi</string>
+
+    <!-- Multi-Provider Media & yt-dlp Engine -->
+    <string name="section_media_engine_title">Media Mühərrikləri (yt-dlp)</string>
+    <string name="section_media_engine_desc">Reels/Videolar üçün gömülü yt-dlp + FFmpeg, Foto və Carousel-lər üçün Native Graph, SHA-256 Vault deduplikasiyası.</string>
+    <string name="ytdlp_status_ready">Hazır · %1$s</string>
+    <string name="ytdlp_status_init">Başladılır…</string>
+    <string name="ytdlp_status_updating">Yenilənir…</string>
+    <string name="ytdlp_status_error">Əlçatan deyil</string>
+    <string name="btn_update_ytdlp">yt-dlp Yenilə</string>
+    <string name="ytdlp_channel_label">Yenilənmə Kanalı</string>
+    <string name="ytdlp_quality_label">Video Keyfiyyəti</string>
+    <string name="ytdlp_quality_best">Ən Yüksək</string>
+    <string name="ytdlp_quality_1080">1080p</string>
+    <string name="ytdlp_quality_720">720p</string>
+    <string name="ytdlp_quality_480">480p</string>
+    <string name="ytdlp_auto_download_title">Videoları yt-dlp ilə avtomatik arxivlə</string>
+    <string name="ytdlp_auto_download_desc">Tapılan video və Reel paylaşımlarını şifrəli seyfdə avtomatik saxla.</string>
+    <string name="ytdlp_wifi_only_title">Arxa plan videoları yalnız Wi-Fi ilə</string>
+    <string name="ytdlp_wifi_only_desc">Mobil dataya qənaət et; əl ilə endirmə hər zaman aktiv qalır.</string>
+    <string name="provider_health_label">Mühərrik Sağlamlığı</string>
+    <string name="provider_status_healthy">Sağlam</string>
+    <string name="provider_status_rate_limited">Gözləmədə</string>
+    <string name="provider_status_degraded">Zəifləyib</string>
+    <string name="action_download_hd">HD Endir</string>
+    <string name="action_redownload_hd">Yenidən Endir</string>
+    <string name="action_cancel_download">Ləğv et</string>
+    <string name="download_stage_queued">Növbədə…</string>
+    <string name="download_stage_extracting">Media analiz edilir…</string>
+    <string name="download_stage_downloading">Endirilir %1$d%%</string>
+    <string name="download_stage_merging">Video və səs birləşdirilir (FFmpeg)…</string>
+    <string name="download_stage_encrypting">SHA-256 yoxlanılır və şifrələnir…</string>
+    <string name="download_stage_completed">Arxivləndi (%1$s)</string>
+    <string name="download_stage_failed">Endirmə xətası: %1$s</string>
+    <string name="download_stage_cancelled">Endirmə ləğv edildi</string>
+    <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
+    <string name="msg_ytdlp_update_failed">yt-dlp yenilənmə xətası: %1$s</string>
 </resources>

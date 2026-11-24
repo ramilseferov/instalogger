@@ -38,6 +38,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.data.local.ChangeLogEntity
+import com.instalogger.app.engine.media.ProviderHealthTracker
+import com.instalogger.app.engine.media.YtDlpEngineState
+import com.instalogger.app.engine.media.YtDlpQualityPreset
+import com.instalogger.app.engine.media.YtDlpUpdateChannel
 import com.instalogger.app.service.BatteryHelper
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.settings.AppSettingsManager
@@ -75,6 +79,13 @@ fun SettingsScreen() {
     val vibrationEnabled by app.settingsManager.vibrationEnabled.collectAsStateWithLifecycle()
     val daemonSyncEnabled by app.settingsManager.daemonSyncEnabled.collectAsStateWithLifecycle()
     val daemonHostUrl by app.settingsManager.daemonHostUrl.collectAsStateWithLifecycle()
+    val ytDlpEngineState by app.ytDlpProvider.engineState.collectAsStateWithLifecycle()
+    val ytDlpAutoDownloadVideos by app.settingsManager.ytDlpAutoDownloadVideos.collectAsStateWithLifecycle()
+    val ytDlpWifiOnly by app.settingsManager.ytDlpWifiOnly.collectAsStateWithLifecycle()
+    val ytDlpQualityPreset by app.settingsManager.ytDlpQualityPreset.collectAsStateWithLifecycle()
+    val ytDlpUpdateChannel by app.settingsManager.ytDlpUpdateChannel.collectAsStateWithLifecycle()
+    val providerHealthList by app.providerHealthTracker.healthFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var isUpdatingYtDlp by remember { mutableStateOf(false) }
     var isTestingDaemon by remember { mutableStateOf(false) }
     var daemonPingStatus by remember { mutableStateOf<Boolean?>(null) }
 
@@ -705,6 +716,232 @@ fun SettingsScreen() {
                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(stringResource(R.string.btn_restart_service))
+                }
+            }
+
+            // 5.5 Media Engines & yt-dlp Provider Hub Card
+            SettingsGroupCard(
+                icon = Icons.Default.Movie,
+                title = stringResource(R.string.section_media_engine_title),
+                description = stringResource(R.string.section_media_engine_desc),
+                headerTrailing = {
+                    when (val st = ytDlpEngineState) {
+                        is YtDlpEngineState.Ready -> StatusBadge(
+                            text = stringResource(R.string.ytdlp_status_ready, st.version),
+                            icon = Icons.Default.CheckCircle,
+                            containerColor = StatusGreenLight,
+                            contentColor = StatusGreen
+                        )
+                        is YtDlpEngineState.Updating -> StatusBadge(
+                            text = stringResource(R.string.ytdlp_status_updating),
+                            icon = Icons.Default.Sync,
+                            containerColor = AccentBlue.copy(alpha = 0.14f),
+                            contentColor = AccentBlue
+                        )
+                        is YtDlpEngineState.Initializing, is YtDlpEngineState.Uninitialized -> StatusBadge(
+                            text = stringResource(R.string.ytdlp_status_init),
+                            icon = Icons.Default.Sync,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        is YtDlpEngineState.Failed -> StatusBadge(
+                            text = stringResource(R.string.ytdlp_status_error),
+                            icon = Icons.Default.Warning,
+                            containerColor = StatusRed.copy(alpha = 0.14f),
+                            contentColor = StatusRed
+                        )
+                    }
+                }
+            ) {
+                SettingSwitchRow(
+                    title = stringResource(R.string.ytdlp_auto_download_title),
+                    description = stringResource(R.string.ytdlp_auto_download_desc),
+                    checked = ytDlpAutoDownloadVideos,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setYtDlpAutoDownloadVideos(it)
+                    }
+                )
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                )
+
+                SettingSwitchRow(
+                    title = stringResource(R.string.ytdlp_wifi_only_title),
+                    description = stringResource(R.string.ytdlp_wifi_only_desc),
+                    checked = ytDlpWifiOnly,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setYtDlpWifiOnly(it)
+                    }
+                )
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                )
+
+                // Quality Preset Selector
+                Text(
+                    text = stringResource(R.string.ytdlp_quality_label),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val qualityOptions = listOf(
+                        YtDlpQualityPreset.BEST to stringResource(R.string.ytdlp_quality_best),
+                        YtDlpQualityPreset.HD_1080 to stringResource(R.string.ytdlp_quality_1080),
+                        YtDlpQualityPreset.HD_720 to stringResource(R.string.ytdlp_quality_720),
+                        YtDlpQualityPreset.DATA_SAVER_480 to stringResource(R.string.ytdlp_quality_480)
+                    )
+                    qualityOptions.forEach { (preset, label) ->
+                        val selected = ytDlpQualityPreset == preset
+                        val chipShape = RoundedCornerShape(12.dp)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 38.dp)
+                                .clip(chipShape)
+                                .background(
+                                    if (selected) AccentBlue.copy(alpha = 0.16f)
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                                )
+                                .border(
+                                    width = if (selected) 1.25.dp else 0.75.dp,
+                                    color = if (selected) AccentBlue else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = chipShape
+                                )
+                                .bouncyClickable(pressScale = 0.94f) {
+                                    app.settingsManager.setYtDlpQualityPreset(preset)
+                                }
+                                .padding(horizontal = 4.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selected) AccentBlue else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // Update Channel + Runtime Self-Updater
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        YtDlpUpdateChannel.entries.forEach { ch ->
+                            val selected = ytDlpUpdateChannel == ch
+                            FilterChip(
+                                selected = selected,
+                                onClick = { app.settingsManager.setYtDlpUpdateChannel(ch) },
+                                label = {
+                                    Text(
+                                        text = ch.key,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (!isUpdatingYtDlp) {
+                                scope.launch {
+                                    isUpdatingYtDlp = true
+                                    val result = app.ytDlpProvider.updateBinary(ytDlpUpdateChannel)
+                                    isUpdatingYtDlp = false
+                                    val msg = result.fold(
+                                        onSuccess = { context.getString(R.string.msg_ytdlp_updated, it) },
+                                        onFailure = { context.getString(R.string.msg_ytdlp_update_failed, it.message ?: "") }
+                                    )
+                                    snackbarHostState.showSnackbar(msg)
+                                }
+                            }
+                        },
+                        enabled = !isUpdatingYtDlp && ytDlpEngineState !is YtDlpEngineState.Updating,
+                        shape = ShapeTokens.MediumShape
+                    ) {
+                        if (isUpdatingYtDlp || ytDlpEngineState is YtDlpEngineState.Updating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        } else {
+                            Icon(Icons.Default.SystemUpdateAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text(stringResource(R.string.btn_update_ytdlp))
+                    }
+                }
+
+                // Provider Health Pills (Circuit Breaker Telemetry)
+                if (providerHealthList.isNotEmpty()) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                    )
+                    Text(
+                        text = stringResource(R.string.provider_health_label),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        providerHealthList.forEach { health ->
+                            val isHealthy = health.status == ProviderHealthTracker.STATUS_HEALTHY
+                            val isCooldown = health.status == ProviderHealthTracker.STATUS_RATE_LIMITED
+                            val badgeColor = when {
+                                isHealthy -> StatusGreen
+                                isCooldown -> Color(0xFFF59E0B)
+                                else -> StatusRed
+                            }
+                            val statusText = when {
+                                isHealthy -> stringResource(R.string.provider_status_healthy)
+                                isCooldown -> stringResource(R.string.provider_status_rate_limited)
+                                else -> stringResource(R.string.provider_status_degraded)
+                            }
+                            Surface(
+                                shape = ShapeTokens.PillShape,
+                                color = badgeColor.copy(alpha = 0.14f),
+                                modifier = Modifier.bouncyClickable(pressScale = 0.94f) {
+                                    if (!isHealthy) {
+                                        scope.launch {
+                                            app.providerHealthTracker.resetProvider(health.providerId)
+                                        }
+                                    }
+                                }
+                            ) {
+                                Text(
+                                    text = "${health.providerId}: $statusText",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = badgeColor,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

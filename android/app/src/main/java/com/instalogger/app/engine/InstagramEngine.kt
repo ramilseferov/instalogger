@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.instalogger.app.engine.media.CarouselSlideHint
+import com.instalogger.app.engine.media.ExtractedPostMetadata
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -58,13 +60,19 @@ data class InstagramHighlightItem(
 data class InstagramPostItem(
     val id: String,
     val shortcode: String,
-    val mediaType: String, // "image" or "video"
+    val mediaType: String, // "image", "video", or "carousel"
     val displayUrl: String,
     val videoUrl: String? = null,
     val caption: String = "",
     val timestamp: Long = 0L,
     val likeCount: Int = 0,
-    val commentCount: Int = 0
+    val commentCount: Int = 0,
+    val slides: List<CarouselSlideHint> = emptyList()
+)
+
+data class PostMediaDetails(
+    val slides: List<CarouselSlideHint>,
+    val metadata: ExtractedPostMetadata? = null
 )
 
 sealed class PostFetchResult {
@@ -966,6 +974,12 @@ class InstagramEngine(context: Context? = null) {
                                         val isVideo = node.get("is_video")?.asBoolean ?: false
                                         val displayUrl = node.get("display_url")?.asString ?: ""
                                         val videoUrl = if (isVideo) node.get("video_url")?.asString else null
+                                        val slides = extractSidecarSlides(node)
+                                        val resolvedMediaType = when {
+                                            slides.size > 1 -> "carousel"
+                                            isVideo -> "video"
+                                            else -> "image"
+                                        }
                                         val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
                                         val caption = if (captionEdges != null && captionEdges.size() > 0) {
                                             captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
@@ -979,13 +993,14 @@ class InstagramEngine(context: Context? = null) {
                                             InstagramPostItem(
                                                 id = shortcode,
                                                 shortcode = shortcode,
-                                                mediaType = if (isVideo) "video" else "image",
+                                                mediaType = resolvedMediaType,
                                                 displayUrl = displayUrl,
                                                 videoUrl = videoUrl,
                                                 caption = caption.cleanDisplayText(),
                                                 timestamp = timestamp * 1000L,
                                                 likeCount = likes,
-                                                commentCount = comments
+                                                commentCount = comments,
+                                                slides = slides
                                             )
                                         )
                                     }
@@ -1031,6 +1046,12 @@ class InstagramEngine(context: Context? = null) {
                                 val isVideo = node.get("is_video")?.asBoolean ?: false
                                 val displayUrl = node.get("display_url")?.asString ?: ""
                                 val videoUrl = if (isVideo) node.get("video_url")?.asString else null
+                                val slides = extractSidecarSlides(node)
+                                val resolvedMediaType = when {
+                                    slides.size > 1 -> "carousel"
+                                    isVideo -> "video"
+                                    else -> "image"
+                                }
                                 val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
                                 val caption = if (captionEdges != null && captionEdges.size() > 0) {
                                     captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
@@ -1043,13 +1064,14 @@ class InstagramEngine(context: Context? = null) {
                                     InstagramPostItem(
                                         id = shortcode,
                                         shortcode = shortcode,
-                                        mediaType = if (isVideo) "video" else "image",
+                                        mediaType = resolvedMediaType,
                                         displayUrl = displayUrl,
                                         videoUrl = videoUrl,
                                         caption = caption.cleanDisplayText(),
                                         timestamp = timestamp * 1000L,
                                         likeCount = likes,
-                                        commentCount = comments
+                                        commentCount = comments,
+                                        slides = slides
                                     )
                                 )
                             }
@@ -1151,6 +1173,210 @@ class InstagramEngine(context: Context? = null) {
         if (isPrivate && !hasRealSession) return PostFetchResult.RequiresSession
         if (sawRateLimit) return PostFetchResult.RateLimited
         return PostFetchResult.Error("No posts returned")
+    }
+
+    /**
+     * Extracts ordered carousel slides from an Instagram timeline/post GraphQL node.
+     */
+    private fun extractSidecarSlides(node: JsonObject): List<CarouselSlideHint> {
+        val edges = node.getAsJsonObject("edge_sidecar_to_children")?.getAsJsonArray("edges") ?: return emptyList()
+        val slides = mutableListOf<CarouselSlideHint>()
+        edges.forEachIndexed { idx, elem ->
+            val child = elem.asJsonObject?.getAsJsonObject("node") ?: return@forEachIndexed
+            val isVid = child.get("is_video")?.asBoolean ?: false
+            val disp = child.get("display_url")?.asString ?: ""
+            val vid = if (isVid) child.get("video_url")?.asString else null
+            val dims = child.getAsJsonObject("dimensions")
+            val w = dims?.get("width")?.asInt ?: 0
+            val h = dims?.get("height")?.asInt ?: 0
+            if (disp.isNotBlank() || !vid.isNullOrBlank()) {
+                slides.add(
+                    CarouselSlideHint(
+                        position = idx,
+                        mediaType = if (isVid) "video" else "image",
+                        displayUrl = disp,
+                        videoUrl = vid,
+                        width = w,
+                        height = h
+                    )
+                )
+            }
+        }
+        return slides
+    }
+
+    /**
+     * Fetches full post media details (including all Carousel slides and HD URLs)
+     * for a given shortcode using Instagram JSON/GraphQL endpoints with Embed fallback.
+     */
+    fun fetchPostMediaDetails(
+        shortcode: String,
+        cookieString: String?,
+        fallbackDisplayUrl: String = "",
+        fallbackVideoUrl: String? = null,
+        isVideoHint: Boolean = false
+    ): PostMediaDetails? {
+        val cleanCode = shortcode.trim()
+        val effectiveCookie = cookieString?.takeIf { it.isNotBlank() } ?: getOrFetchGuestCookies()
+
+        // 1. Try Instagram post JSON endpoint (?__a=1&__d=dis)
+        try {
+            val url = "https://www.instagram.com/p/$cleanCode/?__a=1&__d=dis"
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("X-IG-App-ID", APP_ID)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Referer", "https://www.instagram.com/p/$cleanCode/")
+                .header("Accept", "*/*")
+
+            if (!effectiveCookie.isNullOrBlank()) {
+                req.header("Cookie", effectiveCookie)
+                extractCsrfToken(effectiveCookie)?.let { req.header("X-CSRFToken", it) }
+            }
+
+            clientWithRedirects.newCall(req.build()).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    if (body.startsWith("{")) {
+                        val root = gson.fromJson(body, JsonObject::class.java)
+                        val mediaNode = root?.getAsJsonObject("graphql")?.getAsJsonObject("shortcode_media")
+                        if (mediaNode != null) {
+                            val sidecar = extractSidecarSlides(mediaNode)
+                            val isVid = mediaNode.get("is_video")?.asBoolean ?: false
+                            val disp = mediaNode.get("display_url")?.asString ?: fallbackDisplayUrl
+                            val vid = if (isVid) mediaNode.get("video_url")?.asString else null
+                            val slides = if (sidecar.isNotEmpty()) {
+                                sidecar
+                            } else if (disp.isNotBlank() || !vid.isNullOrBlank()) {
+                                listOf(
+                                    CarouselSlideHint(
+                                        position = 0,
+                                        mediaType = if (isVid) "video" else "image",
+                                        displayUrl = disp,
+                                        videoUrl = vid
+                                    )
+                                )
+                            } else emptyList()
+
+                            val capEdges = mediaNode.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
+                            val caption = capEdges?.firstOrNull()?.asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText()
+                            val likes = mediaNode.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
+                            val comments = mediaNode.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt
+                            val ts = mediaNode.get("taken_at_timestamp")?.asLong?.let { it * 1000L }
+
+                            if (slides.isNotEmpty()) {
+                                return PostMediaDetails(
+                                    slides = slides,
+                                    metadata = ExtractedPostMetadata(
+                                        caption = caption?.ifBlank { null },
+                                        likeCount = likes,
+                                        commentCount = comments,
+                                        postedAtMillis = ts,
+                                        displayUrl = disp.ifBlank { null }
+                                    )
+                                )
+                            }
+                        }
+
+                        // v2 items[] schema (carousel_media / image_versions2 / video_versions)
+                        val item = root?.getAsJsonArray("items")?.firstOrNull()?.asJsonObject
+                        if (item != null) {
+                            val slides = mutableListOf<CarouselSlideHint>()
+                            val carouselArr = item.getAsJsonArray("carousel_media")
+                            if (carouselArr != null && carouselArr.size() > 0) {
+                                carouselArr.forEachIndexed { idx, el ->
+                                    val cObj = el.asJsonObject ?: return@forEachIndexed
+                                    val vidUrl = cObj.getAsJsonArray("video_versions")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                                    val imgObj = cObj.getAsJsonObject("image_versions2")?.getAsJsonArray("candidates")?.firstOrNull()?.asJsonObject
+                                    val imgUrl = imgObj?.get("url")?.asString ?: ""
+                                    val w = imgObj?.get("width")?.asInt ?: 0
+                                    val h = imgObj?.get("height")?.asInt ?: 0
+                                    if (imgUrl.isNotBlank() || !vidUrl.isNullOrBlank()) {
+                                        slides.add(
+                                            CarouselSlideHint(
+                                                position = idx,
+                                                mediaType = if (!vidUrl.isNullOrBlank()) "video" else "image",
+                                                displayUrl = imgUrl,
+                                                videoUrl = vidUrl,
+                                                width = w,
+                                                height = h
+                                            )
+                                        )
+                                    }
+                                }
+                            } else {
+                                val vidUrl = item.getAsJsonArray("video_versions")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                                val imgObj = item.getAsJsonObject("image_versions2")?.getAsJsonArray("candidates")?.firstOrNull()?.asJsonObject
+                                val imgUrl = imgObj?.get("url")?.asString ?: fallbackDisplayUrl
+                                if (imgUrl.isNotBlank() || !vidUrl.isNullOrBlank()) {
+                                    slides.add(
+                                        CarouselSlideHint(
+                                            position = 0,
+                                            mediaType = if (!vidUrl.isNullOrBlank()) "video" else "image",
+                                            displayUrl = imgUrl,
+                                            videoUrl = vidUrl,
+                                            width = imgObj?.get("width")?.asInt ?: 0,
+                                            height = imgObj?.get("height")?.asInt ?: 0
+                                        )
+                                    )
+                                }
+                            }
+                            if (slides.isNotEmpty()) {
+                                val caption = item.getAsJsonObject("caption")?.get("text")?.asString?.cleanDisplayText()
+                                val likes = item.get("like_count")?.asInt
+                                val comments = item.get("comment_count")?.asInt
+                                val ts = item.get("taken_at")?.asLong?.let { it * 1000L }
+                                val duration = item.get("video_duration")?.asDouble?.toInt()
+                                return PostMediaDetails(
+                                    slides = slides,
+                                    metadata = ExtractedPostMetadata(
+                                        caption = caption?.ifBlank { null },
+                                        likeCount = likes,
+                                        commentCount = comments,
+                                        postedAtMillis = ts,
+                                        durationSeconds = duration,
+                                        displayUrl = slides.first().displayUrl.ifBlank { null }
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Post JSON detail fetch skipped for $cleanCode: ${e.message}")
+        }
+
+        // 2. Fallback to Embed enrichment
+        val enriched = enrichPostViaEmbed(
+            InstagramPostItem(
+                id = cleanCode,
+                shortcode = cleanCode,
+                mediaType = if (isVideoHint) "video" else "image",
+                displayUrl = fallbackDisplayUrl,
+                videoUrl = fallbackVideoUrl
+            )
+        )
+        return if (enriched.displayUrl.isNotBlank() || !enriched.videoUrl.isNullOrBlank()) {
+            PostMediaDetails(
+                slides = listOf(
+                    CarouselSlideHint(
+                        position = 0,
+                        mediaType = enriched.mediaType,
+                        displayUrl = enriched.displayUrl,
+                        videoUrl = enriched.videoUrl
+                    )
+                ),
+                metadata = ExtractedPostMetadata(
+                    caption = enriched.caption.ifBlank { null },
+                    likeCount = enriched.likeCount.takeIf { it > 0 },
+                    commentCount = enriched.commentCount.takeIf { it > 0 },
+                    postedAtMillis = enriched.timestamp.takeIf { it > 0L },
+                    displayUrl = enriched.displayUrl.ifBlank { null }
+                )
+            )
+        } else null
     }
 
     /**

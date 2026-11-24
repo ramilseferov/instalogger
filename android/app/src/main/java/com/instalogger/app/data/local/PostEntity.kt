@@ -18,5 +18,11 @@ data class PostEntity(
     val isVideo: Boolean = false,
     val likeCount: Int = 0,
     val commentCount: Int = 0,
-    val postedAt: Long = System.currentTimeMillis()
+    val postedAt: Long = System.currentTimeMillis(),
+    val mediaType: String = "image", // "image", "video", "carousel"
+    val slideCount: Int = 1,
+    val localThumbPath: String? = null,
+    val durationSeconds: Int? = null,
+    val downloadEngine: String? = null, // "yt-dlp", "native-graph", "daemon", etc.
+    val downloadStatus: String = "pending" // "pending", "complete", "partial", "failed"
 )

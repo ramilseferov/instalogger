@@ -14,8 +14,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 try:
     from engine.instagram_client import InstagramClient
+    from engine.providers import PythonProviderOrchestrator
 except ImportError:
     from instagram_client import InstagramClient
+    from providers import PythonProviderOrchestrator
 
 
 def sanitize_identifier(val: Any) -> str:
@@ -228,8 +230,8 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
     }))
 
 
-def action_hydrate_assets(target_id: str, input_json: str, output_dir: str):
-    """Phase 2 Hydration: Download media binaries from CDN URLs into storage directories."""
+def action_hydrate_assets(target_id: str, input_json: str, output_dir: str, cookie_file: Optional[str] = None):
+    """Phase 2 Hydration: Multi-Provider download (yt-dlp + gallery-dl + HTTP) with SHA-256 deduplication."""
     if not os.path.exists(input_json):
         print(json.dumps({"status": "error", "message": f"Input file not found: {input_json}"}))
         return
@@ -242,60 +244,77 @@ def action_hydrate_assets(target_id: str, input_json: str, output_dir: str):
     downloaded = 0
     total_bytes = 0
 
-    session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"})
+    from pathlib import Path
+    orchestrator = PythonProviderOrchestrator()
+    cookie_path = Path(cookie_file) if cookie_file else None
+    sha_index_file = Path(output_dir) / ".sha256_index.json"
+    sha_index: Dict[str, str] = {}
+    if sha_index_file.exists():
+        try:
+            sha_index = json.loads(sha_index_file.read_text(encoding="utf-8"))
+        except Exception:
+            sha_index = {}
 
     for idx, item in enumerate(items, 1):
-        cdn_url = item.get("cdn_url")
-        if not cdn_url:
-            continue
+        cdn_url = item.get("cdn_url") or ""
+        shortcode = item.get("shortcode") or item.get("id") or f"item_{idx}"
+        media_type = item.get("media_type") or "post"
 
         rel_path = item.get("relative_file_path", "")
-        dest_path = os.path.join(output_dir, rel_path.replace(f"archives/{target_id}/", ""))
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        dest_path = Path(os.path.join(output_dir, rel_path.replace(f"archives/{target_id}/", "")))
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Download binary if not already cached
-        if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
-            try:
-                r = session.get(cdn_url, timeout=30, stream=True)
-                if r.status_code == 200:
-                    with open(dest_path, "wb") as f_out:
-                        for chunk in r.iter_content(chunk_size=65536):
-                            if chunk:
-                                f_out.write(chunk)
-                                total_bytes += len(chunk)
-                    downloaded += 1
-                else:
-                    print(json.dumps({
-                        "status": "warning",
-                        "message": f"HTTP {r.status_code} for {item.get('shortcode')}"
-                    }))
-            except Exception as e:
+        provider_used = "cached"
+        asset_records: List[Dict[str, Any]] = []
+
+        if not dest_path.exists() or dest_path.stat().st_size == 0:
+            ok, provider_used, asset_records = orchestrator.hydrate_item(
+                shortcode=shortcode,
+                media_type_hint=media_type,
+                dest_path=dest_path,
+                cdn_url=cdn_url,
+                cookie_file=cookie_path,
+                sha_index=sha_index,
+            )
+            if ok:
+                downloaded += 1
+                total_bytes += sum(rec.get("file_size", 0) for rec in asset_records)
+            else:
                 print(json.dumps({
                     "status": "warning",
-                    "message": f"Download failed for {item.get('shortcode')}: {e}"
+                    "message": f"Hydration failed for {shortcode}: {provider_used}"
                 }))
         else:
             downloaded += 1
 
-        # Save sidecar caption and metadata
-        base_no_ext = os.path.splitext(dest_path)[0]
+        # Save sidecar caption and normalized metadata
+        base_no_ext = os.path.splitext(str(dest_path))[0]
         caption = item.get("caption", "")
         if caption:
             with open(f"{base_no_ext}_caption.txt", "w", encoding="utf-8") as f_cap:
                 f_cap.write(caption)
 
+        enriched_meta = dict(item)
+        enriched_meta["provider"] = provider_used
+        if asset_records:
+            enriched_meta["assets"] = asset_records
         with open(f"{base_no_ext}_meta.json", "w", encoding="utf-8") as f_meta:
-            json.dump(item, f_meta, indent=2, ensure_ascii=False)
+            json.dump(enriched_meta, f_meta, indent=2, ensure_ascii=False)
 
-        # Emit progress event
         print(json.dumps({
             "status": "progress",
             "current": idx,
             "total": total,
-            "shortcode": item.get("shortcode"),
-            "media_type": item.get("media_type")
+            "shortcode": shortcode,
+            "media_type": media_type,
+            "provider": provider_used,
         }), flush=True)
+
+    try:
+        sha_index_file.parent.mkdir(parents=True, exist_ok=True)
+        sha_index_file.write_text(json.dumps(sha_index, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
     print(json.dumps({
         "status": "completed",
@@ -357,6 +376,7 @@ def main():
     p_hydrate.add_argument("--target-id", required=True, help="Target numeric Instagram user ID")
     p_hydrate.add_argument("--input-json", required=True, help="Path to JSON file containing blitz items")
     p_hydrate.add_argument("--output-dir", required=True, help="Target archives root directory")
+    p_hydrate.add_argument("--cookies", default=None, help="Optional Netscape cookies file path")
 
     p_hl = subparsers.add_parser("check_highlights")
     p_hl.add_argument("--target", required=True, help="Target username")
@@ -370,7 +390,7 @@ def main():
     elif args.action == "archive_blitz":
         action_archive_blitz(args.target, args.output_dir, args.session)
     elif args.action == "hydrate_assets":
-        action_hydrate_assets(args.target_id, args.input_json, args.output_dir)
+        action_hydrate_assets(args.target_id, args.input_json, args.output_dir, args.cookies)
     elif args.action == "check_highlights":
         action_check_highlights(args.target, args.output_dir, args.session)
 

@@ -296,4 +296,40 @@
     <string name="dialog_delete_avatar_title">Удалить аватар</string>
     <string name="dialog_delete_avatar_desc">Вы уверены, что хотите удалить эту историческую запись аватара?</string>
     <string name="msg_avatar_deleted">Архив аватара удален</string>
+
+    <!-- Multi-Provider Media & yt-dlp Engine -->
+    <string name="section_media_engine_title">Медиа-движки (yt-dlp)</string>
+    <string name="section_media_engine_desc">Встроенный yt-dlp + FFmpeg для Reels/Видео, Native Graph для фото и каруселей, SHA-256 дедупликация в Vault.</string>
+    <string name="ytdlp_status_ready">Готов · %1$s</string>
+    <string name="ytdlp_status_init">Инициализация…</string>
+    <string name="ytdlp_status_updating">Обновление…</string>
+    <string name="ytdlp_status_error">Недоступен</string>
+    <string name="btn_update_ytdlp">Обновить yt-dlp</string>
+    <string name="ytdlp_channel_label">Канал обновлений</string>
+    <string name="ytdlp_quality_label">Качество видео</string>
+    <string name="ytdlp_quality_best">Макс.</string>
+    <string name="ytdlp_quality_1080">1080p</string>
+    <string name="ytdlp_quality_720">720p</string>
+    <string name="ytdlp_quality_480">480p</string>
+    <string name="ytdlp_auto_download_title">Авто-архивация видео через yt-dlp</string>
+    <string name="ytdlp_auto_download_desc">Автоматически сохранять найденные видео и Reels в зашифрованное хранилище.</string>
+    <string name="ytdlp_wifi_only_title">Фоновые видео только по Wi-Fi</string>
+    <string name="ytdlp_wifi_only_desc">Экономит мобильный трафик; ручная загрузка доступна всегда.</string>
+    <string name="provider_health_label">Состояние движков</string>
+    <string name="provider_status_healthy">Исправен</string>
+    <string name="provider_status_rate_limited">Пауза</string>
+    <string name="provider_status_degraded">Сбой</string>
+    <string name="action_download_hd">Скачать HD</string>
+    <string name="action_redownload_hd">Перекачать</string>
+    <string name="action_cancel_download">Отмена</string>
+    <string name="download_stage_queued">В очереди…</string>
+    <string name="download_stage_extracting">Анализ медиа…</string>
+    <string name="download_stage_downloading">Загрузка %1$d%%</string>
+    <string name="download_stage_merging">Сборка видео и аудио (FFmpeg)…</string>
+    <string name="download_stage_encrypting">Проверка SHA-256 и шифрование…</string>
+    <string name="download_stage_completed">В архиве (%1$s)</string>
+    <string name="download_stage_failed">Ошибка загрузки: %1$s</string>
+    <string name="download_stage_cancelled">Загрузка отменена</string>
+    <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
+    <string name="msg_ytdlp_update_failed">Ошибка обновления yt-dlp: %1$s</string>
 </resources>

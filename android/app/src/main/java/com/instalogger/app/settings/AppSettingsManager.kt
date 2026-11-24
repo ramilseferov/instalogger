@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.instalogger.app.R
+import com.instalogger.app.engine.media.YtDlpQualityPreset
+import com.instalogger.app.engine.media.YtDlpUpdateChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -106,6 +108,22 @@ class AppSettingsManager(private val context: Context) {
     private val _daemonHostUrl = MutableStateFlow(prefs.getString(KEY_DAEMON_HOST_URL, DEFAULT_DAEMON_URL) ?: DEFAULT_DAEMON_URL)
     val daemonHostUrl: StateFlow<String> = _daemonHostUrl.asStateFlow()
 
+    private val _ytDlpAutoDownloadVideos = MutableStateFlow(loadBoolean(KEY_YTDLP_AUTO_VIDEOS, true))
+    val ytDlpAutoDownloadVideos: StateFlow<Boolean> = _ytDlpAutoDownloadVideos.asStateFlow()
+
+    private val _ytDlpWifiOnly = MutableStateFlow(loadBoolean(KEY_YTDLP_WIFI_ONLY, false))
+    val ytDlpWifiOnly: StateFlow<Boolean> = _ytDlpWifiOnly.asStateFlow()
+
+    private val _ytDlpQualityPreset = MutableStateFlow(
+        YtDlpQualityPreset.fromKey(prefs.getString(KEY_YTDLP_QUALITY, YtDlpQualityPreset.BEST.key))
+    )
+    val ytDlpQualityPreset: StateFlow<YtDlpQualityPreset> = _ytDlpQualityPreset.asStateFlow()
+
+    private val _ytDlpUpdateChannel = MutableStateFlow(
+        YtDlpUpdateChannel.fromKey(prefs.getString(KEY_YTDLP_CHANNEL, YtDlpUpdateChannel.STABLE.key))
+    )
+    val ytDlpUpdateChannel: StateFlow<YtDlpUpdateChannel> = _ytDlpUpdateChannel.asStateFlow()
+
     private val _categoryStates: Map<NotificationCategory, MutableStateFlow<Boolean>> =
         NotificationCategory.entries.associateWith { cat ->
             MutableStateFlow(prefs.getBoolean(cat.prefKey, cat.defaultEnabled))
@@ -172,6 +190,26 @@ class AppSettingsManager(private val context: Context) {
         prefs.edit().putString(KEY_DAEMON_HOST_URL, clean).apply()
     }
 
+    fun setYtDlpAutoDownloadVideos(enabled: Boolean) {
+        _ytDlpAutoDownloadVideos.value = enabled
+        prefs.edit().putBoolean(KEY_YTDLP_AUTO_VIDEOS, enabled).apply()
+    }
+
+    fun setYtDlpWifiOnly(enabled: Boolean) {
+        _ytDlpWifiOnly.value = enabled
+        prefs.edit().putBoolean(KEY_YTDLP_WIFI_ONLY, enabled).apply()
+    }
+
+    fun setYtDlpQualityPreset(preset: YtDlpQualityPreset) {
+        _ytDlpQualityPreset.value = preset
+        prefs.edit().putString(KEY_YTDLP_QUALITY, preset.key).apply()
+    }
+
+    fun setYtDlpUpdateChannel(channel: YtDlpUpdateChannel) {
+        _ytDlpUpdateChannel.value = channel
+        prefs.edit().putString(KEY_YTDLP_CHANNEL, channel.key).apply()
+    }
+
     fun isNotificationAllowed(eventType: String?): Boolean {
         if (!_statusBarNotifications.value) return false
         val cat = NotificationCategory.fromEventType(eventType)
@@ -204,6 +242,10 @@ class AppSettingsManager(private val context: Context) {
         const val KEY_NOTIF_VIBRATION = "pref_notif_vibration"
         const val KEY_DAEMON_SYNC_ENABLED = "pref_daemon_sync_enabled"
         const val KEY_DAEMON_HOST_URL = "pref_daemon_host_url"
+        const val KEY_YTDLP_AUTO_VIDEOS = "pref_ytdlp_auto_videos"
+        const val KEY_YTDLP_WIFI_ONLY = "pref_ytdlp_wifi_only"
+        const val KEY_YTDLP_QUALITY = "pref_ytdlp_quality"
+        const val KEY_YTDLP_CHANNEL = "pref_ytdlp_channel"
         const val DEFAULT_DAEMON_URL = "http://127.0.0.1:3000"
 
         @Volatile

@@ -20,6 +20,9 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -46,6 +49,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -92,6 +98,11 @@ dependencies {
     // Biometric & Security Crypto
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Embedded yt-dlp + FFmpeg Media Extraction Engine
+    val youtubedlVersion = "0.18.1"
+    implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlVersion")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlVersion")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

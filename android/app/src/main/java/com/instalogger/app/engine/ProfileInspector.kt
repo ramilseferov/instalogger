@@ -7,6 +7,8 @@ import com.google.gson.JsonObject
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.data.local.*
+import com.instalogger.app.engine.media.CarouselSlideHint
+import com.instalogger.app.engine.media.MediaDownloadOrchestrator
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.LanguageManager
@@ -33,6 +35,7 @@ class ProfileInspector(
     private val database: AppDatabase,
     private val sessionManager: SessionManager,
     private val instagramEngine: InstagramEngine = InstagramEngine(context),
+    private val mediaDownloadOrchestrator: MediaDownloadOrchestrator? = null,
     private val onAlertNotification: (title: String, message: String) -> Unit = { _, _ -> }
 ) {
 
@@ -1386,85 +1389,69 @@ class ProfileInspector(
                         val postDao = database.postDao()
                         val existingPostsMap = postDao.getPostsListForUser(cleanUser).associateBy { it.id }
                         val postEntities = mutableListOf<PostEntity>()
-
-                        val postDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/posts")
-                        postDir.mkdirs()
-                        ArchiveDirectoryManager.ensureNoMedia(postDir)
-                        val internalPostDir = File(context.filesDir, "posts/$cleanUser")
-                        internalPostDir.mkdirs()
-                        ArchiveDirectoryManager.ensureNoMedia(internalPostDir)
-                        val vaultManager = VaultStorageManager.getInstance(context)
+                        val orchestratorQueue = mutableListOf<Pair<PostEntity, List<CarouselSlideHint>>>()
 
                         for (rawPost in rawPosts) {
                             val existingPost = existingPostsMap[rawPost.shortcode]
-                            val needsEmbedEnrichment = existingPost == null && (
-                                rawPost.caption.isBlank() ||
-                                    rawPost.likeCount == 0 ||
-                                    (rawPost.mediaType == "video" && rawPost.videoUrl.isNullOrBlank()) ||
-                                    rawPost.displayUrl.contains("/media/?size=")
-                                )
+                            val existingLocalPath = existingPost?.localPath?.takeIf { File(it).exists() && File(it).length() > 0L }
+                            val existingThumbPath = existingPost?.localThumbPath?.takeIf { File(it).exists() && File(it).length() > 0L }
 
-                            val p = if (needsEmbedEnrichment) {
-                                instagramEngine.enrichPostViaEmbed(rawPost)
-                            } else {
-                                rawPost
+                            val isCarousel = rawPost.mediaType == "carousel" || rawPost.slides.size > 1
+                            val isVideo = rawPost.mediaType == "video" ||
+                                rawPost.slides.any { it.mediaType == "video" } ||
+                                (existingPost?.isVideo == true)
+                            val resolvedMediaType = when {
+                                isCarousel -> "carousel"
+                                isVideo -> "video"
+                                else -> "image"
                             }
+                            val resolvedSlideCount = maxOf(
+                                rawPost.slides.size,
+                                existingPost?.slideCount ?: 1,
+                                1
+                            )
 
-                            var localPath: String? = existingPost?.localPath?.takeIf { File(it).exists() && File(it).length() > 0L }
-                            val isVideo = (p.mediaType == "video") || (existingPost?.isVideo == true)
-                            val ext = if (isVideo && !p.videoUrl.isNullOrBlank()) "mp4" else "jpg"
-                            val file = File(postDir, "${p.shortcode}.$ext")
-
-                            // Ensure thumbnail .jpg is also saved for video posts so grid previews render offline
-                            if (isVideo && p.displayUrl.isNotBlank()) {
-                                val thumbFile = File(postDir, "${p.shortcode}.jpg")
-                                if (!thumbFile.exists() || thumbFile.length() == 0L) {
-                                    instagramEngine.downloadMedia(p.displayUrl, thumbFile)
-                                }
-                            }
-
-                            val downloadUrl = if (isVideo && !p.videoUrl.isNullOrBlank()) p.videoUrl else p.displayUrl
-                            if (localPath == null && !downloadUrl.isNullOrBlank()) {
-                                if (!file.exists() || file.length() == 0L) {
-                                    instagramEngine.downloadMedia(downloadUrl, file)
-                                }
-                                if (file.exists() && file.length() > 0L) {
-                                    val bytes = file.readBytes()
-                                    val encPost = vaultManager.saveEncryptedFile(cleanUser, "posts", "${p.shortcode}.$ext", bytes)
-                                    localPath = encPost.absolutePath
-                                }
-                            }
-
-                            val resolvedCaption = p.caption.cleanDisplayText().ifBlank { existingPost?.caption.orEmpty() }.ifBlank { null }
-                            val resolvedLikes = if (p.likeCount > 0) p.likeCount else (existingPost?.likeCount ?: 0)
-                            val resolvedComments = if (p.commentCount > 0) p.commentCount else (existingPost?.commentCount ?: 0)
-                            val resolvedPostedAt = if (existingPost != null && p.likeCount == 0 && existingPost.postedAt > 0L) {
+                            val resolvedCaption = rawPost.caption.cleanDisplayText().ifBlank { existingPost?.caption.orEmpty() }.ifBlank { null }
+                            val resolvedLikes = if (rawPost.likeCount > 0) rawPost.likeCount else (existingPost?.likeCount ?: 0)
+                            val resolvedComments = if (rawPost.commentCount > 0) rawPost.commentCount else (existingPost?.commentCount ?: 0)
+                            val resolvedPostedAt = if (existingPost != null && rawPost.likeCount == 0 && existingPost.postedAt > 0L) {
                                 existingPost.postedAt
                             } else {
-                                p.timestamp
+                                rawPost.timestamp
                             }
 
-                            postEntities.add(
-                                PostEntity(
-                                    id = p.shortcode,
-                                    username = cleanUser,
-                                    caption = resolvedCaption,
-                                    displayUrl = p.displayUrl.ifBlank { existingPost?.displayUrl.orEmpty() },
-                                    localPath = localPath,
-                                    isVideo = isVideo,
-                                    likeCount = resolvedLikes,
-                                    commentCount = resolvedComments,
-                                    postedAt = resolvedPostedAt
-                                )
+                            val entity = PostEntity(
+                                id = rawPost.shortcode,
+                                username = cleanUser,
+                                caption = resolvedCaption,
+                                displayUrl = rawPost.displayUrl.ifBlank { existingPost?.displayUrl.orEmpty() },
+                                localPath = existingLocalPath,
+                                isVideo = isVideo,
+                                likeCount = resolvedLikes,
+                                commentCount = resolvedComments,
+                                postedAt = resolvedPostedAt,
+                                mediaType = resolvedMediaType,
+                                slideCount = resolvedSlideCount,
+                                localThumbPath = existingThumbPath,
+                                durationSeconds = existingPost?.durationSeconds,
+                                downloadEngine = existingPost?.downloadEngine,
+                                downloadStatus = if (existingLocalPath != null) "complete" else (existingPost?.downloadStatus ?: "pending")
                             )
+                            postEntities.add(entity)
+                            orchestratorQueue.add(entity to rawPost.slides)
                         }
 
                         if (postEntities.isNotEmpty()) {
+                            // Persist discovered post list immediately so the grid renders with zero wait
                             postDao.insertPosts(postEntities)
                             val cur = database.targetDao().getTarget(cleanUser)
                             if (cur != null && (cur.mediaCount == 0L || cur.mediaCount < postEntities.size)) {
                                 database.targetDao().insertTarget(cur.copy(mediaCount = postEntities.size.toLong()))
                             }
+
+                            // Hand off media extraction, FFmpeg muxing, SHA-256 dedup & Vault encryption
+                            // to the bounded multi-provider orchestrator
+                            mediaDownloadOrchestrator?.enqueueBatch(cleanUser, orchestratorQueue)
                         }
                         _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.COMPLETED)
                     } else {
