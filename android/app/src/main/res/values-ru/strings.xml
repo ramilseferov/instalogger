@@ -339,4 +339,8 @@
     <string name="highlight_session_required_desc">Instagram требует активную сессию для загрузки фото и видео внутри актуального. Подключите сессию для просмотра и архивации.</string>
     <string name="highlight_empty_title">Истории не найдены</string>
     <string name="highlight_empty_desc">Не удалось загрузить элементы этого альбома актуального. Попробуйте обновить.</string>
+    <string name="badge_active_story">История</string>
+    <string name="story_viewer_active_title">@%1$s · История</string>
+    <string name="notif_story_posted_title">@%1$s опубликовал новую историю</string>
+    <string name="notif_story_posted_desc">Обнаружена новая 24-часовая активная история</string>
 </resources>

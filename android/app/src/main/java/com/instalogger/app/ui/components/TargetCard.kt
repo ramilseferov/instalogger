@@ -108,47 +108,99 @@ fun TargetCard(
                         else -> null
                     }
 
-                    SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(imageSource)
-                            .crossfade(true)
-                            .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36")
-                            .setHeader("Referer", "https://www.instagram.com/")
-                            .build(),
-                        contentDescription = target.username,
-                        modifier = Modifier
-                            .size(54.dp)
-                            .clip(CircleShape)
-                            .border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape),
-                        contentScale = ContentScale.Crop,
-                        loading = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = AccentBlue
-                                )
-                            }
-                        },
-                        error = {
-                            AvatarInitialsFallback(username = target.username)
-                        }
+                    val activeStoryBrush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFFF58529),
+                            Color(0xFFFEDA77),
+                            Color(0xFFDD2A7B),
+                            Color(0xFF8134AF),
+                            Color(0xFF515BD4)
+                        )
                     )
 
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "@${target.username}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    Box(
+                        modifier = if (target.hasActiveStory) {
+                            Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .border(2.5.dp, activeStoryBrush, CircleShape)
+                                .padding(3.dp)
+                        } else {
+                            Modifier.size(54.dp)
+                        },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(imageSource)
+                                .crossfade(true)
+                                .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36")
+                                .setHeader("Referer", "https://www.instagram.com/")
+                                .build(),
+                            contentDescription = target.username,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .then(
+                                    if (!target.hasActiveStory) {
+                                        Modifier.border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape)
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
+                            contentScale = ContentScale.Crop,
+                            loading = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = AccentBlue
+                                    )
+                                }
+                            },
+                            error = {
+                                AvatarInitialsFallback(username = target.username)
+                            }
                         )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "@${target.username}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (target.hasActiveStory) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(ShapeTokens.PillShape)
+                                        .background(Color(0xFFDD2A7B).copy(alpha = 0.16f))
+                                        .border(0.75.dp, Color(0xFFDD2A7B).copy(alpha = 0.5f), ShapeTokens.PillShape)
+                                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.badge_active_story),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFDD2A7B),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
 
                         if (target.fullName.isNotBlank()) {
                             Text(

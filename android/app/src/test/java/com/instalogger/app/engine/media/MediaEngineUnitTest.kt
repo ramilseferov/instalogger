@@ -1,5 +1,6 @@
 package com.instalogger.app.engine.media
 
+import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.engine.InstagramEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -196,5 +197,18 @@ class MediaEngineUnitTest {
         assertEquals("https://scontent.cdninstagram.com/v/story1.jpg", items[0].mediaUrl)
         assertEquals("video", items[1].mediaType)
         assertEquals("https://scontent.cdninstagram.com/v/story2.mp4", items[1].mediaUrl)
+    }
+
+    @Test
+    fun targetEntity_hasActiveStory_respects24HourWindow() {
+        val now = System.currentTimeMillis()
+        val noStory = TargetEntity(username = "alpha", latestStoryAt = 0L)
+        assertFalse(noStory.hasActiveStory)
+
+        val recentStory = TargetEntity(username = "beta", latestStoryAt = now - 2L * 60L * 60L * 1000L)
+        assertTrue(recentStory.hasActiveStory)
+
+        val expiredStory = TargetEntity(username = "gamma", latestStoryAt = now - 25L * 60L * 60L * 1000L)
+        assertFalse(expiredStory.hasActiveStory)
     }
 }

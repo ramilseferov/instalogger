@@ -137,7 +137,8 @@ class ProfileInspector(
                 daemonSnapshot.copy(
                     followersCount = if (directSnapshot.followersCount > 0) directSnapshot.followersCount else daemonSnapshot.followersCount,
                     followingCount = if (directSnapshot.followingCount > 0) directSnapshot.followingCount else daemonSnapshot.followingCount,
-                    mediaCount = if (directSnapshot.mediaCount > 0) directSnapshot.mediaCount else daemonSnapshot.mediaCount
+                    mediaCount = if (directSnapshot.mediaCount > 0) directSnapshot.mediaCount else daemonSnapshot.mediaCount,
+                    latestStoryAt = if (directSnapshot.latestStoryAt > 0L) directSnapshot.latestStoryAt else daemonSnapshot.latestStoryAt
                 )
             } else {
                 daemonSnapshot
@@ -405,6 +406,33 @@ class ProfileInspector(
             }
         }
 
+        // 7. Check active 24-hour story update (zero-login latest_reel_media signal)
+        val resolvedLatestStoryAt = snapshot.latestStoryAt
+        if (existing != null && resolvedLatestStoryAt > 0L && resolvedLatestStoryAt > existing.latestStoryAt) {
+            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "story_posted")
+            if (latestLog?.newValue != resolvedLatestStoryAt.toString()) {
+                val title = LanguageManager.getString(context, R.string.notif_story_posted_title, cleanUser)
+                val desc = LanguageManager.getString(context, R.string.notif_story_posted_desc)
+                changeLogDao.insertLog(
+                    ChangeLogEntity(
+                        targetUsername = cleanUser,
+                        eventType = "story_posted",
+                        title = title,
+                        oldValue = if (existing.latestStoryAt > 0L) existing.latestStoryAt.toString() else null,
+                        newValue = resolvedLatestStoryAt.toString(),
+                        timestamp = now
+                    )
+                )
+                dispatchAlert(
+                    targetUsername = cleanUser,
+                    eventType = "story_posted",
+                    title = title,
+                    message = desc,
+                    timestamp = now
+                )
+            }
+        }
+
         // Resolve local avatar path if still null
         if (localAvatarPath == null) {
             localAvatarPath = findExistingLocalAvatar(cleanUser, snapshot.instagramId)
@@ -467,7 +495,8 @@ class ProfileInspector(
             checkIntervalSeconds = resolvedInterval,
             lastCheckedAt = now,
             lastStatusChangeAt = if (freshInDb != null && freshInDb.isPrivate != snapshot.isPrivate) now else (freshInDb?.lastStatusChangeAt ?: existing?.lastStatusChangeAt),
-            createdAt = freshInDb?.createdAt ?: existing?.createdAt ?: now
+            createdAt = freshInDb?.createdAt ?: existing?.createdAt ?: now,
+            latestStoryAt = resolvedLatestStoryAt
         )
 
         if (isTargetDeleted(cleanUser)) {
@@ -1607,6 +1636,62 @@ class ProfileInspector(
         val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
         val fresh = archiveHighlightStoriesForEntity(highlight, cookie)
         if (fresh.isNotEmpty()) fresh else database.highlightDao().getMediaListForHighlight(highlight.id)
+    }
+
+    suspend fun fetchActiveStoriesOnDemand(target: TargetEntity): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
+        val cleanUser = target.username.trim().trimStart('@').lowercase()
+        val virtualId = "active_story:$cleanUser"
+        val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
+        val freshStories = instagramEngine.fetchActiveUserStories(
+            userId = target.instagramId,
+            username = cleanUser,
+            cookieString = cookie
+        )
+
+        if (freshStories.isNotEmpty()) {
+            val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/stories")
+            archiveDir.mkdirs()
+            ArchiveDirectoryManager.ensureNoMedia(archiveDir)
+            val vaultManager = VaultStorageManager.getInstance(context)
+            val entities = mutableListOf<HighlightMediaEntity>()
+
+            for (story in freshStories) {
+                val ext = if (story.mediaType == "video") "mp4" else "jpg"
+                val fileName = "story_${story.id}.$ext"
+                val mediaFile = File(archiveDir, fileName)
+                if (!mediaFile.exists() || mediaFile.length() == 0L) {
+                    if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
+                        instagramEngine.downloadMedia(story.mediaUrl, mediaFile)
+                    }
+                }
+                val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(mediaFile)
+                val localPath = if (valid != null) {
+                    vaultManager.saveEncryptedFile(cleanUser, "stories", fileName, mediaFile.readBytes()).absolutePath
+                } else {
+                    story.mediaUrl
+                }
+                entities.add(
+                    HighlightMediaEntity(
+                        id = story.id,
+                        highlightId = virtualId,
+                        username = cleanUser,
+                        mediaType = if (valid != null) (if (valid.isVideo) "video" else "image") else story.mediaType,
+                        mediaUrl = story.mediaUrl,
+                        localPath = localPath,
+                        takenAt = story.takenAt
+                    )
+                )
+            }
+
+            if (entities.isNotEmpty()) {
+                database.highlightDao().insertHighlightMedia(entities)
+                return@withContext entities
+            }
+        }
+
+        // Return any previously archived active stories from the last 24 hours
+        val cutoff = System.currentTimeMillis() - (24L * 60L * 60L * 1000L)
+        database.highlightDao().getMediaListForHighlight(virtualId).filter { it.takenAt >= cutoff }
     }
 
     suspend fun inspectHighlightsAndPosts(username: String): Boolean = withContext(Dispatchers.IO) {

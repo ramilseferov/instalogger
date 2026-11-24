@@ -23,5 +23,13 @@ data class TargetEntity(
     val checkIntervalSeconds: Long = 60,
     val lastCheckedAt: Long? = null,
     val lastStatusChangeAt: Long? = null,
-    val createdAt: Long = System.currentTimeMillis()
-)
+    val createdAt: Long = System.currentTimeMillis(),
+    val latestStoryAt: Long = 0L // Epoch ms of newest active 24h story (0 if none)
+) {
+    val hasActiveStory: Boolean
+        get() = latestStoryAt > 0L && (System.currentTimeMillis() - latestStoryAt) < ACTIVE_STORY_WINDOW_MS
+
+    companion object {
+        private const val ACTIVE_STORY_WINDOW_MS = 24L * 60L * 60L * 1000L
+    }
+}

@@ -31,7 +31,8 @@ data class InstagramProfileSnapshot(
     val mediaCount: Long = 0,
     val profilePicUrl: String? = null,
     val avatarHash: String? = null,
-    val profileHash: String? = null
+    val profileHash: String? = null,
+    val latestStoryAt: Long = 0L
 )
 
 data class InstagramUserSummary(
@@ -367,6 +368,16 @@ class InstagramEngine(context: Context? = null) {
                 }
             }
 
+            // 10. Extract active 24h story signal ("latest_reel_media": <epoch_sec>)
+            var latestStoryAt = 0L
+            val storyMatcher = Pattern.compile("\"latest_reel_media\"\\s*:\\s*(\\d+)").matcher(html)
+            if (storyMatcher.find()) {
+                val sec = storyMatcher.group(1)?.toLongOrNull() ?: 0L
+                if (sec > 0L) {
+                    latestStoryAt = sec * 1000L
+                }
+            }
+
             return InstagramProfileSnapshot(
                 username = username,
                 instagramId = id,
@@ -376,7 +387,8 @@ class InstagramEngine(context: Context? = null) {
                 followersCount = followers,
                 followingCount = following,
                 mediaCount = posts,
-                profilePicUrl = picUrl
+                profilePicUrl = picUrl,
+                latestStoryAt = latestStoryAt
             )
         }
     }
@@ -413,6 +425,8 @@ class InstagramEngine(context: Context? = null) {
             val following = user.getAsJsonObject("edge_follow")?.get("count")?.asLong ?: 0L
             val mediaCount = user.getAsJsonObject("edge_owner_to_timeline_media")?.get("count")?.asLong ?: 0L
             val picUrl = user.get("profile_pic_url_hd")?.asString ?: user.get("profile_pic_url")?.asString
+            val latestReelSec = user.get("latest_reel_media")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            val latestStoryAt = if (latestReelSec > 0L) latestReelSec * 1000L else 0L
 
             return InstagramProfileSnapshot(
                 username = username,
@@ -423,7 +437,8 @@ class InstagramEngine(context: Context? = null) {
                 followersCount = followers,
                 followingCount = following,
                 mediaCount = mediaCount,
-                profilePicUrl = picUrl
+                profilePicUrl = picUrl,
+                latestStoryAt = latestStoryAt
             )
         }
     }
@@ -1203,6 +1218,115 @@ class InstagramEngine(context: Context? = null) {
             mediaUrl = cdnUrl,
             takenAt = takenAtSec * 1000L
         )
+    }
+
+    /**
+     * Fetches active 24-hour stories for a target user via:
+     * 1) Modern v1 REST feed/reels_media/?reel_ids=<userId> (when authenticated)
+     * 2) Desktop SSR on https://www.instagram.com/stories/<username>/
+     * 3) Legacy GraphQL query_hash fallback
+     */
+    fun fetchActiveUserStories(
+        userId: String?,
+        username: String,
+        cookieString: String?
+    ): List<InstagramHighlightItem> {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val virtualHighlightId = "active_story:$cleanUser"
+        val hasSession = !cookieString.isNullOrBlank()
+
+        // Tier 1: v1 REST reels_media by numeric userId
+        if (!userId.isNullOrBlank() && hasSession) {
+            try {
+                val encodedId = URLEncoder.encode(userId.trim(), "UTF-8")
+                val v1Url = "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedId"
+                val reqBuilder = Request.Builder()
+                    .url(v1Url)
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("X-IG-App-ID", APP_ID)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Referer", "https://www.instagram.com/stories/$cleanUser/")
+                    .header("Accept", "*/*")
+                    .header("Cookie", cookieString!!)
+
+                extractCsrfToken(cookieString)?.let { reqBuilder.header("X-CSRFToken", it) }
+
+                clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string().orEmpty()
+                        if (body.startsWith("{")) {
+                            val parsed = parseReelsMediaJson(body, virtualHighlightId, userId.trim())
+                            if (parsed.isNotEmpty()) return parsed
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "v1 active stories failed for @$cleanUser: ${e.message}")
+            }
+        }
+
+        // Tier 2: Desktop SSR on /stories/<username>/
+        try {
+            val ssrUrl = "https://www.instagram.com/stories/$cleanUser/"
+            val reqBuilder = Request.Builder()
+                .url(ssrUrl)
+                .header("User-Agent", DESKTOP_CHROME_UA)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Sec-Fetch-Dest", "document")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "none")
+
+            if (hasSession) {
+                reqBuilder.header("Cookie", cookieString!!)
+            }
+
+            val html = clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
+            }
+            if (html.isNotBlank()) {
+                val parsed = parseHighlightStoriesFromSsrHtml(html, virtualHighlightId)
+                if (parsed.isNotEmpty()) return parsed
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Desktop SSR active stories failed for @$cleanUser: ${e.message}")
+        }
+
+        // Tier 3: Legacy GraphQL query_hash fallback
+        if (!userId.isNullOrBlank() && hasSession) {
+            try {
+                val encodedIds = URLEncoder.encode("[\"${userId.trim()}\"]", "UTF-8")
+                val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=452461bc5c9e67e8280862c4335b390c&variables=%7B%22reel_ids%22%3A$encodedIds%2C%22precomposed_overlay%22%3Afalse%7D"
+                val reqBuilder = Request.Builder()
+                    .url(gqlUrl)
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("X-IG-App-ID", APP_ID)
+                    .header("Referer", "https://www.instagram.com/")
+                    .header("Accept", "*/*")
+                    .header("Cookie", cookieString!!)
+
+                extractCsrfToken(cookieString)?.let { reqBuilder.header("X-CSRFToken", it) }
+
+                clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string().orEmpty()
+                        val root = gson.fromJson(body, JsonObject::class.java)
+                        val reelsMedia = root?.getAsJsonObject("data")?.getAsJsonArray("reels_media")
+                        val items = mutableListOf<InstagramHighlightItem>()
+                        reelsMedia?.forEach { reelEl ->
+                            reelEl.asJsonObject?.getAsJsonArray("items")?.forEach { el ->
+                                el.asJsonObject?.let { parseSingleStoryNode(it, virtualHighlightId)?.let(items::add) }
+                            }
+                        }
+                        if (items.isNotEmpty()) return items
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "GraphQL active stories fallback failed for @$cleanUser: ${e.message}")
+            }
+        }
+
+        return emptyList()
     }
 
     suspend fun fetchRecentPostsDetailed(

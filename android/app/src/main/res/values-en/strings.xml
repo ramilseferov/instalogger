@@ -283,4 +283,8 @@
     <string name="highlight_session_required_desc">Instagram requires a logged-in session to load story photos and videos inside highlights. Connect a session to view and archive them.</string>
     <string name="highlight_empty_title">No Highlight Items Found</string>
     <string name="highlight_empty_desc">Stories inside this highlight could not be loaded right now. Try refreshing.</string>
+    <string name="badge_active_story">Story</string>
+    <string name="story_viewer_active_title">@%1$s · Story</string>
+    <string name="notif_story_posted_title">@%1$s posted a new story</string>
+    <string name="notif_story_posted_desc">A new 24-hour active story was detected</string>
 </resources>

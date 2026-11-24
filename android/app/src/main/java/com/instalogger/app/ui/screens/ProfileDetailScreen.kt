@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -189,10 +190,36 @@ fun ProfileDetailScreen(
                 // 1. Profile Hero Card
                 item(key = "hero_card") {
                     if (target != null) {
+                        val currentTarget = target!!
+                        val openActiveStory: () -> Unit = {
+                            val virtualHl = HighlightEntity(
+                                id = "active_story:${currentTarget.username.lowercase()}",
+                                username = currentTarget.username.lowercase(),
+                                title = context.getString(R.string.story_viewer_active_title, currentTarget.username),
+                                coverUrl = currentTarget.avatarUrl.orEmpty(),
+                                localCoverPath = currentTarget.localAvatarPath,
+                                mediaCount = 0,
+                                archivedAt = currentTarget.latestStoryAt
+                            )
+                            activeHighlight = virtualHl
+                            activeHighlightMedia = emptyList()
+                            isLoadingHighlightMedia = true
+                            scope.launch {
+                                activeHighlightMedia = app.profileInspector.fetchActiveStoriesOnDemand(currentTarget)
+                                isLoadingHighlightMedia = false
+                            }
+                        }
                         ProfileHeroSection(
-                            target = target!!,
+                            target = currentTarget,
                             localPostsCount = posts.size,
-                            onAvatarClick = { previewImagePath = it },
+                            onAvatarClick = { avatarPath ->
+                                if (currentTarget.hasActiveStory) {
+                                    openActiveStory()
+                                } else {
+                                    previewImagePath = avatarPath
+                                }
+                            },
+                            onStoryBadgeClick = openActiveStory,
                             onFollowersClick = {
                                 auditInitialTab = 0
                                 showAuditSheet = true
@@ -622,7 +649,12 @@ fun ProfileDetailScreen(
             onRetry = {
                 isLoadingHighlightMedia = true
                 scope.launch {
-                    activeHighlightMedia = app.profileInspector.fetchHighlightMediaOnDemand(hl)
+                    val curTarget = target
+                    activeHighlightMedia = if (hl.id.startsWith("active_story:") && curTarget != null) {
+                        app.profileInspector.fetchActiveStoriesOnDemand(curTarget)
+                    } else {
+                        app.profileInspector.fetchHighlightMediaOnDemand(hl)
+                    }
                     isLoadingHighlightMedia = false
                 }
             },
@@ -760,12 +792,22 @@ private fun ProfileHeroSection(
     target: TargetEntity,
     localPostsCount: Int = 0,
     onAvatarClick: (String) -> Unit,
+    onStoryBadgeClick: () -> Unit = {},
     onFollowersClick: () -> Unit,
     onFollowingClick: () -> Unit
 ) {
     val context = LocalContext.current
     val topImageSource = resolveAvatarSource(context, target)
     val heroShape = ShapeTokens.LargeShape
+    val storyRingGradient = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFFF58529),
+            Color(0xFFFEDA77),
+            Color(0xFFDD2A7B),
+            Color(0xFF8134AF),
+            Color(0xFF515BD4)
+        )
+    )
 
     Surface(
         modifier = Modifier
@@ -787,35 +829,57 @@ private fun ProfileHeroSection(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (topImageSource != null) {
-                    AsyncImage(
-                        model = topImageSource,
-                        contentDescription = target.username,
-                        modifier = Modifier
-                            .size(66.dp)
+                Box(
+                    modifier = if (target.hasActiveStory) {
+                        Modifier
+                            .size(74.dp)
                             .clip(CircleShape)
-                            .border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape)
-                            .bouncyClickable(pressScale = 0.92f) {
-                                val path = (topImageSource as? File)?.absolutePath ?: topImageSource.toString()
-                                onAvatarClick(path)
-                            },
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(66.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(32.dp)
+                            .border(2.8.dp, storyRingGradient, CircleShape)
+                            .padding(3.5.dp)
+                    } else {
+                        Modifier.size(66.dp)
+                    },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (topImageSource != null) {
+                        AsyncImage(
+                            model = topImageSource,
+                            contentDescription = target.username,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .then(
+                                    if (!target.hasActiveStory) {
+                                        Modifier.border(ShapeTokens.BorderActive, AccentBlue.copy(alpha = 0.8f), CircleShape)
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .bouncyClickable(pressScale = 0.92f) {
+                                    val path = (topImageSource as? File)?.absolutePath ?: topImageSource.toString()
+                                    onAvatarClick(path)
+                                },
+                            contentScale = ContentScale.Crop
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                .bouncyClickable(pressScale = 0.92f) {
+                                    if (target.hasActiveStory) onStoryBadgeClick()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
                     }
                 }
 
@@ -845,6 +909,22 @@ private fun ProfileHeroSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         PrivacyBadge(isPrivate = target.isPrivate)
+                        if (target.hasActiveStory) {
+                            Surface(
+                                shape = ShapeTokens.PillShape,
+                                color = Color(0xFFDD2A7B).copy(alpha = 0.16f),
+                                border = BorderStroke(0.75.dp, Color(0xFFDD2A7B).copy(alpha = 0.55f)),
+                                modifier = Modifier.bouncyClickable(pressScale = 0.92f, onClick = onStoryBadgeClick)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.badge_active_story),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFDD2A7B),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
                         AnimatedVisibility(visible = target.isTurbo) {
                             TurboBadge(isTurbo = true)
                         }

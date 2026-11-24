@@ -353,4 +353,8 @@
     <string name="highlight_session_required_desc">Instagram highlight albomlarının daxilindəki foto və videoları göstərmək üçün giriş sessiyası tələb edir. Baxmaq və arxivləmək üçün sessiya qoşun.</string>
     <string name="highlight_empty_title">Hekayə Elementi Tapılmadı</string>
     <string name="highlight_empty_desc">Bu highlight daxilindəki hekayələr hazırda yüklənə bilmədi. Yenidən cəhd edin.</string>
+    <string name="badge_active_story">Story</string>
+    <string name="story_viewer_active_title">@%1$s · Story</string>
+    <string name="notif_story_posted_title">@%1$s yeni story paylaşdı</string>
+    <string name="notif_story_posted_desc">Yeni 24 saatlıq aktiv story aşkarlandı</string>
 </resources>
