@@ -24,8 +24,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -1070,6 +1073,9 @@ private fun LanguageFlagButton(
 
     Box(
         modifier = modifier
+            .heightIn(min = 48.dp)
+            .testTag("language_button_$code")
+            .semantics { selected = isSelected }
             .clip(shape)
             .background(bgColor)
             .border(if (isSelected) 1.5.dp else 0.75.dp, borderColor, shape)

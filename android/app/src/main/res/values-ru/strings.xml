@@ -235,6 +235,8 @@
     <string name="session_required_followers">Для просмотра списка подписчиков может потребоваться сессия Instagram.</string>
     <string name="posts_session_required_title">Требуется сессия Instagram</string>
     <string name="posts_session_required_desc">Instagram ограничивает анонимную архивацию постов. Войдите в аккаунт во вкладке «Сессия» для загрузки и архивации публикаций.</string>
+    <string name="posts_private_account_title">Этот аккаунт закрыт (Private)</string>
+    <string name="posts_private_account_desc">Этот аккаунт ЗАКРЫТЫЙ (Private). По правилам Instagram публикации закрытого аккаунта могут видеть только одобренные подписчики. Если вы подписаны на него, добавьте сессию для просмотра.</string>
     <string name="btn_login_session">Войти в Instagram</string>
     <string name="posts_rate_limited_title">Лимит запросов Instagram (429)</string>
     <string name="posts_rate_limited_desc">Слишком много запросов к Instagram с этой сети. Пожалуйста, подождите несколько минут или используйте активную сессию.</string>

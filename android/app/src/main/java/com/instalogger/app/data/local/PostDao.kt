@@ -11,6 +11,9 @@ interface PostDao {
     @Query("SELECT * FROM posts WHERE username = :username ORDER BY postedAt DESC")
     fun getPostsForUser(username: String): Flow<List<PostEntity>>
 
+    @Query("SELECT * FROM posts WHERE username = :username ORDER BY postedAt DESC")
+    suspend fun getPostsListForUser(username: String): List<PostEntity>
+
     @Query("SELECT COUNT(*) FROM posts WHERE username = :username")
     suspend fun getPostsCountForUser(username: String): Int
 

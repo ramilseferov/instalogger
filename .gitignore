@@ -7,11 +7,36 @@ run/*.pid
 logs/*.log
 *.log
 *.apk
+!builds/
+!builds/*.apk
+*.aab
+*.ap_
+*.dex
+*.class
 *.db
-android/.gradle/
-android/app/build/
+
+# Gradle, Kotlin & Android build caches
+.gradle/
+**/.gradle/
+.kotlin/
+**/.kotlin/
+build/
+app/build/
 android/build/
+android/app/build/
+**/.cxx/
+.externalNativeBuild/
+.build-outputs/
+local.properties
 android/local.properties
+captures/
+*.hprof
+*.jprof
+
+# Keystores & local secrets
+debug.keystore
+.env
+.env.local
 
 # Sensitive user session data and local media
 sessions/*.json
@@ -22,13 +47,21 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 
-# OS & Editor
+# OS, Editor & Platform temporary files
 .DS_Store
 Thumbs.db
 .idea/
+*.iml
 .vscode/
+.aistudio/
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+*.tmp
+*.bak
+*.swp
+*~
 .superpowers/
 
 # Local custom build and release scripts (do not upload to github)

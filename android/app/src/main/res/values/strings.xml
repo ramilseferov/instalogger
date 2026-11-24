@@ -249,6 +249,8 @@
     <string name="session_required_followers">Instagram session may be required to view full followers list.</string>
     <string name="posts_session_required_title">Instagram Session Required</string>
     <string name="posts_session_required_desc">Instagram blocks anonymous post archiving. Log in with an Instagram account in the Session tab to view and archive timeline posts.</string>
+    <string name="posts_private_account_title">This Account is Private</string>
+    <string name="posts_private_account_desc">This account is PRIVATE. Per Instagram rules, only approved followers can view a private account\'s posts. If you follow this account, you can optionally add a session to view them.</string>
     <string name="btn_login_session">Log In to Instagram</string>
     <string name="posts_rate_limited_title">Instagram Rate Limit (429)</string>
     <string name="posts_rate_limited_desc">Too many requests were sent to Instagram from this network. Please wait a few minutes and try again, or use an active session.</string>

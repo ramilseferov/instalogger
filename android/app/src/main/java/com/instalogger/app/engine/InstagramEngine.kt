@@ -1,14 +1,19 @@
 package com.instalogger.app.engine
 
+import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.instalogger.app.util.cleanDisplayText
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URLEncoder
+import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
@@ -69,7 +74,14 @@ sealed class PostFetchResult {
     data class Error(val message: String) : PostFetchResult()
 }
 
-class InstagramEngine {
+class InstagramEngine(context: Context? = null) {
+
+    private val headlessScraper: HeadlessInstagramScraper? = context?.let { HeadlessInstagramScraper(it) }
+    private val guestCookieLock = Any()
+    @Volatile
+    private var cachedGuestCookies: String? = null
+    @Volatile
+    private var guestCookiesFetchedAt: Long = 0L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -86,6 +98,78 @@ class InstagramEngine {
         .build()
 
     private val gson = Gson()
+
+    private fun extractCsrfToken(cookieString: String?): String? {
+        if (cookieString.isNullOrBlank()) return null
+        val matcher = Pattern.compile("(?:^|;\\s*)csrftoken=([^;\\s]+)").matcher(cookieString)
+        return if (matcher.find()) matcher.group(1) else null
+    }
+
+    private fun getOrFetchGuestCookies(): String? {
+        val now = System.currentTimeMillis()
+        val cached = cachedGuestCookies
+        if (!cached.isNullOrBlank() && (now - guestCookiesFetchedAt) < GUEST_COOKIE_TTL_MS) {
+            return cached
+        }
+        synchronized(guestCookieLock) {
+            val rechecked = cachedGuestCookies
+            if (!rechecked.isNullOrBlank() && (System.currentTimeMillis() - guestCookiesFetchedAt) < GUEST_COOKIE_TTL_MS) {
+                return rechecked
+            }
+            return try {
+                val req = Request.Builder()
+                    .url("https://www.instagram.com/")
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Sec-Fetch-Dest", "document")
+                    .header("Sec-Fetch-Mode", "navigate")
+                    .header("Sec-Fetch-Site", "none")
+                    .build()
+
+                clientWithRedirects.newCall(req).execute().use { response ->
+                    val cookieMap = linkedMapOf<String, String>()
+                    for (setCookie in response.headers("Set-Cookie")) {
+                        val pair = setCookie.substringBefore(";").trim()
+                        val eqIdx = pair.indexOf('=')
+                        if (eqIdx > 0) {
+                            val name = pair.substring(0, eqIdx).trim()
+                            val value = pair.substring(eqIdx + 1).trim()
+                            if (value.isNotBlank() && value != "\"\"") {
+                                cookieMap[name] = value
+                            }
+                        }
+                    }
+                    val html = response.body?.string().orEmpty()
+                    if (!cookieMap.containsKey("csrftoken")) {
+                        val csrfMatcher = Pattern.compile("\"csrf_token\"\\s*:\\s*\"([^\"]+)\"").matcher(html)
+                        if (csrfMatcher.find()) {
+                            csrfMatcher.group(1)?.takeIf { it.isNotBlank() }?.let {
+                                cookieMap["csrftoken"] = it
+                            }
+                        }
+                    }
+                    if (!cookieMap.containsKey("ig_did")) {
+                        val didMatcher = Pattern.compile("\"device_id\"\\s*:\\s*\"([^\"]+)\"").matcher(html)
+                        if (didMatcher.find()) {
+                            didMatcher.group(1)?.takeIf { it.isNotBlank() }?.let {
+                                cookieMap["ig_did"] = it
+                            }
+                        }
+                    }
+                    val joined = cookieMap.entries.joinToString("; ") { "${it.key}=${it.value}" }
+                    if (joined.isNotBlank()) {
+                        cachedGuestCookies = joined
+                        guestCookiesFetchedAt = System.currentTimeMillis()
+                        joined
+                    } else null
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Guest cookie handshake failed: ${e.message}")
+                null
+            }
+        }
+    }
 
     fun fetchProfile(username: String, cookieString: String?): Result<InstagramProfileSnapshot> {
         val cleanUsername = username.trim().trimStart('@')
@@ -290,16 +374,18 @@ class InstagramEngine {
 
     private fun fetchViaWebApi(username: String, cookieString: String?): InstagramProfileSnapshot? {
         val url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=$username"
+        val effectiveCookie = if (!cookieString.isNullOrBlank()) cookieString else getOrFetchGuestCookies()
         val requestBuilder = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+            .header("User-Agent", DESKTOP_CHROME_UA)
             .header("X-IG-App-ID", APP_ID)
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", "https://www.instagram.com/$username/")
             .header("Accept", "*/*")
 
-        if (!cookieString.isNullOrBlank()) {
-            requestBuilder.header("Cookie", cookieString)
+        if (!effectiveCookie.isNullOrBlank()) {
+            requestBuilder.header("Cookie", effectiveCookie)
+            extractCsrfToken(effectiveCookie)?.let { requestBuilder.header("X-CSRFToken", it) }
         }
 
         clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
@@ -816,71 +902,95 @@ class InstagramEngine {
         return list
     }
 
-    fun fetchRecentPostsDetailed(userId: String?, username: String, cookieString: String?, limit: Int = 24): PostFetchResult {
-        val list = mutableListOf<InstagramPostItem>()
+    suspend fun fetchRecentPostsDetailed(
+        userId: String?,
+        username: String,
+        cookieString: String?,
+        limit: Int = 24,
+        isPrivate: Boolean = false
+    ): PostFetchResult {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val hasRealSession = !cookieString.isNullOrBlank()
 
-        // 1. Try web profile info API first
+        // Private accounts require a valid user session to view timeline posts
+        if (isPrivate && !hasRealSession) {
+            return PostFetchResult.RequiresSession
+        }
+
+        val list = mutableListOf<InstagramPostItem>()
+        var sawRateLimit = false
+        val effectiveCookie = if (hasRealSession) cookieString else getOrFetchGuestCookies()
+
+        // 1. Tier A: Web Profile Info API (Session or Guest Cookie Handshake)
         try {
-            val url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=$username"
+            val url = "https://www.instagram.com/api/v1/users/web_profile_info/?username=$cleanUser"
             val req = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+                .header("User-Agent", DESKTOP_CHROME_UA)
                 .header("X-IG-App-ID", APP_ID)
                 .header("X-Requested-With", "XMLHttpRequest")
-                .header("Referer", "https://www.instagram.com/$username/")
+                .header("Referer", "https://www.instagram.com/$cleanUser/")
                 .header("Accept", "*/*")
 
-            if (!cookieString.isNullOrBlank()) {
-                req.header("Cookie", cookieString)
+            if (!effectiveCookie.isNullOrBlank()) {
+                req.header("Cookie", effectiveCookie)
+                extractCsrfToken(effectiveCookie)?.let { req.header("X-CSRFToken", it) }
             }
 
             clientWithRedirects.newCall(req.build()).execute().use { response ->
                 when (response.code) {
-                    429 -> return PostFetchResult.RateLimited
-                    401, 403 -> return PostFetchResult.RequiresSession
+                    429 -> sawRateLimit = true
+                    401, 403 -> {
+                        if (isPrivate && !hasRealSession) return PostFetchResult.RequiresSession
+                    }
                     200 -> {
                         val body = response.body?.string()
                         if (body != null) {
-                            if (body.contains("/accounts/login/") || body.contains("login_required")) {
-                                return PostFetchResult.RequiresSession
-                            }
-                            val root = gson.fromJson(body, JsonObject::class.java)
-                            val edges = root?.getAsJsonObject("data")
-                                ?.getAsJsonObject("user")
-                                ?.getAsJsonObject("edge_owner_to_timeline_media")
-                                ?.getAsJsonArray("edges")
-                            if (edges != null && edges.size() > 0) {
-                                for (edge in edges) {
-                                    val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
-                                    val id = node.get("id")?.asString ?: continue
-                                    val shortcode = node.get("shortcode")?.asString ?: id
-                                    val isVideo = node.get("is_video")?.asBoolean ?: false
-                                    val displayUrl = node.get("display_url")?.asString ?: ""
-                                    val videoUrl = if (isVideo) node.get("video_url")?.asString else null
-                                    val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
-                                    val caption = if (captionEdges != null && captionEdges.size() > 0) {
-                                        captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
-                                    } else ""
-                                    val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
-                                        ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
-                                    val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
-                                    val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
-
-                                    list.add(
-                                        InstagramPostItem(
-                                            id = shortcode,
-                                            shortcode = shortcode,
-                                            mediaType = if (isVideo) "video" else "image",
-                                            displayUrl = displayUrl,
-                                            videoUrl = videoUrl,
-                                            caption = caption.cleanDisplayText(),
-                                            timestamp = timestamp * 1000L,
-                                            likeCount = likes,
-                                            commentCount = comments
-                                        )
-                                    )
+                            val needsLogin = body.contains("/accounts/login/") || body.contains("login_required")
+                            if (!needsLogin) {
+                                val root = gson.fromJson(body, JsonObject::class.java)
+                                val userObj = root?.getAsJsonObject("data")?.getAsJsonObject("user")
+                                val apiPrivate = userObj?.get("is_private")?.asBoolean ?: isPrivate
+                                if (apiPrivate && !hasRealSession) {
+                                    return PostFetchResult.RequiresSession
                                 }
-                                return PostFetchResult.Success(list)
+                                val edges = userObj
+                                    ?.getAsJsonObject("edge_owner_to_timeline_media")
+                                    ?.getAsJsonArray("edges")
+                                if (edges != null && edges.size() > 0) {
+                                    for (edge in edges) {
+                                        if (list.size >= limit) break
+                                        val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
+                                        val id = node.get("id")?.asString ?: continue
+                                        val shortcode = node.get("shortcode")?.asString ?: id
+                                        val isVideo = node.get("is_video")?.asBoolean ?: false
+                                        val displayUrl = node.get("display_url")?.asString ?: ""
+                                        val videoUrl = if (isVideo) node.get("video_url")?.asString else null
+                                        val captionEdges = node.getAsJsonObject("edge_media_to_caption")?.getAsJsonArray("edges")
+                                        val caption = if (captionEdges != null && captionEdges.size() > 0) {
+                                            captionEdges[0].asJsonObject?.getAsJsonObject("node")?.get("text")?.asString?.cleanDisplayText() ?: ""
+                                        } else ""
+                                        val likes = node.getAsJsonObject("edge_media_preview_like")?.get("count")?.asInt
+                                            ?: node.getAsJsonObject("edge_liked_by")?.get("count")?.asInt ?: 0
+                                        val comments = node.getAsJsonObject("edge_media_to_comment")?.get("count")?.asInt ?: 0
+                                        val timestamp = node.get("taken_at_timestamp")?.asLong ?: (System.currentTimeMillis() / 1000L)
+
+                                        list.add(
+                                            InstagramPostItem(
+                                                id = shortcode,
+                                                shortcode = shortcode,
+                                                mediaType = if (isVideo) "video" else "image",
+                                                displayUrl = displayUrl,
+                                                videoUrl = videoUrl,
+                                                caption = caption.cleanDisplayText(),
+                                                timestamp = timestamp * 1000L,
+                                                likeCount = likes,
+                                                commentCount = comments
+                                            )
+                                        )
+                                    }
+                                    return PostFetchResult.Success(list)
+                                }
                             }
                         }
                     }
@@ -890,8 +1000,8 @@ class InstagramEngine {
             Log.w(TAG, "Web profile info posts query failed: ${e.message}")
         }
 
-        // 2. Fallback to GraphQL query hash if user_id is provided and cookie exists
-        if (!userId.isNullOrBlank() && !cookieString.isNullOrBlank()) {
+        // 2. Tier B: GraphQL query hash if user_id is provided and real session cookie exists
+        if (!userId.isNullOrBlank() && hasRealSession) {
             try {
                 val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=e7465275e4878740f5b475ab0877917b&variables=%7B%22id%22%3A%22$userId%22%2C%22first%22%3A$limit%7D"
                 val req = Request.Builder()
@@ -900,11 +1010,11 @@ class InstagramEngine {
                     .header("X-IG-App-ID", APP_ID)
                     .header("Referer", "https://www.instagram.com/")
                     .header("Accept", "*/*")
-                    .header("Cookie", cookieString)
+                    .header("Cookie", cookieString!!)
 
                 clientWithRedirects.newCall(req.build()).execute().use { response ->
-                    if (response.code == 429) return PostFetchResult.RateLimited
-                    if (response.code in listOf(401, 403)) return PostFetchResult.RequiresSession
+                    if (response.code == 429) sawRateLimit = true
+                    if (response.code in listOf(401, 403) && isPrivate) return PostFetchResult.RequiresSession
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: ""
                         val root = gson.fromJson(body, JsonObject::class.java)
@@ -914,6 +1024,7 @@ class InstagramEngine {
                             ?.getAsJsonArray("edges")
                         if (edges != null && edges.size() > 0) {
                             for (edge in edges) {
+                                if (list.size >= limit) break
                                 val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
                                 val id = node.get("id")?.asString ?: continue
                                 val shortcode = node.get("shortcode")?.asString ?: id
@@ -951,9 +1062,33 @@ class InstagramEngine {
             }
         }
 
-        // 3. Fallback: Parse posts embedded in public profile HTML
+        // 3. Tier C: On-Device Headless Chromium WebView Bridge (Zero-Login Public Extraction)
+        if (!isPrivate && headlessScraper != null) {
+            try {
+                when (val scrape = headlessScraper.scrapePublicPosts(cleanUser, limit)) {
+                    is HeadlessScrapeResult.Success -> {
+                        if (scrape.posts.isNotEmpty()) {
+                            return PostFetchResult.Success(scrape.posts)
+                        }
+                    }
+                    is HeadlessScrapeResult.PrivateAccount -> {
+                        if (!hasRealSession) return PostFetchResult.RequiresSession
+                    }
+                    is HeadlessScrapeResult.RateLimited -> {
+                        sawRateLimit = true
+                    }
+                    is HeadlessScrapeResult.LoginWall, is HeadlessScrapeResult.Failed -> {
+                        Log.d(TAG, "Headless WebView fallback exhausted for @$cleanUser")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Headless WebView scraping error for @$cleanUser: ${e.message}")
+            }
+        }
+
+        // 4. Tier D: Direct Public Profile HTML Regex Fallback
         try {
-            val htmlUrl = "https://www.instagram.com/$username/"
+            val htmlUrl = "https://www.instagram.com/$cleanUser/"
             val htmlReq = Request.Builder()
                 .url(htmlUrl)
                 .header("User-Agent", USER_AGENT)
@@ -961,14 +1096,18 @@ class InstagramEngine {
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .header("Accept-Language", "en-US,en;q=0.9")
 
-            if (!cookieString.isNullOrBlank()) {
-                htmlReq.header("Cookie", cookieString)
+            if (!effectiveCookie.isNullOrBlank()) {
+                htmlReq.header("Cookie", effectiveCookie)
             }
 
             clientWithRedirects.newCall(htmlReq.build()).execute().use { resp ->
-                if (resp.code == 429) return PostFetchResult.RateLimited
-                if (resp.isSuccessful) {
+                if (resp.code == 429) {
+                    sawRateLimit = true
+                } else if (resp.isSuccessful) {
                     val html = resp.body?.string() ?: ""
+                    if (html.contains("\"is_private\":true") && !hasRealSession) {
+                        return PostFetchResult.RequiresSession
+                    }
                     val scPattern = Pattern.compile("\"shortcode\":\\s*\"([A-Za-z0-9_-]+)\"")
                     val scMatcher = scPattern.matcher(html)
                     val shortcodes = mutableListOf<String>()
@@ -992,10 +1131,10 @@ class InstagramEngine {
                                 id = sc,
                                 shortcode = sc,
                                 mediaType = "image",
-                                displayUrl = directUrl ?: "https://instagram.com/p/$sc/media/?size=l",
+                                displayUrl = directUrl ?: "https://www.instagram.com/p/$sc/media/?size=l",
                                 videoUrl = null,
                                 caption = "",
-                                timestamp = System.currentTimeMillis(),
+                                timestamp = System.currentTimeMillis() - (list.size * 1000L),
                                 likeCount = 0,
                                 commentCount = 0
                             )
@@ -1009,20 +1148,252 @@ class InstagramEngine {
         }
 
         if (list.isNotEmpty()) return PostFetchResult.Success(list)
-        if (cookieString.isNullOrBlank()) return PostFetchResult.RequiresSession
+        if (isPrivate && !hasRealSession) return PostFetchResult.RequiresSession
+        if (sawRateLimit) return PostFetchResult.RateLimited
         return PostFetchResult.Error("No posts returned")
     }
 
+    /**
+     * Enriches a newly discovered public post using official Instagram Embed / OEmbed endpoints
+     * to recover HD media URLs, video stream URLs, full caption, timestamp, and engagement counts.
+     */
+    fun enrichPostViaEmbed(post: InstagramPostItem): InstagramPostItem {
+        var displayUrl = post.displayUrl
+        var videoUrl = post.videoUrl
+        var mediaType = post.mediaType
+        var caption = post.caption
+        var timestamp = post.timestamp
+        var likeCount = post.likeCount
+        var commentCount = post.commentCount
+
+        val embedUrls = if (post.mediaType == "video") {
+            listOf(
+                "https://www.instagram.com/reel/${post.shortcode}/embed/captioned/",
+                "https://www.instagram.com/p/${post.shortcode}/embed/captioned/"
+            )
+        } else {
+            listOf("https://www.instagram.com/p/${post.shortcode}/embed/captioned/")
+        }
+
+        for (embedUrl in embedUrls) {
+            try {
+                val req = Request.Builder()
+                    .url(embedUrl)
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Referer", "https://www.instagram.com/")
+                    .build()
+
+                clientWithRedirects.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val html = resp.body?.string() ?: return@use
+
+                    // 1. High-res image URL
+                    val imgPatterns = listOf(
+                        Pattern.compile("\"display_url\"\\s*:\\s*\"([^\"]+)\""),
+                        Pattern.compile("class=\"EmbeddedMediaImage\"[^>]*?src=\"([^\"]+)\"")
+                    )
+                    for (p in imgPatterns) {
+                        val m = p.matcher(html)
+                        if (m.find()) {
+                            val raw = m.group(1)
+                            if (!raw.isNullOrBlank()) {
+                                val cleaned = unescapeHtml(unescapeJson(raw))
+                                if (cleaned.startsWith("http")) {
+                                    displayUrl = cleaned
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Video URL
+                    val vidPatterns = listOf(
+                        Pattern.compile("\"video_url\"\\s*:\\s*\"([^\"]+)\""),
+                        Pattern.compile("<video[^>]*?src=\"([^\"]+)\"")
+                    )
+                    for (p in vidPatterns) {
+                        val m = p.matcher(html)
+                        if (m.find()) {
+                            val raw = m.group(1)
+                            if (!raw.isNullOrBlank()) {
+                                val cleaned = unescapeHtml(unescapeJson(raw))
+                                if (cleaned.startsWith("http")) {
+                                    videoUrl = cleaned
+                                    mediaType = "video"
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Full caption
+                    val jsonCapMatcher = Pattern.compile(
+                        "\"edge_media_to_caption\"\\s*:\\s*\\{\\s*\"edges\"\\s*:\\s*\\[\\s*\\{\\s*\"node\"\\s*:\\s*\\{\\s*\"text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""
+                    ).matcher(html)
+                    if (jsonCapMatcher.find()) {
+                        val extracted = unescapeJson(jsonCapMatcher.group(1) ?: "").cleanDisplayText()
+                        if (extracted.isNotBlank()) caption = extracted
+                    } else {
+                        val divCapMatcher = Pattern.compile(
+                            "<div[^>]*class=\"[^\"]*Caption[^\"]*\"[^>]*>(.*?)</div>",
+                            Pattern.DOTALL or Pattern.CASE_INSENSITIVE
+                        ).matcher(html)
+                        if (divCapMatcher.find()) {
+                            val inner = divCapMatcher.group(1) ?: ""
+                            val stripped = inner
+                                .replace(Regex("<a[^>]*class=\"[^\"]*CaptionUsername[^\"]*\"[^>]*>.*?</a>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+                                .replace(Regex("<div[^>]*class=\"[^\"]*CaptionComments[^\"]*\"[^>]*>.*?</div>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+                                .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+                                .replace(Regex("<[^>]+>"), " ")
+                            val cleaned = unescapeHtml(stripped).replace(Regex("[ \\t]+"), " ").trim().cleanDisplayText()
+                            if (cleaned.isNotBlank()) caption = cleaned
+                        }
+                    }
+
+                    // 4. Timestamp
+                    val tsMatcher = Pattern.compile("\"taken_at_timestamp\"\\s*:\\s*(\\d+)").matcher(html)
+                    if (tsMatcher.find()) {
+                        val sec = tsMatcher.group(1)?.toLongOrNull()
+                        if (sec != null && sec > 0L) timestamp = sec * 1000L
+                    } else {
+                        val timeMatcher = Pattern.compile("<time[^>]*datetime=\"([^\"]+)\"").matcher(html)
+                        if (timeMatcher.find()) {
+                            parseIsoTimestamp(timeMatcher.group(1) ?: "")?.let { timestamp = it }
+                        }
+                    }
+
+                    // 5. Likes & Comments
+                    if (likeCount == 0) {
+                        val likeMatcher = Pattern.compile("\"edge_media_preview_like\"\\s*:\\s*\\{\\s*\"count\"\\s*:\\s*(\\d+)").matcher(html)
+                        if (likeMatcher.find()) {
+                            likeCount = likeMatcher.group(1)?.toIntOrNull() ?: 0
+                        }
+                    }
+                    if (commentCount == 0) {
+                        val comMatcher = Pattern.compile("\"edge_media_to_comment\"\\s*:\\s*\\{\\s*\"count\"\\s*:\\s*(\\d+)").matcher(html)
+                        if (comMatcher.find()) {
+                            commentCount = comMatcher.group(1)?.toIntOrNull() ?: 0
+                        }
+                    }
+
+                    return@use
+                }
+                if (caption.isNotBlank() || !videoUrl.isNullOrBlank()) break
+            } catch (e: Exception) {
+                Log.w(TAG, "Embed fetch failed for ${post.shortcode}: ${e.message}")
+            }
+        }
+
+        // Fallback to official OEmbed API if caption or displayUrl is still missing
+        if (caption.isBlank() || displayUrl.isBlank() || displayUrl.contains("/media/?size=")) {
+            try {
+                val encodedPostUrl = URLEncoder.encode("https://www.instagram.com/p/${post.shortcode}/", "UTF-8")
+                val oembedUrls = listOf(
+                    "https://api.instagram.com/oembed/?url=$encodedPostUrl",
+                    "https://www.instagram.com/api/v1/oembed/?url=$encodedPostUrl"
+                )
+                for (oUrl in oembedUrls) {
+                    val req = Request.Builder()
+                        .url(oUrl)
+                        .header("User-Agent", DESKTOP_CHROME_UA)
+                        .header("Accept", "application/json")
+                        .build()
+                    clientWithRedirects.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string() ?: return@use
+                            val json = gson.fromJson(body, JsonObject::class.java) ?: return@use
+                            val thumb = json.get("thumbnail_url")?.asString
+                            val title = json.get("title")?.asString?.cleanDisplayText()
+                            if (!thumb.isNullOrBlank() && (displayUrl.isBlank() || displayUrl.contains("/media/?size="))) {
+                                displayUrl = thumb
+                            }
+                            if (!title.isNullOrBlank() && caption.isBlank()) {
+                                caption = title
+                            }
+                        }
+                    }
+                    if (caption.isNotBlank() && displayUrl.isNotBlank() && !displayUrl.contains("/media/?size=")) break
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "OEmbed fallback failed for ${post.shortcode}: ${e.message}")
+            }
+        }
+
+        return post.copy(
+            mediaType = mediaType,
+            displayUrl = displayUrl,
+            videoUrl = videoUrl,
+            caption = caption,
+            timestamp = timestamp,
+            likeCount = likeCount,
+            commentCount = commentCount
+        )
+    }
+
+    private fun parseIsoTimestamp(raw: String): Long? {
+        if (raw.isBlank()) return null
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ssZ"
+        )
+        for (fmt in formats) {
+            try {
+                val sdf = SimpleDateFormat(fmt, Locale.US)
+                sdf.timeZone = TimeZone.getTimeZone("UTC")
+                val parsed = sdf.parse(raw)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    private fun unescapeHtml(input: String): String {
+        var out = input
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&#x27;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&nbsp;", " ")
+        val hexEntity = Pattern.compile("&#x([0-9a-fA-F]+);")
+        val hm = hexEntity.matcher(out)
+        val sbHex = StringBuffer()
+        while (hm.find()) {
+            val code = hm.group(1)?.toIntOrNull(16)
+            hm.appendReplacement(sbHex, if (code != null) String(Character.toChars(code)) else "")
+        }
+        hm.appendTail(sbHex)
+        out = sbHex.toString()
+
+        val decEntity = Pattern.compile("&#(\\d+);")
+        val dm = decEntity.matcher(out)
+        val sbDec = StringBuffer()
+        while (dm.find()) {
+            val code = dm.group(1)?.toIntOrNull()
+            dm.appendReplacement(sbDec, if (code != null) String(Character.toChars(code)) else "")
+        }
+        dm.appendTail(sbDec)
+        return sbDec.toString()
+    }
+
     fun fetchRecentPosts(userId: String?, username: String, cookieString: String?, limit: Int = 24): List<InstagramPostItem> {
-        return when (val res = fetchRecentPostsDetailed(userId, username, cookieString, limit)) {
-            is PostFetchResult.Success -> res.posts
-            else -> emptyList()
+        return runBlocking {
+            when (val res = fetchRecentPostsDetailed(userId, username, cookieString, limit)) {
+                is PostFetchResult.Success -> res.posts
+                else -> emptyList()
+            }
         }
     }
 
     companion object {
         private const val TAG = "InstagramEngine"
         private const val APP_ID = "936619743392459"
+        private const val GUEST_COOKIE_TTL_MS = 20 * 60 * 1000L
+        private const val DESKTOP_CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
     }
 }

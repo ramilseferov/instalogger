@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -39,6 +40,7 @@ fun Modifier.bouncyClickable(
     if (!enabled) return@composed this
 
     val haptic = LocalHapticFeedback.current
+    val currentOnClick by rememberUpdatedState(onClick)
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
@@ -62,7 +64,7 @@ fun Modifier.bouncyClickable(
             enabled = enabled,
             onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onClick()
+                currentOnClick()
             }
         )
 }

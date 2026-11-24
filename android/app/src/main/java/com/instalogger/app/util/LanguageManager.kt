@@ -46,16 +46,35 @@ object LanguageManager {
 
     fun init(context: Context) {
         _isTransitioning.value = false
+        val languageCode = resolveInitialLanguage(context)
+        _currentLanguage.value = languageCode
+        applyLocale(context, languageCode)
+    }
+
+    fun resolveInitialLanguage(context: Context): String {
         val prefs = getPrefs(context)
         val savedLang = prefs.getString(KEY_LANGUAGE, null)
-        val languageCode = if (!savedLang.isNullOrBlank() && SUPPORTED_LANGUAGES.any { it.code == savedLang }) {
+        return if (!savedLang.isNullOrBlank() && SUPPORTED_LANGUAGES.any { it.code == savedLang }) {
             savedLang
         } else {
             val systemLang = Locale.getDefault().language
             if (SUPPORTED_LANGUAGES.any { it.code == systemLang }) systemLang else DEFAULT_LANGUAGE
         }
-        _currentLanguage.value = languageCode
-        applyLocale(context, languageCode)
+    }
+
+    fun wrapBaseContext(newBase: Context): Context {
+        val languageCode = resolveInitialLanguage(newBase)
+        val locale = getLocale(languageCode)
+        Locale.setDefault(locale)
+        val config = Configuration(newBase.resources.configuration)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            config.setLocales(LocaleList(locale))
+        } else {
+            @Suppress("DEPRECATION")
+            config.setLocale(locale)
+        }
+        config.setLayoutDirection(locale)
+        return newBase.createConfigurationContext(config)
     }
 
     fun setLanguage(context: Context, languageCode: String) {
@@ -78,37 +97,37 @@ object LanguageManager {
         _isTransitioning.value = false
     }
 
-    private fun applyLocale(context: Context, languageCode: String) {
+    fun applyLocale(context: Context, languageCode: String) {
         try {
             val locale = getLocale(languageCode)
             Locale.setDefault(locale)
 
             val appCtx = context.applicationContext ?: context
-            val appConfig = Configuration(appCtx.resources.configuration)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                appConfig.setLocales(LocaleList(locale))
-            } else {
-                appConfig.setLocale(locale)
-            }
-            appConfig.setLayoutDirection(locale)
-            @Suppress("DEPRECATION")
-            appCtx.resources.updateConfiguration(appConfig, appCtx.resources.displayMetrics)
+            updateResourcesLocale(appCtx, locale)
 
             var currentContext: Context? = context
-            while (currentContext is ContextWrapper) {
-                try {
-                    val actConfig = Configuration(currentContext.resources.configuration)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        actConfig.setLocales(LocaleList(locale))
-                    } else {
-                        actConfig.setLocale(locale)
-                    }
-                    actConfig.setLayoutDirection(locale)
-                    @Suppress("DEPRECATION")
-                    currentContext.resources.updateConfiguration(actConfig, currentContext.resources.displayMetrics)
-                } catch (_: Exception) {}
-                currentContext = currentContext.baseContext
+            while (currentContext != null) {
+                updateResourcesLocale(currentContext, locale)
+                currentContext = (currentContext as? ContextWrapper)?.baseContext
             }
+        } catch (_: Exception) {
+            // Graceful fallback
+        }
+    }
+
+    private fun updateResourcesLocale(targetContext: Context, locale: Locale) {
+        try {
+            val res = targetContext.resources ?: return
+            val config = Configuration(res.configuration)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                config.setLocales(LocaleList(locale))
+            } else {
+                @Suppress("DEPRECATION")
+                config.setLocale(locale)
+            }
+            config.setLayoutDirection(locale)
+            @Suppress("DEPRECATION")
+            res.updateConfiguration(config, res.displayMetrics)
         } catch (_: Exception) {
             // Graceful fallback
         }
@@ -117,15 +136,19 @@ object LanguageManager {
     fun getLocalizedContext(activity: ComponentActivity, languageCode: String): Context {
         val locale = getLocale(languageCode)
         Locale.setDefault(locale)
+        applyLocale(activity, languageCode)
         val config = Configuration(activity.resources.configuration)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             config.setLocales(LocaleList(locale))
         } else {
+            @Suppress("DEPRECATION")
             config.setLocale(locale)
         }
         config.setLayoutDirection(locale)
         val base = activity.createConfigurationContext(config)
-        return object : ContextWrapper(base), ActivityResultRegistryOwner by activity {}
+        return object : ContextWrapper(base), ActivityResultRegistryOwner by activity {
+            override fun getApplicationContext(): Context = activity.applicationContext
+        }
     }
 
     fun getLocalizedConfiguration(baseConfig: Configuration, languageCode: String): Configuration {
@@ -134,6 +157,7 @@ object LanguageManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             config.setLocales(LocaleList(locale))
         } else {
+            @Suppress("DEPRECATION")
             config.setLocale(locale)
         }
         config.setLayoutDirection(locale)
@@ -141,6 +165,7 @@ object LanguageManager {
     }
 
     private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val appCtx = context.applicationContext ?: context
+        return appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 }

@@ -87,9 +87,10 @@ fun PostGridItem(
 ) {
     val context = LocalContext.current
     val localFile = post.localPath?.let { File(it) }
+    val localImageFile = localFile?.takeIf { !it.name.contains(".mp4", ignoreCase = true) }
     val extArchive = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${post.username}/posts/${post.id}.jpg")
     val resolvedModel: Any = when {
-        localFile != null && localFile.exists() && localFile.length() > 0L -> localFile
+        localImageFile != null && localImageFile.exists() && localImageFile.length() > 0L -> localImageFile
         extArchive.exists() && extArchive.length() > 0L -> extArchive
         post.displayUrl.isNotBlank() -> post.displayUrl
         else -> ""
@@ -171,9 +172,10 @@ fun InstagramPostViewerDialog(
 ) {
     val context = LocalContext.current
     val localFile = post.localPath?.let { File(it) }
+    val localImageFile = localFile?.takeIf { !it.name.contains(".mp4", ignoreCase = true) }
     val extArchive = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${post.username}/posts/${post.id}.jpg")
     val resolvedModel: Any = when {
-        localFile != null && localFile.exists() && localFile.length() > 0L -> localFile
+        localImageFile != null && localImageFile.exists() && localImageFile.length() > 0L -> localImageFile
         extArchive.exists() && extArchive.length() > 0L -> extArchive
         post.displayUrl.isNotBlank() -> post.displayUrl
         else -> ""

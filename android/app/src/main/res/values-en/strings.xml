@@ -185,6 +185,9 @@
     <string name="notif_settings_sheet_title">Notification Settings</string>
     <string name="chart_scrubber_followers">%1$d followers</string>
     <string name="chart_scrubber_following">%1$d following</string>
+    <string name="posts_private_account_title">This Account is Private</string>
+    <string name="posts_private_account_desc">This account is PRIVATE. Per Instagram rules, only approved followers can view a private account\'s posts. If you follow this account, you can optionally add a session to view them.</string>
+    <string name="btn_login_session">Log In to Instagram</string>
     <string name="webview_login_title">Instagram Web Login</string>
     <string name="session_not_detected_yet">Session not detected yet</string>
     <string name="btn_check">Check</string>

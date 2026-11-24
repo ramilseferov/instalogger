@@ -31,7 +31,7 @@ class ProfileInspector(
     private val context: Context,
     private val database: AppDatabase,
     private val sessionManager: SessionManager,
-    private val instagramEngine: InstagramEngine = InstagramEngine(),
+    private val instagramEngine: InstagramEngine = InstagramEngine(context),
     private val onAlertNotification: (title: String, message: String) -> Unit = { _, _ -> }
 ) {
 
@@ -472,9 +472,17 @@ class ProfileInspector(
             }
         }
 
-        // 8. Auto archive highlights and posts
-        if (!snapshot.isPrivate || existing == null || wasPrivateToPublic || !cookie.isNullOrBlank()) {
-            archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic)
+        // 8. Auto archive highlights and posts (public profiles always run without session)
+        if (!snapshot.isPrivate || !cookie.isNullOrBlank()) {
+            archiveHighlightsAndPosts(
+                username = cleanUser,
+                targetId = targetId,
+                cookie = cookie,
+                wasPrivateToPublic = wasPrivateToPublic,
+                isPrivate = snapshot.isPrivate
+            )
+        } else {
+            _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
         }
 
         Result.success(updatedTarget)
@@ -1243,15 +1251,24 @@ class ProfileInspector(
         username: String,
         targetId: String? = null,
         cookie: String? = null,
-        wasPrivateToPublic: Boolean = false
+        wasPrivateToPublic: Boolean = false,
+        isPrivate: Boolean = false
     ) = withContext(Dispatchers.IO) {
         val cleanUser = username.trim().trimStart('@').lowercase()
-        val effectiveTargetId = targetId ?: database.targetDao().getTarget(cleanUser)?.instagramId
+        val targetRecord = database.targetDao().getTarget(cleanUser)
+        val resolvedPrivate = isPrivate || (targetRecord?.isPrivate == true && !wasPrivateToPublic)
+        val effectiveTargetId = targetId ?: targetRecord?.instagramId
         val effectiveCookie = cookie ?: sessionManager.getCookieString()
 
         // 1. Immediately import any media already cached on disk or daemon
         importLocalPostsAndHighlights(cleanUser, effectiveTargetId)
         fetchMediaFromLocalDaemon(cleanUser, effectiveTargetId)
+
+        // Private accounts without a session cannot be queried anonymously
+        if (resolvedPrivate && effectiveCookie.isNullOrBlank()) {
+            _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
+            return@withContext
+        }
 
         try {
             // 2. Fetch highlights list if targetId is available
@@ -1340,25 +1357,33 @@ class ProfileInspector(
                 }
             }
 
-            // 3. Fetch and archive recent posts
+            // 3. Fetch and archive recent posts (zero-login for public profiles)
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.SYNCING)
-            val postResult = instagramEngine.fetchRecentPostsDetailed(effectiveTargetId, cleanUser, effectiveCookie, limit = 24)
+            val postResult = instagramEngine.fetchRecentPostsDetailed(
+                userId = effectiveTargetId,
+                username = cleanUser,
+                cookieString = effectiveCookie,
+                limit = 24,
+                isPrivate = resolvedPrivate
+            )
             var fetchedCount = 0
             when (postResult) {
                 is PostFetchResult.RateLimited -> {
                     _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.RATE_LIMITED)
                 }
                 is PostFetchResult.RequiresSession -> {
-                    _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
+                    val status = if (resolvedPrivate) PostSyncStatus.REQUIRES_SESSION else PostSyncStatus.FAILED
+                    _postSyncState.value = _postSyncState.value + (cleanUser to status)
                 }
                 is PostFetchResult.Error -> {
                     _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
                 }
                 is PostFetchResult.Success -> {
-                    val posts = postResult.posts
-                    fetchedCount = posts.size
-                    if (posts.isNotEmpty()) {
+                    val rawPosts = postResult.posts
+                    fetchedCount = rawPosts.size
+                    if (rawPosts.isNotEmpty()) {
                         val postDao = database.postDao()
+                        val existingPostsMap = postDao.getPostsListForUser(cleanUser).associateBy { it.id }
                         val postEntities = mutableListOf<PostEntity>()
 
                         val postDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/posts")
@@ -1369,13 +1394,36 @@ class ProfileInspector(
                         ArchiveDirectoryManager.ensureNoMedia(internalPostDir)
                         val vaultManager = VaultStorageManager.getInstance(context)
 
-                        for (p in posts) {
-                            var localPath: String? = null
-                            val ext = if (p.mediaType == "video") "mp4" else "jpg"
+                        for (rawPost in rawPosts) {
+                            val existingPost = existingPostsMap[rawPost.shortcode]
+                            val needsEmbedEnrichment = existingPost == null && (
+                                rawPost.caption.isBlank() ||
+                                    rawPost.likeCount == 0 ||
+                                    (rawPost.mediaType == "video" && rawPost.videoUrl.isNullOrBlank()) ||
+                                    rawPost.displayUrl.contains("/media/?size=")
+                                )
+
+                            val p = if (needsEmbedEnrichment) {
+                                instagramEngine.enrichPostViaEmbed(rawPost)
+                            } else {
+                                rawPost
+                            }
+
+                            var localPath: String? = existingPost?.localPath?.takeIf { File(it).exists() && File(it).length() > 0L }
+                            val isVideo = (p.mediaType == "video") || (existingPost?.isVideo == true)
+                            val ext = if (isVideo && !p.videoUrl.isNullOrBlank()) "mp4" else "jpg"
                             val file = File(postDir, "${p.shortcode}.$ext")
 
-                            val downloadUrl = if (p.mediaType == "video" && !p.videoUrl.isNullOrBlank()) p.videoUrl else p.displayUrl
-                            if (!downloadUrl.isNullOrBlank()) {
+                            // Ensure thumbnail .jpg is also saved for video posts so grid previews render offline
+                            if (isVideo && p.displayUrl.isNotBlank()) {
+                                val thumbFile = File(postDir, "${p.shortcode}.jpg")
+                                if (!thumbFile.exists() || thumbFile.length() == 0L) {
+                                    instagramEngine.downloadMedia(p.displayUrl, thumbFile)
+                                }
+                            }
+
+                            val downloadUrl = if (isVideo && !p.videoUrl.isNullOrBlank()) p.videoUrl else p.displayUrl
+                            if (localPath == null && !downloadUrl.isNullOrBlank()) {
                                 if (!file.exists() || file.length() == 0L) {
                                     instagramEngine.downloadMedia(downloadUrl, file)
                                 }
@@ -1386,17 +1434,26 @@ class ProfileInspector(
                                 }
                             }
 
+                            val resolvedCaption = p.caption.cleanDisplayText().ifBlank { existingPost?.caption.orEmpty() }.ifBlank { null }
+                            val resolvedLikes = if (p.likeCount > 0) p.likeCount else (existingPost?.likeCount ?: 0)
+                            val resolvedComments = if (p.commentCount > 0) p.commentCount else (existingPost?.commentCount ?: 0)
+                            val resolvedPostedAt = if (existingPost != null && p.likeCount == 0 && existingPost.postedAt > 0L) {
+                                existingPost.postedAt
+                            } else {
+                                p.timestamp
+                            }
+
                             postEntities.add(
                                 PostEntity(
                                     id = p.shortcode,
                                     username = cleanUser,
-                                    caption = p.caption.cleanDisplayText().ifBlank { null },
-                                    displayUrl = p.displayUrl,
+                                    caption = resolvedCaption,
+                                    displayUrl = p.displayUrl.ifBlank { existingPost?.displayUrl.orEmpty() },
                                     localPath = localPath,
-                                    isVideo = (p.mediaType == "video"),
-                                    likeCount = p.likeCount,
-                                    commentCount = p.commentCount,
-                                    postedAt = p.timestamp
+                                    isVideo = isVideo,
+                                    likeCount = resolvedLikes,
+                                    commentCount = resolvedComments,
+                                    postedAt = resolvedPostedAt
                                 )
                             )
                         }
@@ -1410,7 +1467,11 @@ class ProfileInspector(
                         }
                         _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.COMPLETED)
                     } else {
-                        val status = if (effectiveCookie.isNullOrBlank()) PostSyncStatus.REQUIRES_SESSION else PostSyncStatus.COMPLETED
+                        val status = if (resolvedPrivate && effectiveCookie.isNullOrBlank()) {
+                            PostSyncStatus.REQUIRES_SESSION
+                        } else {
+                            PostSyncStatus.COMPLETED
+                        }
                         _postSyncState.value = _postSyncState.value + (cleanUser to status)
                     }
                 }
@@ -1440,7 +1501,8 @@ class ProfileInspector(
         val target = database.targetDao().getTarget(cleanUser)
         val cookie = sessionManager.getCookieString()
         val targetId = target?.instagramId
-        archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic = false)
+        val isPrivate = target?.isPrivate ?: false
+        archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic = false, isPrivate = isPrivate)
         true
     }
 }

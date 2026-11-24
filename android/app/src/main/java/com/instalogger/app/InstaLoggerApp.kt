@@ -61,7 +61,7 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
         settingsManager = AppSettingsManager.getInstance(this)
         database = AppDatabase.getInstance(this)
         sessionManager = SessionManager(this)
-        instagramEngine = InstagramEngine()
+        instagramEngine = InstagramEngine(this)
         notificationRepository = NotificationRepository(database.notificationDao())
 
         profileInspector = ProfileInspector(

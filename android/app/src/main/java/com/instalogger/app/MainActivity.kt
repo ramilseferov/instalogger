@@ -65,6 +65,10 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LanguageManager.wrapBaseContext(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -114,11 +118,10 @@ class MainActivity : FragmentActivity() {
                 LanguageManager.getLocalizedConfiguration(resources.configuration, currentLanguage)
             }
 
-            key(currentLanguage) {
-                CompositionLocalProvider(
-                    LocalContext provides localizedContext,
-                    LocalConfiguration provides localizedConfiguration
-                ) {
+            CompositionLocalProvider(
+                LocalContext provides localizedContext,
+                LocalConfiguration provides localizedConfiguration
+            ) {
                 InstaLoggerTheme(themeMode = themeMode) {
                     if (isAppLocked && isLockConfigured) {
                         AppLockScreen(
@@ -200,8 +203,7 @@ class MainActivity : FragmentActivity() {
                                         val toIdx = getTabRouteIndex(toRoute)
 
                                         when {
-                                            toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushEnter
-                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
+                                            toRoute?.startsWith("target/") == true -> MotionSpecs.PushEnter
                                             fromIdx != -1 && toIdx != -1 -> {
                                                 if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
                                             }
@@ -215,8 +217,7 @@ class MainActivity : FragmentActivity() {
                                         val toIdx = getTabRouteIndex(toRoute)
 
                                         when {
-                                            toRoute?.startsWith("target_detail") == true -> MotionSpecs.PushExit
-                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
+                                            toRoute?.startsWith("target/") == true -> MotionSpecs.PushExit
                                             fromIdx != -1 && toIdx != -1 -> {
                                                 if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
                                             }
@@ -230,7 +231,7 @@ class MainActivity : FragmentActivity() {
                                         val toIdx = getTabRouteIndex(toRoute)
 
                                         when {
-                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopEnter
+                                            fromRoute?.startsWith("target/") == true -> MotionSpecs.PopEnter
                                             fromIdx != -1 && toIdx != -1 -> {
                                                 if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
                                             }
@@ -244,7 +245,7 @@ class MainActivity : FragmentActivity() {
                                         val toIdx = getTabRouteIndex(toRoute)
 
                                         when {
-                                            fromRoute?.startsWith("target_detail") == true -> MotionSpecs.PopExit
+                                            fromRoute?.startsWith("target/") == true -> MotionSpecs.PopExit
                                             fromIdx != -1 && toIdx != -1 -> {
                                                 if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
                                             }
@@ -288,7 +289,6 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-    }
     }
 
     override fun onStop() {

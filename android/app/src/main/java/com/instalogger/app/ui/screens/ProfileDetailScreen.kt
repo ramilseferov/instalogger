@@ -29,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -82,7 +83,7 @@ fun ProfileDetailScreen(
     val syncStateMap by app.profileInspector.postSyncState.collectAsStateWithLifecycle()
     val cleanUserLower = remember(username) { username.trim().trimStart('@').lowercase() }
     val targetSyncStatus = syncStateMap[cleanUserLower] ?: PostSyncStatus.IDLE
-    val hasSession = remember(app.sessionManager.hasSession()) { app.sessionManager.hasSession() }
+    val hasSession = remember { app.sessionManager.hasSession() }
 
     var isRefreshing by remember { mutableStateOf(false) }
     var isFetchingPosts by remember { mutableStateOf(posts.isEmpty()) }
@@ -288,9 +289,10 @@ fun ProfileDetailScreen(
                     1 -> {
                         // Posts Tab (Chunked into 3-column rows for smooth unified scrolling)
                         val isActivelySyncing = isFetchingPosts || isRefreshing || targetSyncStatus == PostSyncStatus.SYNCING
+                        val isPrivateAccount = target?.isPrivate == true
 
                         if (posts.isEmpty()) {
-                            if (isActivelySyncing) {
+                            if (isActivelySyncing && !(isPrivateAccount && !hasSession)) {
                                 item(key = "skeleton_posts") {
                                     SkeletonPostGrid(
                                         count = if (totalPostsCount > 0) totalPostsCount else 3,
@@ -298,12 +300,13 @@ fun ProfileDetailScreen(
                                         onRetry = { refreshTargetData() }
                                     )
                                 }
-                            } else if (targetSyncStatus == PostSyncStatus.REQUIRES_SESSION || !hasSession) {
-                                item(key = "session_required_card") {
+                            } else if (isPrivateAccount && (!hasSession || targetSyncStatus == PostSyncStatus.REQUIRES_SESSION)) {
+                                item(key = "private_account_card") {
                                     Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                                            .padding(horizontal = 16.dp, vertical = 16.dp)
+                                            .testTag("private_account_card"),
                                         shape = ShapeTokens.LargeShape,
                                         color = MaterialTheme.colorScheme.surfaceContainer,
                                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
@@ -323,15 +326,15 @@ fun ProfileDetailScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.VpnKey,
-                                                    contentDescription = null,
+                                                    imageVector = Icons.Default.Lock,
+                                                    contentDescription = stringResource(R.string.posts_private_account_title),
                                                     tint = AccentBlue,
                                                     modifier = Modifier.size(28.dp)
                                                 )
                                             }
 
                                             Text(
-                                                text = stringResource(R.string.posts_session_required_title),
+                                                text = stringResource(R.string.posts_private_account_title),
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onSurface,
@@ -339,7 +342,7 @@ fun ProfileDetailScreen(
                                             )
 
                                             Text(
-                                                text = stringResource(R.string.posts_session_required_desc),
+                                                text = stringResource(R.string.posts_private_account_desc),
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 textAlign = TextAlign.Center
@@ -359,13 +362,15 @@ fun ProfileDetailScreen(
                                                         onClick = onNavigateToSession,
                                                         modifier = Modifier
                                                             .weight(1f)
-                                                            .fillMaxHeight(),
+                                                            .fillMaxHeight()
+                                                            .minimumInteractiveComponentSize()
+                                                            .testTag("private_login_button"),
                                                         shape = ShapeTokens.MediumShape,
                                                         colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
                                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                                                     ) {
                                                         Icon(
-                                                            imageVector = Icons.Default.Lock,
+                                                            imageVector = Icons.Default.VpnKey,
                                                             contentDescription = null,
                                                             modifier = Modifier.size(16.dp)
                                                         )
@@ -383,7 +388,9 @@ fun ProfileDetailScreen(
                                                     onClick = { refreshTargetData() },
                                                     modifier = Modifier
                                                         .weight(if (onNavigateToSession != null) 0.8f else 1f)
-                                                        .fillMaxHeight(),
+                                                        .fillMaxHeight()
+                                                        .minimumInteractiveComponentSize()
+                                                        .testTag("private_refresh_button"),
                                                     shape = ShapeTokens.MediumShape,
                                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
                                                 ) {
