@@ -26,6 +26,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Production-grade Multi-Provider Media Download Orchestrator.
@@ -55,6 +56,9 @@ class MediaDownloadOrchestrator(
     private val activeProcessIds = ConcurrentHashMap<String, String>()
     private val activeProviderMap = ConcurrentHashMap<String, InstagramMediaProvider>()
     private val pausedPostIds = ConcurrentHashMap.newKeySet<String>()
+    private val userCancelledPostIds = ConcurrentHashMap.newKeySet<String>()
+    private val generationCounter = AtomicLong(0L)
+    private val jobGenerations = ConcurrentHashMap<String, Long>()
     private val itemSpecs = ConcurrentHashMap<String, Pair<PostEntity, List<CarouselSlideHint>>>()
     private val queueMap = ConcurrentHashMap<String, DownloadQueueItem>()
 
@@ -67,6 +71,9 @@ class MediaDownloadOrchestrator(
     private val _isQueuePaused = MutableStateFlow(false)
     val isQueuePaused: StateFlow<Boolean> = _isQueuePaused.asStateFlow()
 
+    private val _isAutoEnqueueSuppressed = MutableStateFlow(false)
+    val isAutoEnqueueSuppressed: StateFlow<Boolean> = _isAutoEnqueueSuppressed.asStateFlow()
+
     private val _totalSpeedBytesPerSec = MutableStateFlow(0L)
     val totalSpeedBytesPerSec: StateFlow<Long> = _totalSpeedBytesPerSec.asStateFlow()
 
@@ -76,8 +83,23 @@ class MediaDownloadOrchestrator(
     private val _queuedDownloadCount = MutableStateFlow(0)
     val queuedDownloadCount: StateFlow<Int> = _queuedDownloadCount.asStateFlow()
 
-    private suspend fun <T> withDynamicSlot(postId: String, block: suspend () -> T): T {
+    fun isAutoQueueSuppressed(): Boolean = _isAutoEnqueueSuppressed.value || _isQueuePaused.value
+
+    private fun isCurrentGeneration(postId: String, expectedGen: Long): Boolean {
+        return jobGenerations[postId] == expectedGen
+    }
+
+    private fun bumpGeneration(postId: String): Long {
+        val next = generationCounter.incrementAndGet()
+        jobGenerations[postId] = next
+        return next
+    }
+
+    private suspend fun <T> withDynamicSlot(postId: String, expectedGen: Long, block: suspend () -> T): T {
         while (true) {
+            if (!isCurrentGeneration(postId, expectedGen) || userCancelledPostIds.contains(postId)) {
+                throw CancellationException("Download superseded or cancelled")
+            }
             if (_isQueuePaused.value || pausedPostIds.contains(postId)) {
                 throw PausedSignalException()
             }
@@ -106,11 +128,15 @@ class MediaDownloadOrchestrator(
 
     /**
      * Resumes any unarchived/pending/failed posts in Room DB for a given user.
+     * Respects global pause & cancel-all suppression so cancelled downloads NEVER restart automatically.
      */
     suspend fun enqueuePendingForUser(username: String): Int {
+        if (isAutoQueueSuppressed()) return 0
         val cleanUser = username.trim().trimStart('@').lowercase()
         val posts = database.postDao().getPostsListForUser(cleanUser)
         val missing = posts.filter { post ->
+            if (userCancelledPostIds.contains(post.id) || pausedPostIds.contains(post.id)) return@filter false
+            if (post.downloadStatus == "cancelled") return@filter false
             val fileOk = !post.localPath.isNullOrBlank() &&
                 File(post.localPath).exists() &&
                 File(post.localPath).length() > 0L
@@ -127,17 +153,22 @@ class MediaDownloadOrchestrator(
 
     /**
      * Enqueues a batch of posts discovered during profile sync.
-     * Respects auto-download and Wi-Fi-only settings for background video downloads.
+     * Respects auto-download, Wi-Fi-only, global pause, and user cancellation suppression.
      */
     fun enqueueBatch(
         username: String,
         items: List<Pair<PostEntity, List<CarouselSlideHint>>>
     ) {
+        if (isAutoQueueSuppressed()) return
         val autoDownloadVideos = settingsManager.ytDlpAutoDownloadVideos.value
         val wifiOnly = settingsManager.ytDlpWifiOnly.value
         val onWifi = isOnUnmeteredWifi()
 
         for ((post, slideHints) in items) {
+            if (isAutoQueueSuppressed()) break
+            if (userCancelledPostIds.contains(post.id) || pausedPostIds.contains(post.id)) continue
+            if (post.downloadStatus == "cancelled") continue
+
             val alreadyComplete = post.downloadStatus == "complete" &&
                 !post.localPath.isNullOrBlank() &&
                 File(post.localPath).exists() &&
@@ -161,7 +192,7 @@ class MediaDownloadOrchestrator(
     }
 
     /**
-     * Enqueues a single post for download/redownload.
+     * Enqueues a single post for download/redownload with generation-guarded state transitions.
      */
     fun enqueuePost(
         post: PostEntity,
@@ -170,30 +201,28 @@ class MediaDownloadOrchestrator(
         forceRedownload: Boolean = false
     ) {
         val postId = post.id
-        itemSpecs[postId] = post to slideHints
-        val existingItem = queueMap[postId]
-        val now = System.currentTimeMillis()
-        queueMap[postId] = DownloadQueueItem(
-            postId = postId,
-            username = post.username,
-            mediaType = post.mediaType.ifBlank { if (post.isVideo) "video" else "image" },
-            thumbnailUrl = post.localThumbPath?.takeIf { File(it).exists() } ?: post.displayUrl,
-            slideCount = post.slideCount.coerceAtLeast(1),
-            state = if (!userInitiated && _isQueuePaused.value) PostDownloadState.Paused else PostDownloadState.Queued,
-            providerName = existingItem?.providerName,
-            enqueuedAt = existingItem?.enqueuedAt ?: now,
-            updatedAt = now
-        )
 
-        if (userInitiated) {
+        // Background enqueue must NEVER override user pause or user cancel!
+        if (!userInitiated) {
+            if (_isAutoEnqueueSuppressed.value || userCancelledPostIds.contains(postId)) {
+                return
+            }
+            if (_isQueuePaused.value || pausedPostIds.contains(postId)) {
+                return
+            }
+            if (activeJobs[postId]?.isActive == true && !forceRedownload) {
+                return
+            }
+        } else {
+            // Explicit user action clears suppression and pause for this item
+            userCancelledPostIds.remove(postId)
             pausedPostIds.remove(postId)
+            if (_isAutoEnqueueSuppressed.value) {
+                _isAutoEnqueueSuppressed.value = false
+            }
             if (_isQueuePaused.value) {
                 _isQueuePaused.value = false
             }
-        } else if (_isQueuePaused.value || pausedPostIds.contains(postId)) {
-            pausedPostIds.add(postId)
-            updateState(postId, PostDownloadState.Paused)
-            return
         }
 
         if (activeJobs[postId]?.isActive == true) {
@@ -201,7 +230,24 @@ class MediaDownloadOrchestrator(
             cancelActiveProcessOnly(postId)
         }
 
-        updateState(postId, PostDownloadState.Queued)
+        itemSpecs[postId] = post to slideHints
+        val existingItem = queueMap[postId]
+        val now = System.currentTimeMillis()
+        val myGen = bumpGeneration(postId)
+
+        queueMap[postId] = DownloadQueueItem(
+            postId = postId,
+            username = post.username,
+            mediaType = post.mediaType.ifBlank { if (post.isVideo) "video" else "image" },
+            thumbnailUrl = post.localThumbPath?.takeIf { File(it).exists() } ?: post.displayUrl,
+            slideCount = post.slideCount.coerceAtLeast(1),
+            state = PostDownloadState.Queued,
+            providerName = existingItem?.providerName,
+            enqueuedAt = existingItem?.enqueuedAt ?: now,
+            updatedAt = now
+        )
+
+        updateState(postId, PostDownloadState.Queued, expectedGen = myGen)
         _queuedDownloadCount.value = activeJobs.size + 1
 
         val job = scope.launch {
@@ -210,36 +256,41 @@ class MediaDownloadOrchestrator(
             val stagingDir = File(appContext.cacheDir, "ytdlp_staging/$processId")
 
             try {
-                withDynamicSlot(postId) {
+                withDynamicSlot(postId, myGen) {
                     executeJob(
                         post = post,
                         slideHints = slideHints,
                         processId = processId,
                         stagingDir = stagingDir,
-                        userInitiated = userInitiated
+                        userInitiated = userInitiated,
+                        expectedGen = myGen
                     )
                 }
             } catch (_: PausedSignalException) {
-                updateState(postId, PostDownloadState.Paused)
+                updateState(postId, PostDownloadState.Paused, expectedGen = myGen)
             } catch (_: CancellationException) {
                 if (pausedPostIds.contains(postId) || _isQueuePaused.value) {
-                    updateState(postId, PostDownloadState.Paused)
+                    updateState(postId, PostDownloadState.Paused, expectedGen = myGen)
                 } else {
-                    updateState(postId, PostDownloadState.Cancelled)
+                    updateState(postId, PostDownloadState.Cancelled, expectedGen = myGen)
                 }
             } catch (e: Throwable) {
                 if (e is CancellationException) throw e
-                if (pausedPostIds.contains(postId) || _isQueuePaused.value) {
-                    updateState(postId, PostDownloadState.Paused)
+                if (!isCurrentGeneration(postId, myGen)) {
+                    // Superseded by pause/cancel/retry — ignore stale error
+                } else if (pausedPostIds.contains(postId) || _isQueuePaused.value) {
+                    updateState(postId, PostDownloadState.Paused, expectedGen = myGen)
                 } else {
                     val safeMsg = LogSanitizer.redact(e.message ?: e::class.java.simpleName)
                     AppLogger.e(TAG, "Orchestrator error for $postId: $safeMsg")
-                    updateState(postId, PostDownloadState.Failed(safeMsg))
+                    updateState(postId, PostDownloadState.Failed(safeMsg), expectedGen = myGen)
                 }
             } finally {
-                activeProviderMap.remove(postId)
-                activeProcessIds.remove(postId)
-                activeJobs.remove(postId)
+                if (activeProcessIds[postId] == processId) {
+                    activeProviderMap.remove(postId)
+                    activeProcessIds.remove(postId)
+                }
+                activeJobs.remove(postId, coroutineContext[Job])
                 _queuedDownloadCount.value = activeJobs.size
                 try {
                     stagingDir.deleteRecursively()
@@ -253,27 +304,29 @@ class MediaDownloadOrchestrator(
     }
 
     private fun cancelActiveProcessOnly(postId: String) {
-        val processId = activeProcessIds[postId]
-        val provider = activeProviderMap[postId]
+        val processId = activeProcessIds.remove(postId)
+        val provider = activeProviderMap.remove(postId)
         if (processId != null) {
             provider?.cancel(processId)
             ytDlpProvider.cancel(processId)
             nativeGraphProvider.cancel(processId)
             daemonBridgeProvider.cancel(processId)
         }
-        activeJobs[postId]?.cancel()
-        activeJobs.remove(postId)
+        activeJobs.remove(postId)?.cancel()
     }
 
     fun pauseDownload(postId: String) {
         pausedPostIds.add(postId)
+        val gen = bumpGeneration(postId)
         cancelActiveProcessOnly(postId)
-        updateState(postId, PostDownloadState.Paused)
+        updateState(postId, PostDownloadState.Paused, expectedGen = gen)
         _queuedDownloadCount.value = activeJobs.size
+        AppLogger.i(TAG, "Paused download: $postId")
     }
 
     fun resumeDownload(postId: String) {
         pausedPostIds.remove(postId)
+        userCancelledPostIds.remove(postId)
         val spec = itemSpecs[postId]
         if (spec != null) {
             enqueuePost(
@@ -295,18 +348,22 @@ class MediaDownloadOrchestrator(
         val idsToPause = (activeJobs.keys + queueMap.values.filter { it.state.isActive }.map { it.postId }).distinct()
         idsToPause.forEach { postId ->
             pausedPostIds.add(postId)
+            val gen = bumpGeneration(postId)
             cancelActiveProcessOnly(postId)
-            updateState(postId, PostDownloadState.Paused)
+            updateState(postId, PostDownloadState.Paused, expectedGen = gen)
         }
         _queuedDownloadCount.value = activeJobs.size
         publishQueueSnapshot()
+        AppLogger.i(TAG, "Paused all downloads (${idsToPause.size} items)")
     }
 
     fun resumeAll() {
         _isQueuePaused.value = false
+        _isAutoEnqueueSuppressed.value = false
         val idsToResume = (pausedPostIds.toList() + queueMap.values.filter { it.state is PostDownloadState.Paused }.map { it.postId }).distinct()
         pausedPostIds.clear()
         idsToResume.forEach { postId ->
+            userCancelledPostIds.remove(postId)
             val spec = itemSpecs[postId]
             if (spec != null) {
                 enqueuePost(
@@ -323,35 +380,114 @@ class MediaDownloadOrchestrator(
             }
         }
         publishQueueSnapshot()
+        AppLogger.i(TAG, "Resumed all downloads (${idsToResume.size} items)")
+    }
+
+    fun resumeAutoDownloads() {
+        _isAutoEnqueueSuppressed.value = false
+        _isQueuePaused.value = false
+        userCancelledPostIds.clear()
+        pausedPostIds.clear()
+        publishQueueSnapshot()
+        AppLogger.i(TAG, "Auto-downloads re-enabled by user")
     }
 
     fun cancelDownload(postId: String) {
         pausedPostIds.remove(postId)
+        userCancelledPostIds.add(postId)
+        val gen = bumpGeneration(postId)
         cancelActiveProcessOnly(postId)
-        updateState(postId, PostDownloadState.Cancelled)
+        updateState(postId, PostDownloadState.Cancelled, expectedGen = gen)
         _queuedDownloadCount.value = activeJobs.size
+        scope.launch {
+            try {
+                database.postDao().getPostById(postId)?.let { cur ->
+                    if (cur.downloadStatus != "complete") {
+                        database.postDao().insertPost(cur.copy(downloadStatus = "cancelled"))
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+        AppLogger.i(TAG, "Cancelled download: $postId")
     }
 
     fun cancelAll() {
+        // Suppress automatic background re-enqueueing so cancelled downloads NEVER restart on their own!
+        _isAutoEnqueueSuppressed.value = true
         _isQueuePaused.value = false
         val ids = (activeJobs.keys + pausedPostIds + queueMap.values.filter { it.state.isActive || it.state.isPaused }.map { it.postId }).distinct()
         pausedPostIds.clear()
-        ids.forEach { cancelDownload(it) }
+        ids.forEach { postId ->
+            userCancelledPostIds.add(postId)
+            val gen = bumpGeneration(postId)
+            cancelActiveProcessOnly(postId)
+            updateState(postId, PostDownloadState.Cancelled, expectedGen = gen)
+        }
+        _queuedDownloadCount.value = activeJobs.size
+        publishQueueSnapshot()
+        AppLogger.i(TAG, "Cancelled all downloads (${ids.size} items); auto-enqueue paused until user resumes")
     }
 
     fun retryDownload(postId: String) {
+        userCancelledPostIds.remove(postId)
+        pausedPostIds.remove(postId)
         resumeDownload(postId)
     }
 
     fun dismissItem(postId: String) {
         if (activeJobs[postId]?.isActive == true) {
             cancelDownload(postId)
+        } else {
+            bumpGeneration(postId)
         }
         pausedPostIds.remove(postId)
         queueMap.remove(postId)
         itemSpecs.remove(postId)
         _downloadStates.value = _downloadStates.value - postId
         publishQueueSnapshot()
+    }
+
+    /**
+     * Deletes a queue item and optionally removes its encrypted Vault files from device storage
+     * while suppressing automatic re-download of that post.
+     */
+    fun deleteDownloadedMedia(postId: String, deleteVaultFiles: Boolean) {
+        userCancelledPostIds.add(postId)
+        pausedPostIds.remove(postId)
+        bumpGeneration(postId)
+        cancelActiveProcessOnly(postId)
+        queueMap.remove(postId)
+        itemSpecs.remove(postId)
+        _downloadStates.value = _downloadStates.value - postId
+        publishQueueSnapshot()
+
+        if (deleteVaultFiles) {
+            scope.launch {
+                try {
+                    val assets = database.mediaAssetDao().getAssetsForPost(postId)
+                    for (asset in assets) {
+                        asset.localVaultPath?.let { path -> runCatching { File(path).delete() } }
+                        asset.thumbVaultPath?.let { path -> runCatching { File(path).delete() } }
+                    }
+                    database.mediaAssetDao().deleteAssetsForPost(postId)
+                    database.postDao().getPostById(postId)?.let { post ->
+                        post.localPath?.let { path -> runCatching { File(path).delete() } }
+                        post.localThumbPath?.let { path -> runCatching { File(path).delete() } }
+                        database.postDao().insertPost(
+                            post.copy(
+                                localPath = null,
+                                localThumbPath = null,
+                                downloadStatus = "cancelled"
+                            )
+                        )
+                    }
+                    AppLogger.i(TAG, "Deleted archived Vault files for post $postId")
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to delete Vault files for $postId: ${e.message}")
+                }
+            }
+        }
     }
 
     fun clearFinished() {
@@ -369,8 +505,15 @@ class MediaDownloadOrchestrator(
         slideHints: List<CarouselSlideHint>,
         processId: String,
         stagingDir: File,
-        userInitiated: Boolean
+        userInitiated: Boolean,
+        expectedGen: Long
     ) {
+        if (!isCurrentGeneration(post.id, expectedGen) || userCancelledPostIds.contains(post.id)) return
+        if (_isQueuePaused.value || pausedPostIds.contains(post.id)) {
+            updateState(post.id, PostDownloadState.Paused, expectedGen = expectedGen)
+            return
+        }
+
         val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
         val request = MediaDownloadRequest(
             processId = processId,
@@ -389,6 +532,11 @@ class MediaDownloadOrchestrator(
         var lastError = "No available media provider succeeded"
 
         for (provider in providerChain) {
+            if (!isCurrentGeneration(post.id, expectedGen) || userCancelledPostIds.contains(post.id)) return
+            if (_isQueuePaused.value || pausedPostIds.contains(post.id)) {
+                updateState(post.id, PostDownloadState.Paused, expectedGen = expectedGen)
+                return
+            }
             if (!provider.isAvailable()) continue
             if (!userInitiated && !healthTracker.canUseProvider(provider.id)) continue
 
@@ -397,9 +545,18 @@ class MediaDownloadOrchestrator(
             stagingDir.mkdirs()
 
             when (val outcome = provider.downloadPost(request, stagingDir) { state ->
-                updateState(post.id, state)
+                if (isCurrentGeneration(post.id, expectedGen) &&
+                    !pausedPostIds.contains(post.id) &&
+                    !_isQueuePaused.value &&
+                    !userCancelledPostIds.contains(post.id)
+                ) {
+                    updateState(post.id, state, expectedGen = expectedGen)
+                }
             }) {
                 is ProviderOutcome.Success -> {
+                    if (!isCurrentGeneration(post.id, expectedGen) || pausedPostIds.contains(post.id) || _isQueuePaused.value || userCancelledPostIds.contains(post.id)) {
+                        return
+                    }
                     healthTracker.recordSuccess(provider.id)
                     finalSuccess = outcome
                     break
@@ -417,10 +574,11 @@ class MediaDownloadOrchestrator(
                     lastError = outcome.detail
                 }
                 is ProviderOutcome.Cancelled -> {
+                    if (!isCurrentGeneration(post.id, expectedGen)) return
                     if (pausedPostIds.contains(post.id) || _isQueuePaused.value) {
-                        updateState(post.id, PostDownloadState.Paused)
+                        updateState(post.id, PostDownloadState.Paused, expectedGen = expectedGen)
                     } else {
-                        updateState(post.id, PostDownloadState.Cancelled)
+                        updateState(post.id, PostDownloadState.Cancelled, expectedGen = expectedGen)
                     }
                     return
                 }
@@ -431,24 +589,31 @@ class MediaDownloadOrchestrator(
             }
         }
 
+        if (!isCurrentGeneration(post.id, expectedGen) || userCancelledPostIds.contains(post.id)) return
+        if (pausedPostIds.contains(post.id) || _isQueuePaused.value) {
+            updateState(post.id, PostDownloadState.Paused, expectedGen = expectedGen)
+            return
+        }
+
         if (finalSuccess == null) {
             database.postDao().getPostById(post.id)?.let { current ->
                 database.postDao().insertPost(current.copy(downloadStatus = "failed"))
             }
-            updateState(post.id, PostDownloadState.Failed(lastError))
+            updateState(post.id, PostDownloadState.Failed(lastError), expectedGen = expectedGen)
             return
         }
 
         // Atomic validation, SHA-256 deduplication, and AES-256-GCM Vault ingestion
-        updateState(post.id, PostDownloadState.Encrypting)
+        updateState(post.id, PostDownloadState.Encrypting, expectedGen = expectedGen)
         val ingested = ingestIntoVault(post, finalSuccess)
+        if (!isCurrentGeneration(post.id, expectedGen)) return
         if (ingested) {
-            updateState(post.id, PostDownloadState.Completed(finalSuccess.providerId))
+            updateState(post.id, PostDownloadState.Completed(finalSuccess.providerId), expectedGen = expectedGen)
         } else {
             database.postDao().getPostById(post.id)?.let { current ->
                 database.postDao().insertPost(current.copy(downloadStatus = "failed"))
             }
-            updateState(post.id, PostDownloadState.Failed("Downloaded media failed integrity validation"))
+            updateState(post.id, PostDownloadState.Failed("Downloaded media failed integrity validation"), expectedGen = expectedGen)
         }
     }
 
@@ -591,7 +756,10 @@ class MediaDownloadOrchestrator(
         }
     }
 
-    private fun updateState(postId: String, state: PostDownloadState) {
+    private fun updateState(postId: String, state: PostDownloadState, expectedGen: Long? = null) {
+        if (expectedGen != null && jobGenerations[postId] != expectedGen) {
+            return
+        }
         _downloadStates.value = _downloadStates.value + (postId to state)
         val now = System.currentTimeMillis()
         val prev = queueMap[postId]

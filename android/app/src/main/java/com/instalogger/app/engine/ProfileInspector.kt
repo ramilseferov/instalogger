@@ -2089,7 +2089,7 @@ class ProfileInspector(
             database.highlightDao().getMediaListForHighlight(hl.id).isEmpty()
         }
 
-        if (pendingDownloads > 0) {
+        if (pendingDownloads > 0 && mediaDownloadOrchestrator?.isAutoQueueSuppressed() != true) {
             mediaDownloadOrchestrator?.enqueuePendingForUser(cleanUser)
         }
 

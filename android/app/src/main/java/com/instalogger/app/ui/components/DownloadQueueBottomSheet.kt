@@ -1,5 +1,6 @@
 package com.instalogger.app.ui.components
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -20,6 +21,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -159,7 +161,6 @@ fun DownloadQueueHeaderButton(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            // Circular progress ring inside button when actively transferring
             if (isDownloadingNow) {
                 Canvas(modifier = Modifier.size(34.dp)) {
                     val stroke = Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round)
@@ -225,7 +226,6 @@ fun DownloadQueueHeaderButton(
             }
         }
 
-        // Animated live count badge pinned to top-end corner
         AnimatedVisibility(
             visible = badgeCount > 0,
             enter = scaleIn(spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium)) + fadeIn(tween(150)),
@@ -278,19 +278,24 @@ fun DownloadQueueBottomSheet(
 
     val queueItems by orchestrator.queueItems.collectAsStateWithLifecycle()
     val isQueuePaused by orchestrator.isQueuePaused.collectAsStateWithLifecycle()
+    val isAutoSuppressed by orchestrator.isAutoEnqueueSuppressed.collectAsStateWithLifecycle()
     val totalSpeed by orchestrator.totalSpeedBytesPerSec.collectAsStateWithLifecycle()
     val activeWorkers by orchestrator.activeDownloadCount.collectAsStateWithLifecycle()
     val speedPreset by app.settingsManager.archiverSpeedPreset.collectAsStateWithLifecycle()
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedTab by remember { mutableStateOf(DownloadQueueTab.ACTIVE) }
+
+    // Confirmation dialog states
     var showCancelAllDialog by remember { mutableStateOf(false) }
+    var showClearFinishedDialog by remember { mutableStateOf(false) }
+    var itemToCancel by remember { mutableStateOf<DownloadQueueItem?>(null) }
+    var itemToDelete by remember { mutableStateOf<DownloadQueueItem?>(null) }
 
     val activeList = remember(queueItems) { queueItems.filter { it.state.isActive } }
     val pausedList = remember(queueItems) { queueItems.filter { it.state.isPaused } }
     val completedList = remember(queueItems) { queueItems.filter { it.state.isTerminal } }
 
-    // Auto-select a populated tab on first open if Active is empty
     LaunchedEffect(Unit) {
         if (activeList.isEmpty()) {
             selectedTab = when {
@@ -337,7 +342,9 @@ fun DownloadQueueBottomSheet(
                         text = stringResource(R.string.dl_queue_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = stringResource(
@@ -347,9 +354,13 @@ fun DownloadQueueBottomSheet(
                             speedPreset.key
                         ),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Surface(
                     shape = CircleShape,
@@ -372,25 +383,32 @@ fun DownloadQueueBottomSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 2. Live Speed & Telemetry Hero Card
+            // 2. Live Speed & Telemetry Hero Card (Zero-overflow layout)
             LiveTelemetryBanner(
                 totalSpeedBytesPerSec = totalSpeed,
                 activeCount = activeList.size,
                 pausedCount = pausedList.size,
                 completedCount = completedList.count { it.state is PostDownloadState.Completed },
                 isQueuePaused = isQueuePaused || (activeList.isEmpty() && pausedList.isNotEmpty()),
+                isAutoSuppressed = isAutoSuppressed,
                 hasActiveOrPaused = hasActiveOrPaused,
                 hasTerminal = hasTerminal,
-                onPauseAll = { orchestrator.pauseAll() },
-                onResumeAll = { orchestrator.resumeAll() },
-                onCancelAll = {
-                    if (activeList.size + pausedList.size > 1) {
-                        showCancelAllDialog = true
-                    } else {
-                        orchestrator.cancelAll()
-                    }
+                onPauseAll = {
+                    orchestrator.pauseAll()
+                    selectedTab = DownloadQueueTab.PAUSED
+                    Toast.makeText(context, context.getString(R.string.dl_toast_paused_all), Toast.LENGTH_SHORT).show()
                 },
-                onClearFinished = { orchestrator.clearFinished() }
+                onResumeAll = {
+                    orchestrator.resumeAll()
+                    selectedTab = DownloadQueueTab.ACTIVE
+                    Toast.makeText(context, context.getString(R.string.dl_toast_resumed_all), Toast.LENGTH_SHORT).show()
+                },
+                onReenableAuto = {
+                    orchestrator.resumeAutoDownloads()
+                    Toast.makeText(context, context.getString(R.string.dl_toast_auto_reenabled), Toast.LENGTH_SHORT).show()
+                },
+                onCancelAll = { showCancelAllDialog = true },
+                onClearFinished = { showClearFinishedDialog = true }
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -479,11 +497,14 @@ fun DownloadQueueBottomSheet(
                     items(visibleItems, key = { it.postId }) { item ->
                         DownloadQueueCard(
                             item = item,
-                            onPause = { orchestrator.pauseDownload(item.postId) },
+                            onPause = {
+                                orchestrator.pauseDownload(item.postId)
+                                Toast.makeText(context, context.getString(R.string.dl_toast_paused_single), Toast.LENGTH_SHORT).show()
+                            },
                             onResume = { orchestrator.resumeDownload(item.postId) },
-                            onCancel = { orchestrator.cancelDownload(item.postId) },
+                            onCancel = { itemToCancel = item },
                             onRetry = { orchestrator.retryDownload(item.postId) },
-                            onDismissItem = { orchestrator.dismissItem(item.postId) },
+                            onDeleteRequest = { itemToDelete = item },
                             onOpenProfile = {
                                 if (item.username.isNotBlank()) {
                                     onDismiss()
@@ -505,6 +526,7 @@ fun DownloadQueueBottomSheet(
         }
     }
 
+    // Confirmation 1: Cancel ALL downloads (always asks confirmation!)
     if (showCancelAllDialog) {
         AlertDialog(
             onDismissRequest = { showCancelAllDialog = false },
@@ -515,14 +537,133 @@ fun DownloadQueueBottomSheet(
                     onClick = {
                         showCancelAllDialog = false
                         orchestrator.cancelAll()
+                        Toast.makeText(context, context.getString(R.string.dl_toast_cancelled_all), Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = StatusRed)
                 ) {
-                    Text(stringResource(R.string.dl_action_cancel_all))
+                    Text(stringResource(R.string.dl_action_cancel_short), maxLines = 1, softWrap = false)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCancelAllDialog = false }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
+    // Confirmation 2: Cancel SINGLE download
+    itemToCancel?.let { target ->
+        AlertDialog(
+            onDismissRequest = { itemToCancel = null },
+            title = { Text(stringResource(R.string.dl_cancel_single_title), fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.dl_cancel_single_desc,
+                        if (target.username.isNotBlank()) "@${target.username}" else target.postId
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val id = target.postId
+                        itemToCancel = null
+                        orchestrator.cancelDownload(id)
+                        Toast.makeText(context, context.getString(R.string.dl_toast_cancelled_single), Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusRed)
+                ) {
+                    Text(stringResource(R.string.dl_action_cancel_short), maxLines = 1, softWrap = false)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemToCancel = null }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
+    // Confirmation 3: Delete downloaded / finished item (offers List-Only OR Delete Vault File from device!)
+    itemToDelete?.let { target ->
+        val isCompletedFile = target.state is PostDownloadState.Completed
+        AlertDialog(
+            onDismissRequest = { itemToDelete = null },
+            title = {
+                Text(
+                    text = stringResource(
+                        if (isCompletedFile) R.string.dl_delete_item_title else R.string.dl_remove_history_title
+                    ),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(
+                        if (isCompletedFile) R.string.dl_delete_item_desc else R.string.dl_remove_history_desc,
+                        if (target.username.isNotBlank()) "@${target.username}" else target.postId
+                    )
+                )
+            },
+            confirmButton = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    if (isCompletedFile) {
+                        Button(
+                            onClick = {
+                                val id = target.postId
+                                itemToDelete = null
+                                orchestrator.deleteDownloadedMedia(id, deleteVaultFiles = true)
+                                Toast.makeText(context, context.getString(R.string.dl_toast_deleted_file), Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = StatusRed)
+                        ) {
+                            Text(stringResource(R.string.dl_action_delete_with_file), maxLines = 1, softWrap = false)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val id = target.postId
+                            itemToDelete = null
+                            orchestrator.deleteDownloadedMedia(id, deleteVaultFiles = false)
+                            Toast.makeText(context, context.getString(R.string.dl_toast_removed_list), Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Text(stringResource(R.string.dl_action_delete_list_only), maxLines = 1, softWrap = false)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemToDelete = null }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
+    // Confirmation 4: Clear all finished items
+    if (showClearFinishedDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearFinishedDialog = false },
+            title = { Text(stringResource(R.string.dl_clear_done_title), fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.dl_clear_done_desc, completedList.size)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearFinishedDialog = false
+                        orchestrator.clearFinished()
+                        Toast.makeText(context, context.getString(R.string.dl_toast_cleared_done), Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text(stringResource(R.string.dl_action_clear_short), maxLines = 1, softWrap = false)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearFinishedDialog = false }) {
                     Text(stringResource(R.string.dialog_cancel))
                 }
             }
@@ -537,10 +678,12 @@ private fun LiveTelemetryBanner(
     pausedCount: Int,
     completedCount: Int,
     isQueuePaused: Boolean,
+    isAutoSuppressed: Boolean,
     hasActiveOrPaused: Boolean,
     hasTerminal: Boolean,
     onPauseAll: () -> Unit,
     onResumeAll: () -> Unit,
+    onReenableAuto: () -> Unit,
     onCancelAll: () -> Unit,
     onClearFinished: () -> Unit
 ) {
@@ -566,7 +709,7 @@ private fun LiveTelemetryBanner(
                 1.dp,
                 when {
                     isLive -> AccentBlue.copy(alpha = 0.3f)
-                    isQueuePaused -> StatusAmber.copy(alpha = 0.35f)
+                    isQueuePaused || isAutoSuppressed -> StatusAmber.copy(alpha = 0.35f)
                     else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 },
                 RoundedCornerShape(16.dp)
@@ -579,11 +722,12 @@ private fun LiveTelemetryBanner(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Box(
                         modifier = Modifier
@@ -592,23 +736,26 @@ private fun LiveTelemetryBanner(
                             .background(
                                 when {
                                     isLive -> AccentBlue.copy(alpha = pulseAlpha)
-                                    isQueuePaused -> StatusAmber
+                                    isQueuePaused || isAutoSuppressed -> StatusAmber
                                     else -> StatusGreen
                                 }
                             )
                     )
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = when {
                                 isLive -> DownloadTelemetryFormatter.formatSpeed(totalSpeedBytesPerSec)
                                 isQueuePaused -> stringResource(R.string.dl_status_queue_paused)
+                                isAutoSuppressed -> stringResource(R.string.dl_status_auto_stopped)
                                 else -> stringResource(R.string.dl_status_idle)
                             },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             color = when {
                                 isLive -> AccentBlue
-                                isQueuePaused -> StatusAmber
+                                isQueuePaused || isAutoSuppressed -> StatusAmber
                                 else -> MaterialTheme.colorScheme.onSurface
                             }
                         )
@@ -620,29 +767,46 @@ private fun LiveTelemetryBanner(
                                 completedCount
                             ),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                // Clear Finished button (fixed slot, dims cleanly when disabled)
-                TextButton(
-                    onClick = onClearFinished,
-                    enabled = hasTerminal,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.alpha(if (hasTerminal) 1f else 0.35f)
+                // Compact Clear Finished button (zero overflow)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier
+                        .alpha(if (hasTerminal) 1f else 0.35f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = hasTerminal, onClick = onClearFinished)
                 ) {
-                    Icon(Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = stringResource(R.string.dl_action_clear_done),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.CleaningServices,
+                            contentDescription = stringResource(R.string.dl_action_clear_done),
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = stringResource(R.string.dl_action_clear_short),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
 
-            // Global Pause / Resume & Cancel All controls
+            // Global Pause / Resume & Cancel All controls (equal-width, single-line, zero overflow)
             AnimatedVisibility(
                 visible = hasActiveOrPaused,
                 enter = expandVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
@@ -665,7 +829,7 @@ private fun LiveTelemetryBanner(
                             contentColor = primaryColor
                         ),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         AnimatedContent(
@@ -675,19 +839,22 @@ private fun LiveTelemetryBanner(
                         ) { resuming ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
                                 Icon(
                                     imageVector = if (resuming) Icons.Default.PlayArrow else Icons.Default.Pause,
                                     contentDescription = null,
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Text(
                                     text = stringResource(
-                                        if (resuming) R.string.dl_action_resume_all else R.string.dl_action_pause_all
+                                        if (resuming) R.string.dl_action_resume_short else R.string.dl_action_pause_short
                                     ),
                                     style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -696,19 +863,50 @@ private fun LiveTelemetryBanner(
                     OutlinedButton(
                         onClick = onCancelAll,
                         shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, StatusRed.copy(alpha = 0.45f)),
+                        border = BorderStroke(1.dp, StatusRed.copy(alpha = 0.45f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusRed),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        modifier = Modifier.weight(0.85f)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = stringResource(R.string.dl_action_cancel_all),
+                            text = stringResource(R.string.dl_action_cancel_short),
                             style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+                }
+            }
+
+            // Re-enable Auto-Download banner when user previously cancelled all
+            AnimatedVisibility(
+                visible = isAutoSuppressed && !hasActiveOrPaused,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Button(
+                    onClick = onReenableAuto,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentBlue.copy(alpha = 0.14f),
+                        contentColor = AccentBlue
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.dl_action_reenable_auto),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -722,7 +920,7 @@ private fun DownloadQueueCard(
     onResume: () -> Unit,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
-    onDismissItem: () -> Unit,
+    onDeleteRequest: () -> Unit,
     onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -803,10 +1001,9 @@ private fun DownloadQueueCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Thumbnail with media-type badge
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(48.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                     contentAlignment = Alignment.Center
@@ -852,7 +1049,6 @@ private fun DownloadQueueCard(
                     }
                 }
 
-                // Target username, shortcode, stage & engine
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -874,6 +1070,8 @@ private fun DownloadQueueCard(
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = accentColor,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(accentColor.copy(alpha = 0.13f))
@@ -891,7 +1089,6 @@ private fun DownloadQueueCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Bytes + Speed + ETA telemetry line
                     val telemetryParts = buildList {
                         if (item.downloadedBytes > 0L) {
                             if (item.totalBytes > 0L) {
@@ -909,30 +1106,19 @@ private fun DownloadQueueCard(
                             add("ETA ${DownloadTelemetryFormatter.formatEta(item.etaSeconds)}")
                         }
                     }
-                    if (telemetryParts.isNotEmpty()) {
-                        Text(
-                            text = telemetryParts.joinToString(" · "),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else {
-                        Text(
-                            text = item.postId,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Text(
+                        text = if (telemetryParts.isNotEmpty()) telemetryParts.joinToString(" · ") else item.postId,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (telemetryParts.isNotEmpty()) 1f else 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
-                // Fixed-width per-item action controls (Pause/Resume/Retry + Cancel/Dismiss)
+                // Fixed-width per-item action controls (2 clean 32dp circular buttons, never overflows)
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     when {
@@ -974,30 +1160,22 @@ private fun DownloadQueueCard(
                             QueueActionIcon(
                                 icon = Icons.Default.DeleteOutline,
                                 contentDescription = stringResource(R.string.dl_action_remove),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                onClick = onDismissItem
+                                tint = StatusRed,
+                                onClick = onDeleteRequest
                             )
                         }
                         else -> {
                             QueueActionIcon(
-                                icon = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = StatusGreen,
-                                enabled = false,
-                                onClick = {}
-                            )
-                            QueueActionIcon(
-                                icon = Icons.Default.Close,
+                                icon = Icons.Default.DeleteOutline,
                                 contentDescription = stringResource(R.string.dl_action_remove),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                onClick = onDismissItem
+                                tint = StatusRed,
+                                onClick = onDeleteRequest
                             )
                         }
                     }
                 }
             }
 
-            // Smooth animated progress bar with travelling sheen while downloading
             if (state.isActive || state.isPaused || state is PostDownloadState.Completed) {
                 Box(
                     modifier = Modifier
@@ -1049,7 +1227,7 @@ private fun QueueActionIcon(
 ) {
     Surface(
         shape = CircleShape,
-        color = tint.copy(alpha = 0.12f),
+        color = tint.copy(alpha = 0.13f),
         modifier = Modifier
             .size(32.dp)
             .clip(CircleShape)
@@ -1080,7 +1258,9 @@ private fun QueueFilterChip(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
             )
         },
         colors = FilterChipDefaults.filterChipColors(
