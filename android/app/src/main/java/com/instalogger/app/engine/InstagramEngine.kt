@@ -93,6 +93,8 @@ class InstagramEngine(context: Context? = null) {
     private var cachedGuestCookies: String? = null
     @Volatile
     private var guestCookiesFetchedAt: Long = 0L
+    @Volatile
+    private var reelsMediaApiCooldownUntilMs: Long = 0L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -1064,7 +1066,11 @@ class InstagramEngine(context: Context? = null) {
                             if (body.startsWith("{")) {
                                 val root = gson.fromJson(body, JsonObject::class.java)
                                 val tray = root?.getAsJsonArray("tray")
-                                if (tray != null && tray.size() > 0) {
+                                if (tray != null) {
+                                    if (tray.size() == 0) {
+                                        AppLogger.d(TAG, "v1 highlights_tray confirmed 0 highlights for user $userId")
+                                        return emptyList()
+                                    }
                                     val results = mutableListOf<InstagramHighlight>()
                                     for (el in tray) {
                                         val obj = el.asJsonObject ?: continue
@@ -1223,47 +1229,59 @@ class InstagramEngine(context: Context? = null) {
         AppLogger.i(TAG, "fetchHighlightStories($highlightId) start (hasSession=$hasSession)")
 
         // Tier 1: Mobile Private API (i.instagram.com) + Web v1 REST reels_media
-        val encodedReelId = URLEncoder.encode(reelKey, "UTF-8")
-        val referer = "https://www.instagram.com/stories/highlights/$numericId/"
-        val v1Candidates = if (hasSession) {
-            listOf(
-                "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to IG_ANDROID_APP_UA,
-                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to DESKTOP_CHROME_UA,
-                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to WEBVIEW_MOBILE_UA
-            )
-        } else {
-            listOf("https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to DESKTOP_CHROME_UA)
-        }
+        // Adaptive circuit breaker: if Instagram returns HTTP 500 or empty reels:{}, skip directly to WebView for 30m
+        val nowMs = System.currentTimeMillis()
+        val tryRestTier1 = !hasSession || headlessScraper == null || nowMs >= reelsMediaApiCooldownUntilMs
+        if (tryRestTier1) {
+            val encodedReelId = URLEncoder.encode(reelKey, "UTF-8")
+            val referer = "https://www.instagram.com/stories/highlights/$numericId/"
+            val v1Candidates = if (hasSession) {
+                listOf(
+                    "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to IG_ANDROID_APP_UA,
+                    "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to DESKTOP_CHROME_UA
+                )
+            } else {
+                listOf("https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedReelId" to DESKTOP_CHROME_UA)
+            }
 
-        for ((v1Url, ua) in v1Candidates) {
-            try {
-                val reqBuilder = Request.Builder().url(v1Url)
-                if (hasSession) {
-                    applyAuthenticatedApiHeaders(reqBuilder, cookieString!!, referer, ua)
-                } else {
-                    reqBuilder
-                        .header("User-Agent", ua)
-                        .header("X-IG-App-ID", APP_ID)
-                        .header("X-Requested-With", "XMLHttpRequest")
-                        .header("Referer", referer)
-                        .header("Accept", "*/*")
-                }
-
-                clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
-                    val body = resp.body?.string().orEmpty()
-                    if (resp.isSuccessful && body.trimStart().startsWith("{")) {
-                        val parsed = parseReelsMediaJson(body, highlightId, reelKey)
-                        if (parsed.isNotEmpty()) {
-                            AppLogger.i(TAG, "fetchHighlightStories($highlightId) Tier1 OK (${parsed.size} items via ${v1Url.substringBefore("?")})")
-                            return parsed
-                        }
-                        AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 HTTP 200 but 0 items: ${body.take(140)}")
+            var sawApiBroken = false
+            for ((v1Url, ua) in v1Candidates) {
+                try {
+                    val reqBuilder = Request.Builder().url(v1Url)
+                    if (hasSession) {
+                        applyAuthenticatedApiHeaders(reqBuilder, cookieString!!, referer, ua)
                     } else {
-                        AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 HTTP ${resp.code} (${v1Url.substringBefore("?")}) body=${body.take(120)}")
+                        reqBuilder
+                            .header("User-Agent", ua)
+                            .header("X-IG-App-ID", APP_ID)
+                            .header("X-Requested-With", "XMLHttpRequest")
+                            .header("Referer", referer)
+                            .header("Accept", "*/*")
                     }
+
+                    clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                        val body = resp.body?.string().orEmpty()
+                        if (resp.isSuccessful && body.trimStart().startsWith("{")) {
+                            val parsed = parseReelsMediaJson(body, highlightId, reelKey)
+                            if (parsed.isNotEmpty()) {
+                                reelsMediaApiCooldownUntilMs = 0L
+                                AppLogger.i(TAG, "fetchHighlightStories($highlightId) Tier1 OK (${parsed.size} items via ${v1Url.substringBefore("?")})")
+                                return parsed
+                            }
+                            sawApiBroken = true
+                            AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 HTTP 200 but 0 items: ${body.take(140)}")
+                        } else {
+                            if (resp.code >= 500) sawApiBroken = true
+                            AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 HTTP ${resp.code} (${v1Url.substringBefore("?")}) body=${body.take(120)}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 error: ${e.message}")
                 }
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "fetchHighlightStories($highlightId) Tier1 error: ${e.message}")
+            }
+            if (sawApiBroken && hasSession && headlessScraper != null) {
+                reelsMediaApiCooldownUntilMs = System.currentTimeMillis() + 30L * 60L * 1000L
+                AppLogger.i(TAG, "reels_media REST returned 500/empty — routing directly to WebView interceptor for 30m")
             }
         }
 
@@ -1488,8 +1506,9 @@ class InstagramEngine(context: Context? = null) {
 
         AppLogger.i(TAG, "fetchActiveUserStories(@$cleanUser, uid=$resolvedUserId) start (hasSession=$hasSession)")
 
-        // Tier 1A & 1B: Mobile API (i.instagram.com) + Web v1 REST endpoints
-        if (!resolvedUserId.isNullOrBlank() && hasSession) {
+        // Tier 1A & 1B: Mobile API (i.instagram.com) + Web v1 REST endpoints (respects reels_media cooldown)
+        val tryStoryRest = headlessScraper == null || System.currentTimeMillis() >= reelsMediaApiCooldownUntilMs
+        if (!resolvedUserId.isNullOrBlank() && hasSession && tryStoryRest) {
             val encodedId = URLEncoder.encode(resolvedUserId, "UTF-8")
             val storyCandidates = listOf(
                 "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$encodedId" to IG_ANDROID_APP_UA,

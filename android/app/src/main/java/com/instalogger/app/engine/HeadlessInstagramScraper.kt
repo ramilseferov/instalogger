@@ -22,7 +22,9 @@ import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -44,13 +46,15 @@ class HeadlessInstagramScraper(context: Context) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
-    private val scrapeMutex = Mutex()
+    // Separate pools so post pagination never waits behind highlight scraping, and 2 highlights run in parallel
+    private val postScrapeMutex = Mutex()
+    private val storySemaphore = Semaphore(2)
 
     suspend fun scrapePublicPosts(username: String, limit: Int = 24): HeadlessScrapeResult {
         val cleanUser = username.trim().trimStart('@').lowercase()
         if (cleanUser.isBlank()) return HeadlessScrapeResult.Failed("Empty username")
 
-        return scrapeMutex.withLock {
+        return postScrapeMutex.withLock {
             withTimeoutOrNull(TOTAL_TIMEOUT_MS) {
                 scrapeOnce(cleanUser, limit)
             } ?: HeadlessScrapeResult.Failed("Headless WebView timeout")
@@ -267,7 +271,7 @@ class HeadlessInstagramScraper(context: Context) {
         cookieString: String?
     ): List<InstagramHighlightItem> {
         AppLogger.i(TAG, "WebView story/highlight intercept start: $targetUrl (id=$highlightId)")
-        return scrapeMutex.withLock {
+        return storySemaphore.withPermit {
             withTimeoutOrNull(STORY_TIMEOUT_MS) {
                 scrapeStoriesOnce(targetUrl, highlightId, cookieString)
             } ?: run {
@@ -350,9 +354,9 @@ class HeadlessInstagramScraper(context: Context) {
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     databaseEnabled = true
-                    loadsImagesAutomatically = true
-                    blockNetworkImage = false
-                    mediaPlaybackRequiresUserGesture = false
+                    loadsImagesAutomatically = false // Intercepted via network_json -> skip off-screen image decode for 2x speed
+                    blockNetworkImage = true
+                    mediaPlaybackRequiresUserGesture = true
                     useWideViewPort = true
                     loadWithOverviewMode = true
                     cacheMode = WebSettings.LOAD_DEFAULT
@@ -476,7 +480,7 @@ class HeadlessInstagramScraper(context: Context) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val safeTarget = if (maxPosts <= 0) 1000 else maxPosts.coerceIn(12, 2000)
         AppLogger.i(TAG, "WebView infinite-scroll pagination start: @$cleanUser (targetMax=$safeTarget)")
-        return scrapeMutex.withLock {
+        return postScrapeMutex.withLock {
             withTimeoutOrNull(PAGINATED_TIMEOUT_MS) {
                 scrapePaginatedOnce(cleanUser, safeTarget, cookieString, scrollIntervalMs, onBatch)
             } ?: run {

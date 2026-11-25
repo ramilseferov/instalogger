@@ -64,6 +64,7 @@ class ProfileInspector(
     private val gson = Gson()
     private val inspectionLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private val archiveMutexMap = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private val lastHighlightTrayCheckMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun getSettingsManager(): AppSettingsManager {
         return (context.applicationContext as? InstaLoggerApp)?.settingsManager
@@ -1791,76 +1792,117 @@ class ProfileInspector(
                 val highlightsJob = async {
                     var count = 0
                     try {
-                        val highlights = instagramEngine.fetchUserHighlights(
-                            userId = effectiveTargetId,
-                            cookieString = effectiveCookie,
-                            username = cleanUser,
-                            isPrivate = resolvedPrivate
-                        )
-                        if (highlights.isNotEmpty()) {
-                            count = highlights.size
-                            val highlightDao = database.highlightDao()
-                            val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
-                            archiveDir.mkdirs()
-                            ArchiveDirectoryManager.ensureNoMedia(archiveDir)
-                            val vaultManager = VaultStorageManager.getInstance(context)
+                        val highlightDao = database.highlightDao()
+                        val existingHighlights = highlightDao.getHighlightsListForUser(cleanUser)
+                        val nowMs = System.currentTimeMillis()
+                        val lastTrayAt = lastHighlightTrayCheckMs[cleanUser] ?: 0L
+                        val shouldQueryTray = wasPrivateToPublic ||
+                            forceFullPagination ||
+                            existingHighlights.isEmpty() ||
+                            (nowMs - lastTrayAt >= HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS)
 
-                            // Phase A: Archive covers in parallel into hardware Vault
-                            val coverSem = Semaphore(speedPreset.downloadWorkers.coerceIn(2, 10))
-                            val highlightEntities = highlights.map { hl ->
-                                async {
-                                    coverSem.withPermit {
-                                        var localCover: String? = null
-                                        val safeId = hl.id.replace(":", "_")
-                                        val existingVaultCover = vaultManager.getVaultMediaFile(cleanUser, "highlights", "${safeId}_cover.jpg")
-                                        if (existingVaultCover != null && vaultManager.readEncryptedFile(existingVaultCover) != null) {
-                                            localCover = existingVaultCover.absolutePath
-                                        } else if (!hl.coverUrl.isNullOrBlank()) {
-                                            val tempCover = File(context.cacheDir, "hl_cover_${safeId}_${System.currentTimeMillis()}.jpg")
-                                            try {
-                                                instagramEngine.downloadImage(hl.coverUrl, tempCover)
-                                                val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempCover)
-                                                if (valid != null && !valid.isVideo) {
-                                                    val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", "${safeId}_cover.jpg", tempCover.readBytes())
-                                                    localCover = encCover.absolutePath
+                        val highlightEntities = if (shouldQueryTray) {
+                            lastHighlightTrayCheckMs[cleanUser] = nowMs
+                            val highlights = instagramEngine.fetchUserHighlights(
+                                userId = effectiveTargetId,
+                                cookieString = effectiveCookie,
+                                username = cleanUser,
+                                isPrivate = resolvedPrivate
+                            )
+                            if (highlights.isNotEmpty()) {
+                                count = highlights.size
+                                val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
+                                archiveDir.mkdirs()
+                                ArchiveDirectoryManager.ensureNoMedia(archiveDir)
+                                val vaultManager = VaultStorageManager.getInstance(context)
+
+                                // Phase A: Archive covers in parallel into hardware Vault
+                                val coverSem = Semaphore(speedPreset.downloadWorkers.coerceIn(2, 10))
+                                val mapped = highlights.map { hl ->
+                                    async {
+                                        coverSem.withPermit {
+                                            var localCover: String? = null
+                                            val safeId = hl.id.replace(":", "_")
+                                            val existingVaultCover = vaultManager.getVaultMediaFile(cleanUser, "highlights", "${safeId}_cover.jpg")
+                                            if (existingVaultCover != null && vaultManager.readEncryptedFile(existingVaultCover) != null) {
+                                                localCover = existingVaultCover.absolutePath
+                                            } else if (!hl.coverUrl.isNullOrBlank()) {
+                                                val tempCover = File(context.cacheDir, "hl_cover_${safeId}_${System.currentTimeMillis()}.jpg")
+                                                try {
+                                                    instagramEngine.downloadImage(hl.coverUrl, tempCover)
+                                                    val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempCover)
+                                                    if (valid != null && !valid.isVideo) {
+                                                        val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", "${safeId}_cover.jpg", tempCover.readBytes())
+                                                        localCover = encCover.absolutePath
+                                                    }
+                                                } catch (e: Exception) {
+                                                    AppLogger.w("ProfileInspector", "Highlight cover download error ($safeId): ${e.message}")
+                                                } finally {
+                                                    try { tempCover.delete() } catch (_: Exception) {}
                                                 }
-                                            } catch (e: Exception) {
-                                                AppLogger.w("ProfileInspector", "Highlight cover download error ($safeId): ${e.message}")
-                                            } finally {
-                                                try { tempCover.delete() } catch (_: Exception) {}
                                             }
+
+                                            HighlightEntity(
+                                                id = hl.id,
+                                                username = cleanUser,
+                                                title = hl.title.cleanDisplayText(),
+                                                coverUrl = hl.coverUrl ?: "",
+                                                localCoverPath = localCover,
+                                                mediaCount = hl.mediaCount,
+                                                archivedAt = System.currentTimeMillis()
+                                            )
                                         }
-
-                                        HighlightEntity(
-                                            id = hl.id,
-                                            username = cleanUser,
-                                            title = hl.title.cleanDisplayText(),
-                                            coverUrl = hl.coverUrl ?: "",
-                                            localCoverPath = localCover,
-                                            mediaCount = hl.mediaCount,
-                                            archivedAt = System.currentTimeMillis()
-                                        )
                                     }
-                                }
-                            }.awaitAll()
+                                }.awaitAll()
 
-                            if (highlightEntities.isNotEmpty()) {
-                                highlightDao.insertHighlights(highlightEntities)
+                                if (mapped.isNotEmpty()) {
+                                    highlightDao.insertHighlights(mapped)
+                                }
+                                mapped
+                            } else {
+                                existingHighlights
+                            }
+                        } else {
+                            count = existingHighlights.size
+                            existingHighlights
+                        }
+
+                        if (highlightEntities.isNotEmpty()) {
+                            // Phase B: Archive stories ONLY for highlights that are empty, grew, or have missing Vault files!
+                            val highlightsNeedingArchive = highlightEntities.filter { hlEntity ->
+                                val cachedMedia = highlightDao.getMediaListForHighlight(hlEntity.id)
+                                if (cachedMedia.isEmpty()) return@filter true
+                                val countGrew = hlEntity.mediaCount > 0 && hlEntity.mediaCount > cachedMedia.size
+                                val anyMissingVault = cachedMedia.any { item ->
+                                    item.localPath.startsWith("http") ||
+                                        !File(item.localPath).exists() ||
+                                        File(item.localPath).length() == 0L
+                                }
+                                countGrew || anyMissingVault
                             }
 
-                            // Phase B: Archive stories for highlights in parallel into encrypted Vault
-                            val storySem = Semaphore((speedPreset.downloadWorkers / 2).coerceIn(2, 5))
-                            highlightEntities.map { hlEntity ->
-                                async {
-                                    storySem.withPermit {
-                                        try {
-                                            archiveHighlightStoriesForEntity(hlEntity, effectiveCookie)
-                                        } catch (e: Exception) {
-                                            AppLogger.w("ProfileInspector", "Highlight stories error (${hlEntity.id}): ${e.message}")
+                            val skippedCount = highlightEntities.size - highlightsNeedingArchive.size
+                            if (skippedCount > 0) {
+                                AppLogger.d(
+                                    "ProfileInspector",
+                                    "Highlights @$cleanUser: skipped $skippedCount already-archived, fetching ${highlightsNeedingArchive.size}"
+                                )
+                            }
+
+                            if (highlightsNeedingArchive.isNotEmpty()) {
+                                val storySem = Semaphore((speedPreset.downloadWorkers / 2).coerceIn(2, 5))
+                                highlightsNeedingArchive.map { hlEntity ->
+                                    async {
+                                        storySem.withPermit {
+                                            try {
+                                                archiveHighlightStoriesForEntity(hlEntity, effectiveCookie)
+                                            } catch (e: Exception) {
+                                                AppLogger.w("ProfileInspector", "Highlight stories error (${hlEntity.id}): ${e.message}")
+                                            }
                                         }
                                     }
-                                }
-                            }.awaitAll()
+                                }.awaitAll()
+                            }
                         }
                     } catch (e: Exception) {
                         AppLogger.w("ProfileInspector", "Highlights parallel job failed for @$cleanUser: ${e.message}")
@@ -2199,5 +2241,6 @@ class ProfileInspector(
 
     companion object {
         private const val AVATAR_DHASH_THRESHOLD = 6
+        private const val HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS = 10L * 60L * 1000L
     }
 }
