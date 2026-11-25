@@ -264,7 +264,11 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
                                     composable(Screen.Notifications.route) {
-                                        NotificationCenterScreen()
+                                        NotificationCenterScreen(
+                                            onNavigateToDetail = { username ->
+                                                navController.navigate(Screen.TargetDetail.createRoute(username))
+                                            }
+                                        )
                                     }
                                     composable(Screen.Session.route) {
                                         InstagramSessionScreen()

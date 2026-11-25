@@ -36,7 +36,7 @@ import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.AddTargetDialog
 import com.instalogger.app.ui.components.HeaderActionButton
 import com.instalogger.app.ui.components.ReachabilityHeader
-import com.instalogger.app.ui.components.RotatingRefreshButton
+import com.instalogger.app.ui.components.RotatingRefreshIcon
 import com.instalogger.app.ui.components.SkeletonTargetCard
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.components.TargetCard
@@ -45,7 +45,12 @@ import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,22 +112,28 @@ fun DashboardScreen(
             withContext(Dispatchers.IO) {
                 app.profileInspector.syncAllFromDaemon()
                 val activeTargets = app.database.targetDao().getActiveTargets().filter { !app.profileInspector.isTargetDeleted(it.username) }
-                for (t in activeTargets) {
-                    try {
-                        val result = app.profileInspector.inspectTarget(t.username)
-                        if (result.isSuccess) {
-                            okCount++
-                            app.profileInspector.inspectHighlightsAndPosts(t.username)
-                            val updated = result.getOrThrow()
-                            val preservedTurbo = targets.find { it.username.equals(t.username, ignoreCase = true) }?.isTurbo ?: updated.isTurbo
-                            targets = targets.map { if (it.username.equals(t.username, ignoreCase = true)) updated.copy(isTurbo = preservedTurbo) else it }
-                        } else {
-                            failCount++
+                val sem = Semaphore(app.settingsManager.archiverSpeedPreset.value.targetWorkers.coerceIn(2, 4))
+                val results = coroutineScope {
+                    activeTargets.map { t ->
+                        async {
+                            sem.withPermit {
+                                try {
+                                    val result = app.profileInspector.inspectTarget(t.username)
+                                    if (result.isSuccess) {
+                                        app.profileInspector.inspectHighlightsAndPosts(t.username)
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } catch (_: Exception) {
+                                    false
+                                }
+                            }
                         }
-                    } catch (e: Exception) {
-                        failCount++
-                    }
+                    }.awaitAll()
                 }
+                okCount = results.count { it }
+                failCount = results.count { !it }
             }
             isGlobalRefreshing = false
             val summaryMsg = when {
@@ -152,10 +163,13 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
-                    HeaderActionButton(onClick = { refreshAllTargets() }) {
-                        RotatingRefreshButton(
+                    HeaderActionButton(
+                        enabled = !isGlobalRefreshing,
+                        onClick = { refreshAllTargets() }
+                    ) {
+                        RotatingRefreshIcon(
                             isRefreshing = isGlobalRefreshing,
-                            onClick = { refreshAllTargets() }
+                            iconSize = 20.dp
                         )
                     }
                     HeaderActionButton(onClick = { showAddDialog = true }) {
@@ -315,7 +329,7 @@ fun DashboardScreen(
                                 app.database.targetDao().insertTarget(placeholder)
                             }
                             targets = listOf(placeholder) + targets.filter { !it.username.equals(cleanUser, ignoreCase = true) }
-                            snackbarHostState.showSnackbar(context.getString(R.string.msg_target_added, cleanUser))
+                            snackbarHostState.showSnackbar(context.getString(R.string.msg_target_added_pending, cleanUser))
                         }
                     } finally {
                         pendingTargets.remove(cleanUser)

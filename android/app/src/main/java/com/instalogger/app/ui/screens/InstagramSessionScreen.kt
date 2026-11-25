@@ -69,7 +69,7 @@ fun InstagramSessionScreen() {
             while (!hasSession) {
                 kotlinx.coroutines.delay(1500)
                 try {
-                    val cookies = CookieManager.getInstance().getCookie("https://www.instagram.com")
+                    val cookies = captureMergedInstagramCookies()
                     if (cookies != null && cookies.contains("sessionid=")) {
                         app.sessionManager.saveCookieString(cookies)
                         hasSession = true
@@ -384,20 +384,19 @@ fun InstagramSessionScreen() {
                                         Text(stringResource(R.string.btn_save_cookie))
                                     }
 
-                                    if (hasSession) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                app.sessionManager.clearSession()
-                                                hasSession = false
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar(clearedMsg)
-                                                }
-                                            },
-                                            shape = ShapeTokens.SmallShape,
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                        ) {
-                                            Text(stringResource(R.string.btn_clear_session))
-                                        }
+                                    OutlinedButton(
+                                        onClick = {
+                                            app.sessionManager.clearSession()
+                                            hasSession = false
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar(clearedMsg)
+                                            }
+                                        },
+                                        enabled = hasSession,
+                                        shape = ShapeTokens.SmallShape,
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Text(stringResource(R.string.btn_clear_session))
                                     }
                                 }
                             }

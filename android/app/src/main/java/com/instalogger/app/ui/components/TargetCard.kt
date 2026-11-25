@@ -118,16 +118,20 @@ fun TargetCard(
                         )
                     )
 
+                    // Fixed 60dp avatar container so toggling active story ring NEVER shifts username/badges!
                     Box(
-                        modifier = if (target.hasActiveStory) {
-                            Modifier
-                                .size(60.dp)
-                                .clip(CircleShape)
-                                .border(2.5.dp, activeStoryBrush, CircleShape)
-                                .padding(3.dp)
-                        } else {
-                            Modifier.size(54.dp)
-                        },
+                        modifier = Modifier
+                            .size(60.dp)
+                            .clip(CircleShape)
+                            .then(
+                                if (target.hasActiveStory) {
+                                    Modifier
+                                        .border(2.5.dp, activeStoryBrush, CircleShape)
+                                        .padding(3.dp)
+                                } else {
+                                    Modifier.padding(3.dp)
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         SubcomposeAsyncImage(
@@ -273,11 +277,14 @@ fun TargetCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val actionButtonShape = ShapeTokens.SmallShape
 
-                    // Refresh Button Pod (with 44dp min touch bounds)
+                    // Refresh Button Pod (single clean clickable surface, no nested IconButton double-fire)
                     Box(
                         modifier = Modifier
                             .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
-                            .bouncyClickable(pressScale = 0.90f, onClick = onCheckNow),
+                            .then(
+                                if (!isChecking) Modifier.bouncyClickable(pressScale = 0.90f, onClick = onCheckNow)
+                                else Modifier
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -288,10 +295,9 @@ fun TargetCard(
                                 .border(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant, actionButtonShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            RotatingRefreshButton(
+                            RotatingRefreshIcon(
                                 isRefreshing = isChecking,
-                                onClick = onCheckNow,
-                                modifier = Modifier.size(38.dp)
+                                iconSize = 19.dp
                             )
                         }
                     }

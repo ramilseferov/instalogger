@@ -18,6 +18,39 @@ import androidx.compose.ui.unit.dp
 import com.instalogger.app.R
 
 @Composable
+fun RotatingRefreshIcon(
+    isRefreshing: Boolean,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 20.dp,
+    tint: Color = MaterialTheme.colorScheme.primary
+) {
+    val angle = if (isRefreshing) {
+        val infiniteTransition = rememberInfiniteTransition(label = "refresh_rotation")
+        val animated by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 800, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "angle"
+        )
+        animated
+    } else {
+        0f
+    }
+
+    Icon(
+        imageVector = Icons.Default.Refresh,
+        contentDescription = stringResource(R.string.btn_refresh),
+        tint = if (isRefreshing) tint.copy(alpha = 0.72f) else tint,
+        modifier = modifier
+            .size(iconSize)
+            .rotate(angle)
+    )
+}
+
+@Composable
 fun RotatingRefreshButton(
     isRefreshing: Boolean,
     onClick: () -> Unit,
@@ -25,17 +58,6 @@ fun RotatingRefreshButton(
     iconSize: Dp = 20.dp,
     tint: Color = MaterialTheme.colorScheme.primary
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "refresh_rotation")
-    val angle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "angle"
-    )
-
     IconButton(
         onClick = {
             if (!isRefreshing) {
@@ -45,13 +67,10 @@ fun RotatingRefreshButton(
         enabled = !isRefreshing,
         modifier = modifier
     ) {
-        Icon(
-            imageVector = Icons.Default.Refresh,
-            contentDescription = stringResource(R.string.btn_refresh),
-            tint = if (isRefreshing) tint.copy(alpha = 0.7f) else tint,
-            modifier = Modifier
-                .size(iconSize)
-                .rotate(if (isRefreshing) angle else 0f)
+        RotatingRefreshIcon(
+            isRefreshing = isRefreshing,
+            iconSize = iconSize,
+            tint = tint
         )
     }
 }
