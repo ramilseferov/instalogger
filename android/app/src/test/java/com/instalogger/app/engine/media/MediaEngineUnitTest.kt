@@ -283,4 +283,27 @@ class MediaEngineUnitTest {
         assertEquals(balanced, fallback)
         assertTrue(turbo.pageDelayMs < fast.pageDelayMs && fast.pageDelayMs < balanced.pageDelayMs && balanced.pageDelayMs < eco.pageDelayMs)
     }
+
+    @Test
+    fun downloadTelemetryFormatter_parsesYtDlpSpeedAndFormatsUnits() {
+        val parsed = DownloadTelemetryFormatter.parseYtDlpLine(
+            "[download]  50.0% of ~10.00MiB at  2.50MiB/s ETA 00:02",
+            50.0f
+        )
+        assertEquals(10L * 1024L * 1024L, parsed.totalBytes)
+        assertEquals(5L * 1024L * 1024L, parsed.downloadedBytes)
+        assertEquals((2.5 * 1024 * 1024).toLong(), parsed.speedBytesPerSec)
+        assertEquals("2.50 MiB/s", parsed.detail)
+
+        assertEquals("512 B", DownloadTelemetryFormatter.formatBytes(512L))
+        assertEquals("2.50 MB", DownloadTelemetryFormatter.formatBytes((2.5 * 1024 * 1024).toLong()))
+        assertEquals("2.50 MB/s", DownloadTelemetryFormatter.formatSpeed((2.5 * 1024 * 1024).toLong()))
+        assertEquals("1m 15s", DownloadTelemetryFormatter.formatEta(75L))
+
+        assertTrue(PostDownloadState.Paused.isPaused)
+        assertFalse(PostDownloadState.Paused.isActive)
+        assertFalse(PostDownloadState.Paused.isTerminal)
+        assertTrue(PostDownloadState.Completed("yt-dlp").isTerminal)
+        assertTrue(PostDownloadState.Downloading(42f).isActive)
+    }
 }

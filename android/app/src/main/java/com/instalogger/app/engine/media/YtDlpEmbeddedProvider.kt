@@ -167,11 +167,16 @@ class YtDlpEmbeddedProvider(
                                 onProgress(PostDownloadState.Merging)
                             }
                             progress >= 0f -> {
+                                val pct = progress.coerceIn(0f, 100f)
+                                val telemetry = DownloadTelemetryFormatter.parseYtDlpLine(cleanLine, pct)
                                 onProgress(
                                     PostDownloadState.Downloading(
-                                        progress = progress.coerceIn(0f, 100f),
+                                        progress = pct,
                                         etaSeconds = etaInSeconds,
-                                        detail = extractSpeedDetail(cleanLine)
+                                        detail = telemetry.detail ?: extractSpeedDetail(cleanLine),
+                                        downloadedBytes = telemetry.downloadedBytes,
+                                        totalBytes = telemetry.totalBytes,
+                                        speedBytesPerSec = telemetry.speedBytesPerSec
                                     )
                                 )
                             }

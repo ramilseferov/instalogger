@@ -2160,7 +2160,7 @@ class ProfileInspector(
                                 instagramEngine.downloadMedia(story.mediaUrl, tempMedia)
                                 val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempMedia)
                                 if (valid != null) {
-                                    val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, tempMedia.readBytes())
+                                    val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, tempMedia)
                                     localPath = encMedia.absolutePath
                                     resolvedMediaType = if (valid.isVideo) "video" else "image"
                                 }
@@ -2250,7 +2250,7 @@ class ProfileInspector(
                         instagramEngine.downloadMedia(story.mediaUrl, tempMedia)
                         val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempMedia)
                         if (valid != null) {
-                            localPath = vaultManager.saveEncryptedFile(cleanUser, "stories", fileName, tempMedia.readBytes()).absolutePath
+                            localPath = vaultManager.saveEncryptedFile(cleanUser, "stories", fileName, tempMedia).absolutePath
                             resolvedMediaType = if (valid.isVideo) "video" else "image"
                         }
                     } catch (e: Exception) {

@@ -1121,7 +1121,12 @@ class InstagramEngine(context: Context? = null) {
         return list
     }
 
-    fun downloadMedia(url: String, destFile: File): Long {
+    fun downloadMedia(
+        url: String,
+        destFile: File,
+        isCancelled: () -> Boolean = { false },
+        onByteProgress: (downloadedBytes: Long, totalBytes: Long, speedBytesPerSec: Long, etaSeconds: Long) -> Unit = { _, _, _, _ -> }
+    ): Long {
         destFile.parentFile?.mkdirs()
         val request = Request.Builder()
             .url(url)
@@ -1133,9 +1138,47 @@ class InstagramEngine(context: Context? = null) {
         clientWithRedirects.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return 0L
             val body = response.body ?: return 0L
-            val bytes = body.bytes()
-            FileOutputStream(destFile).use { it.write(bytes) }
-            return bytes.size.toLong()
+            val totalBytes = body.contentLength()
+            val buffer = ByteArray(16 * 1024)
+            var downloaded = 0L
+            val startMs = System.currentTimeMillis()
+            var lastReportMs = startMs
+            var lastWindowBytes = 0L
+
+            body.byteStream().use { input ->
+                FileOutputStream(destFile).use { output ->
+                    while (true) {
+                        if (isCancelled()) {
+                            return -1L
+                        }
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        downloaded += read
+
+                        val now = System.currentTimeMillis()
+                        val deltaMs = now - lastReportMs
+                        if (deltaMs >= 120L) {
+                            val windowBytes = downloaded - lastWindowBytes
+                            val instantSpeed = if (deltaMs > 0L) (windowBytes * 1000L) / deltaMs else 0L
+                            val avgElapsed = (now - startMs).coerceAtLeast(1L)
+                            val avgSpeed = (downloaded * 1000L) / avgElapsed
+                            val smoothedSpeed = if (instantSpeed > 0L) (instantSpeed * 7L + avgSpeed * 3L) / 10L else avgSpeed
+                            val etaSec = if (totalBytes > downloaded && smoothedSpeed > 0L) {
+                                ((totalBytes - downloaded) / smoothedSpeed).coerceAtLeast(0L)
+                            } else -1L
+                            onByteProgress(downloaded, totalBytes, smoothedSpeed, etaSec)
+                            lastReportMs = now
+                            lastWindowBytes = downloaded
+                        }
+                    }
+                    output.flush()
+                }
+            }
+            val elapsedMs = (System.currentTimeMillis() - startMs).coerceAtLeast(1L)
+            val finalSpeed = (downloaded * 1000L) / elapsedMs
+            onByteProgress(downloaded, if (totalBytes > 0L) totalBytes else downloaded, finalSpeed, 0L)
+            return downloaded
         }
     }
 

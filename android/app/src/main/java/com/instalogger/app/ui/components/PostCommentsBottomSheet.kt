@@ -29,8 +29,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -748,47 +751,45 @@ private fun CommentThreadCard(
                 }
             }
 
-            // Nested Tree Replies with Left Vertical Thread Guide Line
+            // Nested Tree Replies with Left Vertical Thread Guide Line (drawBehind avoids IntrinsicSize Subcompose issues)
             AnimatedVisibility(
                 visible = isExpanded && node.replies.isNotEmpty(),
                 enter = expandVertically() + fadeIn(),
                 exit = shrinkVertically() + fadeOut()
             ) {
-                Row(
+                val guideColor = AccentBlue.copy(alpha = 0.38f)
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 10.dp, start = 8.dp)
-                        .height(IntrinsicSize.Min)
+                        .drawBehind {
+                            val strokePx = 2.dp.toPx()
+                            drawLine(
+                                color = guideColor,
+                                start = Offset(strokePx / 2f, 2.dp.toPx()),
+                                end = Offset(strokePx / 2f, size.height - 2.dp.toPx()),
+                                strokeWidth = strokePx,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                        .padding(start = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Tree vertical guide line
-                    Box(
-                        modifier = Modifier
-                            .width(2.dp)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(AccentBlue.copy(alpha = 0.35f))
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        node.replies.forEach { reply ->
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f))
-                                    .padding(10.dp)
-                            ) {
-                                CommentRowContent(
-                                    comment = reply,
-                                    searchQuery = searchQuery,
-                                    isReply = true,
-                                    onAuthorClick = onAuthorClick,
-                                    onCopyText = onCopyText
-                                )
-                            }
+                    node.replies.forEach { reply ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f))
+                                .padding(10.dp)
+                        ) {
+                            CommentRowContent(
+                                comment = reply,
+                                searchQuery = searchQuery,
+                                isReply = true,
+                                onAuthorClick = onAuthorClick,
+                                onCopyText = onCopyText
+                            )
                         }
                     }
                 }

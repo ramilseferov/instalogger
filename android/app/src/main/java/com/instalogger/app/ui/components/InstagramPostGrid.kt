@@ -749,6 +749,7 @@ private fun DownloadStatusStrip(
         }
         is PostDownloadState.Merging -> stringResource(R.string.download_stage_merging)
         is PostDownloadState.Encrypting -> stringResource(R.string.download_stage_encrypting)
+        is PostDownloadState.Paused -> stringResource(R.string.download_stage_paused)
         is PostDownloadState.Completed -> stringResource(R.string.download_stage_completed, state.providerId)
         is PostDownloadState.Cancelled -> stringResource(R.string.download_stage_cancelled)
         is PostDownloadState.Failed -> stringResource(R.string.download_stage_failed, state.message)
@@ -758,6 +759,7 @@ private fun DownloadStatusStrip(
     val accent = when (state) {
         is PostDownloadState.Completed -> StatusGreen
         is PostDownloadState.Failed -> StatusRed
+        is PostDownloadState.Paused -> com.instalogger.app.ui.theme.StatusAmber
         is PostDownloadState.Cancelled -> Color.Gray
         else -> AccentBlue
     }

@@ -30,9 +30,7 @@ object VaultPlaybackBridge {
         val outFile = File(tempDir, finalName)
 
         val ok = if (vault.isVaultFile(sourceFile)) {
-            val decrypted = vault.readEncryptedFile(sourceFile) ?: return null
-            FileOutputStream(outFile).use { it.write(decrypted) }
-            true
+            vault.decryptFileToFile(sourceFile, outFile)
         } else {
             sourceFile.copyTo(outFile, overwrite = true)
             true

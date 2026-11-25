@@ -54,9 +54,21 @@ class MediaDownloadOrchestrator(
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val activeProcessIds = ConcurrentHashMap<String, String>()
     private val activeProviderMap = ConcurrentHashMap<String, InstagramMediaProvider>()
+    private val pausedPostIds = ConcurrentHashMap.newKeySet<String>()
+    private val itemSpecs = ConcurrentHashMap<String, Pair<PostEntity, List<CarouselSlideHint>>>()
+    private val queueMap = ConcurrentHashMap<String, DownloadQueueItem>()
 
     private val _downloadStates = MutableStateFlow<Map<String, PostDownloadState>>(emptyMap())
     val downloadStates: StateFlow<Map<String, PostDownloadState>> = _downloadStates.asStateFlow()
+
+    private val _queueItems = MutableStateFlow<List<DownloadQueueItem>>(emptyList())
+    val queueItems: StateFlow<List<DownloadQueueItem>> = _queueItems.asStateFlow()
+
+    private val _isQueuePaused = MutableStateFlow(false)
+    val isQueuePaused: StateFlow<Boolean> = _isQueuePaused.asStateFlow()
+
+    private val _totalSpeedBytesPerSec = MutableStateFlow(0L)
+    val totalSpeedBytesPerSec: StateFlow<Long> = _totalSpeedBytesPerSec.asStateFlow()
 
     private val _activeDownloadCount = MutableStateFlow(0)
     val activeDownloadCount: StateFlow<Int> = _activeDownloadCount.asStateFlow()
@@ -64,8 +76,11 @@ class MediaDownloadOrchestrator(
     private val _queuedDownloadCount = MutableStateFlow(0)
     val queuedDownloadCount: StateFlow<Int> = _queuedDownloadCount.asStateFlow()
 
-    private suspend fun <T> withDynamicSlot(block: suspend () -> T): T {
+    private suspend fun <T> withDynamicSlot(postId: String, block: suspend () -> T): T {
         while (true) {
+            if (_isQueuePaused.value || pausedPostIds.contains(postId)) {
+                throw PausedSignalException()
+            }
             val maxWorkers = settingsManager.archiverSpeedPreset.value.downloadWorkers.coerceIn(1, 12)
             var acquired = false
             synchronized(activeSlotLock) {
@@ -86,6 +101,8 @@ class MediaDownloadOrchestrator(
             delay(120L)
         }
     }
+
+    private class PausedSignalException : CancellationException("Download paused by user")
 
     /**
      * Resumes any unarchived/pending/failed posts in Room DB for a given user.
@@ -153,9 +170,35 @@ class MediaDownloadOrchestrator(
         forceRedownload: Boolean = false
     ) {
         val postId = post.id
+        itemSpecs[postId] = post to slideHints
+        val existingItem = queueMap[postId]
+        val now = System.currentTimeMillis()
+        queueMap[postId] = DownloadQueueItem(
+            postId = postId,
+            username = post.username,
+            mediaType = post.mediaType.ifBlank { if (post.isVideo) "video" else "image" },
+            thumbnailUrl = post.localThumbPath?.takeIf { File(it).exists() } ?: post.displayUrl,
+            slideCount = post.slideCount.coerceAtLeast(1),
+            state = if (!userInitiated && _isQueuePaused.value) PostDownloadState.Paused else PostDownloadState.Queued,
+            providerName = existingItem?.providerName,
+            enqueuedAt = existingItem?.enqueuedAt ?: now,
+            updatedAt = now
+        )
+
+        if (userInitiated) {
+            pausedPostIds.remove(postId)
+            if (_isQueuePaused.value) {
+                _isQueuePaused.value = false
+            }
+        } else if (_isQueuePaused.value || pausedPostIds.contains(postId)) {
+            pausedPostIds.add(postId)
+            updateState(postId, PostDownloadState.Paused)
+            return
+        }
+
         if (activeJobs[postId]?.isActive == true) {
             if (!forceRedownload) return
-            cancelDownload(postId)
+            cancelActiveProcessOnly(postId)
         }
 
         updateState(postId, PostDownloadState.Queued)
@@ -167,7 +210,7 @@ class MediaDownloadOrchestrator(
             val stagingDir = File(appContext.cacheDir, "ytdlp_staging/$processId")
 
             try {
-                withDynamicSlot {
+                withDynamicSlot(postId) {
                     executeJob(
                         post = post,
                         slideHints = slideHints,
@@ -176,12 +219,23 @@ class MediaDownloadOrchestrator(
                         userInitiated = userInitiated
                     )
                 }
+            } catch (_: PausedSignalException) {
+                updateState(postId, PostDownloadState.Paused)
             } catch (_: CancellationException) {
-                updateState(postId, PostDownloadState.Cancelled)
-            } catch (e: Exception) {
-                val safeMsg = LogSanitizer.redact(e.message ?: "Download error")
-                AppLogger.e(TAG, "Orchestrator error for $postId: $safeMsg")
-                updateState(postId, PostDownloadState.Failed(safeMsg))
+                if (pausedPostIds.contains(postId) || _isQueuePaused.value) {
+                    updateState(postId, PostDownloadState.Paused)
+                } else {
+                    updateState(postId, PostDownloadState.Cancelled)
+                }
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
+                if (pausedPostIds.contains(postId) || _isQueuePaused.value) {
+                    updateState(postId, PostDownloadState.Paused)
+                } else {
+                    val safeMsg = LogSanitizer.redact(e.message ?: e::class.java.simpleName)
+                    AppLogger.e(TAG, "Orchestrator error for $postId: $safeMsg")
+                    updateState(postId, PostDownloadState.Failed(safeMsg))
+                }
             } finally {
                 activeProviderMap.remove(postId)
                 activeProcessIds.remove(postId)
@@ -198,7 +252,7 @@ class MediaDownloadOrchestrator(
         _queuedDownloadCount.value = activeJobs.size
     }
 
-    fun cancelDownload(postId: String) {
+    private fun cancelActiveProcessOnly(postId: String) {
         val processId = activeProcessIds[postId]
         val provider = activeProviderMap[postId]
         if (processId != null) {
@@ -209,12 +263,105 @@ class MediaDownloadOrchestrator(
         }
         activeJobs[postId]?.cancel()
         activeJobs.remove(postId)
+    }
+
+    fun pauseDownload(postId: String) {
+        pausedPostIds.add(postId)
+        cancelActiveProcessOnly(postId)
+        updateState(postId, PostDownloadState.Paused)
+        _queuedDownloadCount.value = activeJobs.size
+    }
+
+    fun resumeDownload(postId: String) {
+        pausedPostIds.remove(postId)
+        val spec = itemSpecs[postId]
+        if (spec != null) {
+            enqueuePost(
+                post = spec.first,
+                slideHints = spec.second,
+                userInitiated = true,
+                forceRedownload = true
+            )
+        } else {
+            scope.launch {
+                val post = database.postDao().getPostById(postId) ?: return@launch
+                enqueuePost(post = post, userInitiated = true, forceRedownload = true)
+            }
+        }
+    }
+
+    fun pauseAll() {
+        _isQueuePaused.value = true
+        val idsToPause = (activeJobs.keys + queueMap.values.filter { it.state.isActive }.map { it.postId }).distinct()
+        idsToPause.forEach { postId ->
+            pausedPostIds.add(postId)
+            cancelActiveProcessOnly(postId)
+            updateState(postId, PostDownloadState.Paused)
+        }
+        _queuedDownloadCount.value = activeJobs.size
+        publishQueueSnapshot()
+    }
+
+    fun resumeAll() {
+        _isQueuePaused.value = false
+        val idsToResume = (pausedPostIds.toList() + queueMap.values.filter { it.state is PostDownloadState.Paused }.map { it.postId }).distinct()
+        pausedPostIds.clear()
+        idsToResume.forEach { postId ->
+            val spec = itemSpecs[postId]
+            if (spec != null) {
+                enqueuePost(
+                    post = spec.first,
+                    slideHints = spec.second,
+                    userInitiated = false,
+                    forceRedownload = true
+                )
+            } else {
+                scope.launch {
+                    val post = database.postDao().getPostById(postId) ?: return@launch
+                    enqueuePost(post = post, userInitiated = false, forceRedownload = true)
+                }
+            }
+        }
+        publishQueueSnapshot()
+    }
+
+    fun cancelDownload(postId: String) {
+        pausedPostIds.remove(postId)
+        cancelActiveProcessOnly(postId)
         updateState(postId, PostDownloadState.Cancelled)
+        _queuedDownloadCount.value = activeJobs.size
     }
 
     fun cancelAll() {
-        val ids = activeJobs.keys.toList()
+        _isQueuePaused.value = false
+        val ids = (activeJobs.keys + pausedPostIds + queueMap.values.filter { it.state.isActive || it.state.isPaused }.map { it.postId }).distinct()
+        pausedPostIds.clear()
         ids.forEach { cancelDownload(it) }
+    }
+
+    fun retryDownload(postId: String) {
+        resumeDownload(postId)
+    }
+
+    fun dismissItem(postId: String) {
+        if (activeJobs[postId]?.isActive == true) {
+            cancelDownload(postId)
+        }
+        pausedPostIds.remove(postId)
+        queueMap.remove(postId)
+        itemSpecs.remove(postId)
+        _downloadStates.value = _downloadStates.value - postId
+        publishQueueSnapshot()
+    }
+
+    fun clearFinished() {
+        val terminalIds = queueMap.values.filter { it.state.isTerminal }.map { it.postId }
+        terminalIds.forEach { id ->
+            queueMap.remove(id)
+            itemSpecs.remove(id)
+            _downloadStates.value = _downloadStates.value - id
+        }
+        publishQueueSnapshot()
     }
 
     private suspend fun executeJob(
@@ -270,7 +417,11 @@ class MediaDownloadOrchestrator(
                     lastError = outcome.detail
                 }
                 is ProviderOutcome.Cancelled -> {
-                    updateState(post.id, PostDownloadState.Cancelled)
+                    if (pausedPostIds.contains(post.id) || _isQueuePaused.value) {
+                        updateState(post.id, PostDownloadState.Paused)
+                    } else {
+                        updateState(post.id, PostDownloadState.Cancelled)
+                    }
                     return
                 }
                 is ProviderOutcome.Failure -> {
@@ -345,12 +496,11 @@ class MediaDownloadOrchestrator(
             val vaultPath = if (existingFile != null && existingFile.exists() && existingFile.length() > 0L) {
                 existingFile.absolutePath
             } else {
-                val plainBytes = staged.mediaFile.readBytes()
                 val encFile = vaultStorageManager.saveEncryptedFile(
                     targetUsername = post.username,
                     category = "posts",
                     filename = "${post.id}_${staged.position}.${validated.extension}",
-                    plaintextBytes = plainBytes
+                    sourceFile = staged.mediaFile
                 )
                 encFile.absolutePath
             }
@@ -365,7 +515,7 @@ class MediaDownloadOrchestrator(
                         targetUsername = post.username,
                         category = "posts",
                         filename = "${post.id}_${staged.position}_thumb.${validThumb.extension}",
-                        plaintextBytes = thumbCandidate.readBytes()
+                        sourceFile = thumbCandidate
                     )
                     thumbVaultPath = thumbEnc.absolutePath
                 }
@@ -443,6 +593,85 @@ class MediaDownloadOrchestrator(
 
     private fun updateState(postId: String, state: PostDownloadState) {
         _downloadStates.value = _downloadStates.value + (postId to state)
+        val now = System.currentTimeMillis()
+        val prev = queueMap[postId]
+        val spec = itemSpecs[postId]?.first
+        val providerId = activeProviderMap[postId]?.id
+            ?: (state as? PostDownloadState.Completed)?.providerId
+            ?: prev?.providerName
+
+        val dlState = state as? PostDownloadState.Downloading
+        val updatedItem = (prev ?: DownloadQueueItem(
+            postId = postId,
+            username = spec?.username ?: "",
+            mediaType = spec?.mediaType ?: "image",
+            thumbnailUrl = spec?.displayUrl ?: "",
+            slideCount = spec?.slideCount ?: 1,
+            enqueuedAt = now
+        )).copy(
+            state = state,
+            providerName = providerId,
+            updatedAt = now,
+            downloadedBytes = when {
+                dlState != null && dlState.downloadedBytes > 0L -> dlState.downloadedBytes
+                state is PostDownloadState.Completed && prev != null && prev.totalBytes > 0L -> prev.totalBytes
+                else -> prev?.downloadedBytes ?: 0L
+            },
+            totalBytes = when {
+                dlState != null && dlState.totalBytes > 0L -> dlState.totalBytes
+                else -> prev?.totalBytes ?: -1L
+            },
+            speedBytesPerSec = dlState?.speedBytesPerSec ?: 0L,
+            etaSeconds = dlState?.etaSeconds ?: -1L,
+            progress = when (state) {
+                is PostDownloadState.Downloading -> state.progress.coerceIn(0f, 100f)
+                is PostDownloadState.Merging -> 96f
+                is PostDownloadState.Encrypting -> 98f
+                is PostDownloadState.Completed -> 100f
+                is PostDownloadState.Queued -> 0f
+                else -> prev?.progress ?: 0f
+            },
+            detail = when (state) {
+                is PostDownloadState.Downloading -> state.detail
+                is PostDownloadState.Failed -> state.message
+                is PostDownloadState.Completed -> state.providerId
+                else -> prev?.detail
+            }
+        )
+        queueMap[postId] = updatedItem
+        publishQueueSnapshot()
+    }
+
+    private fun publishQueueSnapshot() {
+        // Prune oldest terminal items beyond 40 so queue stays lean
+        val terminal = queueMap.values.filter { it.state.isTerminal }.sortedByDescending { it.updatedAt }
+        if (terminal.size > 40) {
+            terminal.drop(40).forEach { old ->
+                queueMap.remove(old.postId)
+                itemSpecs.remove(old.postId)
+            }
+        }
+
+        val sorted = queueMap.values.sortedWith(
+            compareBy<DownloadQueueItem> { item ->
+                when (item.state) {
+                    is PostDownloadState.Downloading,
+                    is PostDownloadState.Merging,
+                    is PostDownloadState.Encrypting,
+                    is PostDownloadState.Extracting -> 0
+                    is PostDownloadState.Queued -> 1
+                    is PostDownloadState.Paused -> 2
+                    is PostDownloadState.Failed -> 3
+                    is PostDownloadState.Cancelled -> 4
+                    is PostDownloadState.Completed -> 5
+                    is PostDownloadState.Idle -> 6
+                }
+            }.thenByDescending { it.updatedAt }
+        )
+        _queueItems.value = sorted
+        _totalSpeedBytesPerSec.value = sorted
+            .filter { it.state is PostDownloadState.Downloading }
+            .sumOf { it.speedBytesPerSec }
     }
 
     companion object {

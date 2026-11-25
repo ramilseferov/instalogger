@@ -493,4 +493,26 @@
     <string name="comments_export_copy">Копировать</string>
     <string name="comments_export_saved_toast">Сохранено %1$d комментариев (%2$s)</string>
     <string name="comments_export_copied_toast">Экспорт скопирован в буфер</string>
+    <string name="download_stage_paused">Приостановлено</string>
+    <string name="dl_queue_title">Очередь загрузок</string>
+    <string name="dl_queue_subtitle_format">Активные потоки: %1$d/%2$d · Режим: %3$s</string>
+    <string name="dl_status_queue_paused">Очередь на паузе</string>
+    <string name="dl_status_idle">Нет активных загрузок</string>
+    <string name="dl_telemetry_counts">Активные: %1$d · Пауза: %2$d · Готово: %3$d</string>
+    <string name="dl_action_pause">Пауза</string>
+    <string name="dl_action_resume">Продолжить</string>
+    <string name="dl_action_retry">Повторить</string>
+    <string name="dl_action_remove">Убрать</string>
+    <string name="dl_action_pause_all">Приостановить все</string>
+    <string name="dl_action_resume_all">Продолжить все</string>
+    <string name="dl_action_cancel_all">Отменить все</string>
+    <string name="dl_action_clear_done">Очистить готовые</string>
+    <string name="dl_tab_active">Активные (%1$d)</string>
+    <string name="dl_tab_paused">Пауза (%1$d)</string>
+    <string name="dl_tab_finished">Завершённые (%1$d)</string>
+    <string name="dl_tab_all">Все (%1$d)</string>
+    <string name="dl_queue_empty_title">В этой вкладке нет загрузок</string>
+    <string name="dl_queue_empty_desc">Скорость, прогресс и управление загрузками появятся здесь во время архивации.</string>
+    <string name="dl_cancel_all_title">Отменить все загрузки?</string>
+    <string name="dl_cancel_all_desc">Будет отменено %1$d активных и ожидающих загрузок.</string>
 </resources>

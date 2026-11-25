@@ -112,8 +112,9 @@ class NativeGraphProvider(
                 return@withContext ProviderOutcome.Cancelled
             }
 
-            val pct = ((index.toFloat() / total.coerceAtLeast(1)) * 100f)
-            onProgress(PostDownloadState.Downloading(progress = pct, detail = "${index + 1}/$total"))
+            val basePct = (index.toFloat() / total.coerceAtLeast(1)) * 100f
+            val slideSlice = 100f / total.coerceAtLeast(1)
+            onProgress(PostDownloadState.Downloading(progress = basePct, detail = "${index + 1}/$total"))
 
             val isVideoSlide = slide.mediaType.equals("video", ignoreCase = true) && !slide.videoUrl.isNullOrBlank()
             val primaryUrl = if (isVideoSlide) slide.videoUrl!! else slide.displayUrl
@@ -121,7 +122,32 @@ class NativeGraphProvider(
 
             val ext = if (isVideoSlide) "mp4" else "jpg"
             val targetFile = File(stagingDir, "${request.shortcode}_${index}.$ext")
-            val downloadedBytes = instagramEngine.downloadMedia(primaryUrl, targetFile)
+            val downloadedBytes = instagramEngine.downloadMedia(
+                url = primaryUrl,
+                destFile = targetFile,
+                isCancelled = { cancelledProcesses.contains(request.processId) },
+                onByteProgress = { dlBytes, totBytes, speedBps, etaSec ->
+                    val slideFrac = if (totBytes > 0L) (dlBytes.toFloat() / totBytes.toFloat()).coerceIn(0f, 1f) else 0.5f
+                    val overallPct = (basePct + slideSlice * slideFrac).coerceIn(0f, 100f)
+                    val speedStr = if (speedBps > 0L) DownloadTelemetryFormatter.formatSpeed(speedBps) else null
+                    val detailStr = if (total > 1) {
+                        if (speedStr != null) "${index + 1}/$total · $speedStr" else "${index + 1}/$total"
+                    } else speedStr
+                    onProgress(
+                        PostDownloadState.Downloading(
+                            progress = overallPct,
+                            etaSeconds = etaSec,
+                            detail = detailStr,
+                            downloadedBytes = dlBytes,
+                            totalBytes = totBytes,
+                            speedBytesPerSec = speedBps
+                        )
+                    )
+                }
+            )
+            if (downloadedBytes < 0L || cancelledProcesses.contains(request.processId)) {
+                return@withContext ProviderOutcome.Cancelled
+            }
 
             var thumbFile: File? = null
             if (isVideoSlide && slide.displayUrl.isNotBlank() && MediaUrlGuard.isAllowedMediaUrl(slide.displayUrl)) {

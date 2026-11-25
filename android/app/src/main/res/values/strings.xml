@@ -507,4 +507,26 @@
     <string name="comments_export_copy">Kopyala</string>
     <string name="comments_export_saved_toast">%1$d şərh %2$s formatında saxlanıldı</string>
     <string name="comments_export_copied_toast">İxrac mətni panoya kopyalandı</string>
+    <string name="download_stage_paused">Dayandırıldı</string>
+    <string name="dl_queue_title">Endirmə Növbəsi</string>
+    <string name="dl_queue_subtitle_format">Aktiv axın: %1$d/%2$d · Rejim: %3$s</string>
+    <string name="dl_status_queue_paused">Növbə dayandırılıb</string>
+    <string name="dl_status_idle">Aktiv endirmə yoxdur</string>
+    <string name="dl_telemetry_counts">Aktiv: %1$d · Dayandırılan: %2$d · Tamamlanan: %3$d</string>
+    <string name="dl_action_pause">Dayandır</string>
+    <string name="dl_action_resume">Davam etdir</string>
+    <string name="dl_action_retry">Yenidən cəhd et</string>
+    <string name="dl_action_remove">Siyahıdan sil</string>
+    <string name="dl_action_pause_all">Hamısını dayandır</string>
+    <string name="dl_action_resume_all">Hamısını davam etdir</string>
+    <string name="dl_action_cancel_all">Hamısını ləğv et</string>
+    <string name="dl_action_clear_done">Bitənləri təmizlə</string>
+    <string name="dl_tab_active">Aktiv (%1$d)</string>
+    <string name="dl_tab_paused">Dayandırılan (%1$d)</string>
+    <string name="dl_tab_finished">Bitənlər (%1$d)</string>
+    <string name="dl_tab_all">Hamısı (%1$d)</string>
+    <string name="dl_queue_empty_title">Bu bölmədə endirmə yoxdur</string>
+    <string name="dl_queue_empty_desc">Yeni media yükləndikdə canlı sürət, faiz və idarəetmə burada görünəcək.</string>
+    <string name="dl_cancel_all_title">Bütün endirmələri ləğv et?</string>
+    <string name="dl_cancel_all_desc">Növbədəki və aktiv %1$d endirmə dayandırılıb ləğv ediləcək.</string>
 </resources>

@@ -34,6 +34,8 @@ import com.instalogger.app.R
 import com.instalogger.app.data.local.TargetEntity
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.AddTargetDialog
+import com.instalogger.app.ui.components.DownloadQueueBottomSheet
+import com.instalogger.app.ui.components.DownloadQueueHeaderButton
 import com.instalogger.app.ui.components.HeaderActionButton
 import com.instalogger.app.ui.components.ReachabilityHeader
 import com.instalogger.app.ui.components.RotatingRefreshIcon
@@ -74,6 +76,7 @@ fun DashboardScreen(
     var checkingTargetUsername by remember { mutableStateOf<String?>(null) }
     var isGlobalRefreshing by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var showDownloadQueueSheet by remember { mutableStateOf(false) }
     var targetToDelete by remember { mutableStateOf<TargetEntity?>(null) }
     var turboSnackbarJob by remember { mutableStateOf<Job?>(null) }
 
@@ -163,6 +166,9 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    DownloadQueueHeaderButton(
+                        onClick = { showDownloadQueueSheet = true }
+                    )
                     HeaderActionButton(
                         enabled = !isGlobalRefreshing,
                         onClick = { refreshAllTargets() }
@@ -396,6 +402,13 @@ fun DashboardScreen(
             },
             shape = ShapeTokens.LargeShape,
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    }
+
+    if (showDownloadQueueSheet) {
+        DownloadQueueBottomSheet(
+            onDismiss = { showDownloadQueueSheet = false },
+            onOpenTarget = { username -> onNavigateToDetail(username) }
         )
     }
 }
