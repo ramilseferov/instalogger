@@ -62,6 +62,8 @@ class ProfileInspector(
         .build()
 
     private val gson = Gson()
+    private val appBackgroundScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private val inFlightInspections = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Result<TargetEntity>>>()
     private val inspectionLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private val archiveMutexMap = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private val lastHighlightTrayCheckMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -111,19 +113,31 @@ class ProfileInspector(
         onAlertNotification(title, message)
     }
 
-    suspend fun inspectTarget(username: String): Result<TargetEntity> = withContext(Dispatchers.IO) {
+    suspend fun inspectTarget(username: String): Result<TargetEntity> {
         val cleanUser = username.trim().trimStart('@').lowercase()
 
         // Fast-path guard: Abort immediately if target has been deleted
         if (isTargetDeleted(cleanUser)) {
-            return@withContext Result.failure(Exception("Target was deleted"))
+            return Result.failure(Exception("Target was deleted"))
         }
 
-        val targetMutex = inspectionLocks.computeIfAbsent(cleanUser) { kotlinx.coroutines.sync.Mutex() }
-        if (!targetMutex.tryLock()) {
-            val inDb = database.targetDao().getTarget(cleanUser)
-            return@withContext if (inDb != null) Result.success(inDb) else Result.failure(Exception("Inspection already running for @$cleanUser"))
+        // Deduplicate concurrent inspections for the same target and detach from UI composition scope
+        // so navigating away NEVER cancels an active profile check, and callers ALWAYS receive the real outcome.
+        val deferred = inFlightInspections.computeIfAbsent(cleanUser) {
+            appBackgroundScope.async {
+                try {
+                    inspectTargetInternal(cleanUser)
+                } finally {
+                    inFlightInspections.remove(cleanUser)
+                }
+            }
         }
+        return deferred.await()
+    }
+
+    private suspend fun inspectTargetInternal(cleanUser: String): Result<TargetEntity> = withContext(Dispatchers.IO) {
+        val targetMutex = inspectionLocks.computeIfAbsent(cleanUser) { Mutex() }
+        targetMutex.lock()
 
         try {
             val targetDao = database.targetDao()
@@ -1752,8 +1766,34 @@ class ProfileInspector(
         wasPrivateToPublic: Boolean = false,
         isPrivate: Boolean = false,
         forceFullPagination: Boolean = false
-    ) = withContext(Dispatchers.IO) {
+    ) {
         val cleanUser = username.trim().trimStart('@').lowercase()
+        // Run on application-lifetime background scope so leaving ProfileDetailScreen NEVER cancels pagination/archiving!
+        val job = appBackgroundScope.async {
+            archiveHighlightsAndPostsInternal(
+                cleanUser = cleanUser,
+                targetId = targetId,
+                cookie = cookie,
+                wasPrivateToPublic = wasPrivateToPublic,
+                isPrivate = isPrivate,
+                forceFullPagination = forceFullPagination
+            )
+        }
+        try {
+            job.await()
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // Caller (e.g., Compose LaunchedEffect) left composition; background archive continues uninterrupted!
+        }
+    }
+
+    private suspend fun archiveHighlightsAndPostsInternal(
+        cleanUser: String,
+        targetId: String? = null,
+        cookie: String? = null,
+        wasPrivateToPublic: Boolean = false,
+        isPrivate: Boolean = false,
+        forceFullPagination: Boolean = false
+    ) = withContext(Dispatchers.IO) {
         val archiveMutex = archiveMutexMap.computeIfAbsent(cleanUser) { Mutex() }
         if (!archiveMutex.tryLock()) {
             AppLogger.d("ProfileInspector", "archiveHighlightsAndPosts(@$cleanUser) already running; skipping duplicate")

@@ -95,6 +95,8 @@ class InstagramEngine(context: Context? = null) {
     private var guestCookiesFetchedAt: Long = 0L
     @Volatile
     private var reelsMediaApiCooldownUntilMs: Long = 0L
+    @Volatile
+    private var anonymousSsrRleUntilMs: Long = 0L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -216,72 +218,152 @@ class InstagramEngine(context: Context? = null) {
 
     fun fetchProfile(username: String, cookieString: String?): Result<InstagramProfileSnapshot> {
         val cleanUsername = username.trim().trimStart('@')
+        val hasSession = !cookieString.isNullOrBlank()
+        val nowMs = System.currentTimeMillis()
 
         // 1. First attempt: ZERO-LOGIN Anonymous Desktop SSR HTML (NEVER sends session cookie,
-        //    so logged-in viewer metadata can NEVER poison tracked targets' names, IDs, or avatars)
-        AppLogger.i(TAG, "fetchProfile(@$cleanUsername) start (hasSession=${!cookieString.isNullOrBlank()})")
+        //    so logged-in viewer metadata can NEVER poison tracked targets' names, IDs, or avatars).
+        //    Automatically skips for 5 min if Instagram just returned HTTP 302 is_from_rle AND we have a session.
+        AppLogger.i(TAG, "fetchProfile(@$cleanUsername) start (hasSession=$hasSession)")
         var bestSnapshot: InstagramProfileSnapshot? = null
-        try {
-            val htmlSnapshot = fetchViaHtml(cleanUsername)
-            if (htmlSnapshot != null) {
-                bestSnapshot = htmlSnapshot
-                AppLogger.i(
-                    TAG,
-                    "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR OK: pk=${htmlSnapshot.instagramId} followers=${htmlSnapshot.followersCount} following=${htmlSnapshot.followingCount} posts=${htmlSnapshot.mediaCount} story=${htmlSnapshot.latestStoryAt > 0L} pic=${!htmlSnapshot.profilePicUrl.isNullOrBlank()}"
-                )
-                if (!htmlSnapshot.instagramId.isNullOrBlank() &&
-                    (htmlSnapshot.followersCount > 0L || htmlSnapshot.followingCount > 0L || htmlSnapshot.fullName.isNotBlank())
-                ) {
-                    return Result.success(htmlSnapshot)
+        val skipAnonSsr = hasSession && nowMs < anonymousSsrRleUntilMs
+        if (!skipAnonSsr) {
+            try {
+                val htmlSnapshot = fetchViaHtml(cleanUsername)
+                if (htmlSnapshot != null) {
+                    anonymousSsrRleUntilMs = 0L
+                    bestSnapshot = htmlSnapshot
+                    AppLogger.i(
+                        TAG,
+                        "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR OK: pk=${htmlSnapshot.instagramId} followers=${htmlSnapshot.followersCount} following=${htmlSnapshot.followingCount} posts=${htmlSnapshot.mediaCount} story=${htmlSnapshot.latestStoryAt > 0L} pic=${!htmlSnapshot.profilePicUrl.isNullOrBlank()}"
+                    )
+                    if (!htmlSnapshot.instagramId.isNullOrBlank() &&
+                        (htmlSnapshot.followersCount > 0L || htmlSnapshot.followingCount > 0L || htmlSnapshot.fullName.isNotBlank())
+                    ) {
+                        return Result.success(htmlSnapshot)
+                    }
+                } else {
+                    AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR returned null")
                 }
-            } else {
-                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR returned null")
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR error: ${e.message}")
             }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier1-ZeroLoginSSR error: ${e.message}")
+        } else {
+            AppLogger.d(TAG, "fetchProfile(@$cleanUsername) skipping Tier1-ZeroLoginSSR (is_from_rle cooldown active)")
         }
 
-        // 2. Second attempt: ZERO-LOGIN Guest Web Profile Info API
+        // 2. Authenticated Mobile API (i.instagram.com/api/v1/users/{username}/usernameinfo/) — fast & works during anonymous RLE
+        if (hasSession) {
+            try {
+                val mobileSnap = fetchViaMobileUsernameInfo(cleanUsername, cookieString!!)
+                if (mobileSnap != null) {
+                    AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier2-MobileApi OK: pk=${mobileSnap.instagramId} followers=${mobileSnap.followersCount} posts=${mobileSnap.mediaCount}")
+                    return Result.success(mobileSnap)
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier2-MobileApi error: ${e.message}")
+            }
+        }
+
+        // 3. Authenticated WebView Profile Interceptor — runs Instagram's live GraphQL client, 100% immune to anonymous RLE & deprecated REST paths
+        if (hasSession && headlessScraper != null) {
+            try {
+                val wvSnap = runBlocking { headlessScraper.scrapeProfile(cleanUsername, cookieString) }
+                if (wvSnap != null) {
+                    AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier3-WebView OK: pk=${wvSnap.instagramId} followers=${wvSnap.followersCount} posts=${wvSnap.mediaCount}")
+                    return Result.success(wvSnap)
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier3-WebView error: ${e.message}")
+            }
+        }
+
+        // 4. Fallback: Web Profile Info API (guest + auth) & GraphQL Hash
         try {
             val guestApiSnapshot = fetchViaWebApi(cleanUsername, cookieString = null)
             if (guestApiSnapshot != null) {
-                AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier2-GuestWebApi OK: pk=${guestApiSnapshot.instagramId} followers=${guestApiSnapshot.followersCount}")
+                AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier4-GuestWebApi OK: pk=${guestApiSnapshot.instagramId} followers=${guestApiSnapshot.followersCount}")
                 return Result.success(guestApiSnapshot)
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier2-GuestWebApi error: ${e.message}")
+            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier4-GuestWebApi error: ${e.message}")
         }
 
-        // 3. Third attempt: Authenticated Web Profile Info API (ONLY fallback when anonymous tiers failed or were incomplete)
-        if (!cookieString.isNullOrBlank()) {
+        if (hasSession) {
             try {
                 val authApiSnapshot = fetchViaWebApi(cleanUsername, cookieString = cookieString)
                 if (authApiSnapshot != null) {
-                    AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier3-AuthWebApi OK: pk=${authApiSnapshot.instagramId} followers=${authApiSnapshot.followersCount}")
+                    AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier4-AuthWebApi OK: pk=${authApiSnapshot.instagramId} followers=${authApiSnapshot.followersCount}")
                     return Result.success(authApiSnapshot)
                 }
             } catch (e: Exception) {
-                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier3-AuthWebApi error: ${e.message}")
+                AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier4-AuthWebApi error: ${e.message}")
             }
         }
 
-        // 4. Fourth attempt: GraphQL Hash fallback (strict username match)
         try {
             val hashSnapshot = fetchViaGraphQLHash(cleanUsername, cookieString)
             if (hashSnapshot != null) {
-                AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier4-GraphQL OK: pk=${hashSnapshot.instagramId}")
+                AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier5-GraphQL OK: pk=${hashSnapshot.instagramId}")
                 return Result.success(hashSnapshot)
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier4-GraphQL error: ${e.message}")
+            AppLogger.w(TAG, "fetchProfile(@$cleanUsername) Tier5-GraphQL error: ${e.message}")
         }
 
         if (bestSnapshot != null) {
             return Result.success(bestSnapshot)
         }
 
-        AppLogger.e(TAG, "fetchProfile(@$cleanUsername) FAILED: all 4 tiers exhausted")
+        AppLogger.e(TAG, "fetchProfile(@$cleanUsername) FAILED: all tiers exhausted")
         return Result.failure(Exception("Profil məlumatları alına bilmədi. İnternet əlaqəsini və ya Instagram limitini yoxlayın."))
+    }
+
+    private fun fetchViaMobileUsernameInfo(username: String, cookieString: String): InstagramProfileSnapshot? {
+        val url = "https://i.instagram.com/api/v1/users/$username/usernameinfo/"
+        val reqBuilder = applyAuthenticatedApiHeaders(
+            builder = Request.Builder().url(url),
+            cookieString = cookieString,
+            referer = "https://www.instagram.com/$username/",
+            userAgent = IG_ANDROID_APP_UA
+        )
+        clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful || !body.trimStart().startsWith("{")) {
+                AppLogger.w(TAG, "fetchViaMobileUsernameInfo(@$username) HTTP ${resp.code} body=${body.take(100)}")
+                return null
+            }
+            val root = gson.fromJson(body, JsonObject::class.java) ?: return null
+            val user = root.getAsJsonObject("user") ?: return null
+            val returnedUsername = user.get("username")?.takeIf { !it.isJsonNull }?.asString?.trim()
+            if (!returnedUsername.isNullOrBlank() && !returnedUsername.equals(username, ignoreCase = true)) {
+                AppLogger.w(TAG, "usernameinfo mismatch: requested=@$username got=@$returnedUsername")
+                return null
+            }
+            val pk = user.get("pk")?.takeIf { !it.isJsonNull }?.asString
+                ?: user.get("id")?.takeIf { !it.isJsonNull }?.asString
+            val fullName = user.get("full_name")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+            val bio = user.get("biography")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+            val isPrivate = user.get("is_private")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+            val followers = user.get("follower_count")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            val following = user.get("following_count")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            val mediaCount = user.get("media_count")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            val picUrl = user.getAsJsonObject("hd_profile_pic_url_info")?.get("url")?.takeIf { !it.isJsonNull }?.asString
+                ?: user.get("profile_pic_url")?.takeIf { !it.isJsonNull }?.asString
+            val latestReelSec = user.get("latest_reel_media")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+            return InstagramProfileSnapshot(
+                username = username,
+                instagramId = pk,
+                fullName = fullName,
+                biography = bio,
+                isPrivate = isPrivate,
+                followersCount = followers,
+                followingCount = following,
+                mediaCount = mediaCount,
+                profilePicUrl = picUrl,
+                latestStoryAt = if (latestReelSec > 0L) latestReelSec * 1000L else 0L
+            )
+        }
     }
 
     /**
@@ -392,7 +474,11 @@ class InstagramEngine(context: Context? = null) {
         // Strictly zero-login: NEVER attach logged-in user cookies to HTML profile scraping!
         client.newCall(requestBuilder.build()).execute().use { response ->
             if (response.code != 200) {
-                AppLogger.w(TAG, "fetchViaHtml(@$username) HTTP ${response.code} location=${response.header("Location") ?: "-"}")
+                val loc = response.header("Location") ?: "-"
+                if (response.code == 302 && (loc.contains("is_from_rle") || loc.contains("/accounts/login"))) {
+                    anonymousSsrRleUntilMs = System.currentTimeMillis() + 5L * 60L * 1000L
+                }
+                AppLogger.w(TAG, "fetchViaHtml(@$username) HTTP ${response.code} location=$loc")
                 return null
             }
             val html = response.body?.string() ?: return null
@@ -574,9 +660,15 @@ class InstagramEngine(context: Context? = null) {
         }
 
         clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
-            if (!response.isSuccessful) return null
+            if (!response.isSuccessful) {
+                AppLogger.d(TAG, "fetchViaWebApi(@$username, auth=${!cookieString.isNullOrBlank()}) HTTP ${response.code}")
+                return null
+            }
             val body = response.body?.string() ?: return null
-            if (!body.startsWith("{")) return null
+            if (!body.startsWith("{")) {
+                AppLogger.d(TAG, "fetchViaWebApi(@$username, auth=${!cookieString.isNullOrBlank()}) non-JSON (len=${body.length})")
+                return null
+            }
 
             val root = gson.fromJson(body, JsonObject::class.java) ?: return null
             val data = root.getAsJsonObject("data") ?: return null
@@ -2805,7 +2897,8 @@ class InstagramEngine(context: Context? = null) {
             val viewerDsId = extractDsUserId(cookieString)
             var resolvedUid = userId?.takeIf { it.isNotBlank() && it != viewerDsId }
             if (resolvedUid == null) {
-                resolvedUid = try { fetchViaHtml(cleanUser)?.instagramId } catch (_: Exception) { null }
+                resolvedUid = try { fetchViaMobileUsernameInfo(cleanUser, cookieString!!)?.instagramId } catch (_: Exception) { null }
+                    ?: try { if (System.currentTimeMillis() >= anonymousSsrRleUntilMs) fetchViaHtml(cleanUser)?.instagramId else null } catch (_: Exception) { null }
             }
 
             var nextMaxId: String? = null

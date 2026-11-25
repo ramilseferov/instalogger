@@ -27,6 +27,8 @@ class InstaLoggerForegroundService : Service() {
     private var isRunning = false
     private var wakeLock: PowerManager.WakeLock? = null
     private val lastBackfillAttemptMs = ConcurrentHashMap<String, Long>()
+    private val consecutiveFailures = ConcurrentHashMap<String, Int>()
+    private val failureBackoffUntilMs = ConcurrentHashMap<String, Long>()
     private var lastNotificationStatusText: String? = null
 
     override fun onCreate() {
@@ -175,14 +177,29 @@ class InstaLoggerForegroundService : Service() {
                                     targetSem.withPermit {
                                         val intervalMs = if (target.isTurbo) 15_000L else (target.checkIntervalSeconds * 1000L)
                                         val lastCheck = target.lastCheckedAt ?: 0L
+                                        val backoffUntil = failureBackoffUntilMs[target.username] ?: 0L
 
-                                        if (now - lastCheck >= intervalMs) {
+                                        if (now - lastCheck >= intervalMs && now >= backoffUntil) {
                                             try {
-                                                profileInspector.inspectTarget(target.username)
+                                                val res = profileInspector.inspectTarget(target.username)
+                                                if (res.isSuccess) {
+                                                    consecutiveFailures.remove(target.username)
+                                                    failureBackoffUntilMs.remove(target.username)
+                                                } else {
+                                                    val failCount = (consecutiveFailures[target.username] ?: 0) + 1
+                                                    consecutiveFailures[target.username] = failCount
+                                                    val delayMs = (30_000L shl (failCount - 1).coerceAtMost(4)).coerceAtMost(300_000L)
+                                                    failureBackoffUntilMs[target.username] = System.currentTimeMillis() + delayMs
+                                                    AppLogger.w("ForegroundService", "Backoff @${target.username} for ${delayMs / 1000}s after failure #$failCount")
+                                                }
                                             } catch (e: Exception) {
-                                                AppLogger.w("ForegroundService", "inspectTarget(@${target.username}) error: ${e.message}")
+                                                val failCount = (consecutiveFailures[target.username] ?: 0) + 1
+                                                consecutiveFailures[target.username] = failCount
+                                                val delayMs = (30_000L shl (failCount - 1).coerceAtMost(4)).coerceAtMost(300_000L)
+                                                failureBackoffUntilMs[target.username] = System.currentTimeMillis() + delayMs
+                                                AppLogger.w("ForegroundService", "inspectTarget(@${target.username}) error (backoff ${delayMs / 1000}s): ${e.message}")
                                             }
-                                        } else if (autoArchive) {
+                                        } else if (autoArchive && now >= backoffUntil) {
                                             val lastBackfill = lastBackfillAttemptMs[target.username] ?: 0L
                                             if (now - lastBackfill >= BACKFILL_COOLDOWN_MS) {
                                                 lastBackfillAttemptMs[target.username] = now

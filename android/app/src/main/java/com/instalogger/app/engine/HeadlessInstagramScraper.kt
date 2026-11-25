@@ -46,9 +46,10 @@ class HeadlessInstagramScraper(context: Context) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
-    // Separate pools so post pagination never waits behind highlight scraping, and 2 highlights run in parallel
+    // Separate pools so profile checks, highlight scraping, and post pagination never block one another
     private val postScrapeMutex = Mutex()
     private val storySemaphore = Semaphore(2)
+    private val profileSemaphore = Semaphore(2)
 
     suspend fun scrapePublicPosts(username: String, limit: Int = 24): HeadlessScrapeResult {
         val cleanUser = username.trim().trimStart('@').lowercase()
@@ -466,6 +467,215 @@ class HeadlessInstagramScraper(context: Context) {
     }
 
     /**
+     * Loads a profile page in an off-screen authenticated Chromium WebView and intercepts
+     * Instagram's own live GraphQL/REST & SSR payloads strictly matching [username].
+     * Works reliably even when anonymous SSR hits HTTP 302 (is_from_rle) rate-limit walls.
+     */
+    suspend fun scrapeProfile(
+        username: String,
+        cookieString: String?
+    ): InstagramProfileSnapshot? {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        if (cleanUser.isBlank()) return null
+        AppLogger.i(TAG, "WebView profile intercept start: @$cleanUser")
+        return profileSemaphore.withPermit {
+            withTimeoutOrNull(PROFILE_TIMEOUT_MS) {
+                scrapeProfileOnce(cleanUser, cookieString)
+            } ?: run {
+                AppLogger.w(TAG, "WebView profile intercept timed out for @$cleanUser")
+                null
+            }
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
+    private suspend fun scrapeProfileOnce(
+        username: String,
+        cookieString: String?
+    ): InstagramProfileSnapshot? = suspendCancellableCoroutine { cont ->
+        val finished = AtomicBoolean(false)
+        val scheduledCallbacks = mutableListOf<Runnable>()
+        var webViewRef: WebView? = null
+        var bestSnapshot: InstagramProfileSnapshot? = null
+
+        fun destroyWebViewOnMain() {
+            scheduledCallbacks.forEach { mainHandler.removeCallbacks(it) }
+            scheduledCallbacks.clear()
+            val wv = webViewRef ?: return
+            webViewRef = null
+            try {
+                wv.stopLoading()
+                wv.removeJavascriptInterface(PROFILE_BRIDGE_NAME)
+                wv.webViewClient = WebViewClient()
+                wv.loadUrl("about:blank")
+                wv.clearHistory()
+                wv.removeAllViews()
+                wv.destroy()
+            } catch (_: Exception) {
+            }
+        }
+
+        fun finish(result: InstagramProfileSnapshot?, reason: String) {
+            if (!finished.compareAndSet(false, true)) return
+            AppLogger.i(TAG, "WebView profile finish (@$username): ok=${result != null} pk=${result?.instagramId ?: "-"} followers=${result?.followersCount ?: 0} posts=${result?.mediaCount ?: 0} [$reason]")
+            mainHandler.post { destroyWebViewOnMain() }
+            if (cont.isActive) {
+                cont.resume(result)
+            }
+        }
+
+        cont.invokeOnCancellation {
+            finished.set(true)
+            mainHandler.post { destroyWebViewOnMain() }
+        }
+
+        mainHandler.post {
+            if (finished.get()) return@post
+            try {
+                val cm = CookieManager.getInstance()
+                cm.setAcceptCookie(true)
+                if (!cookieString.isNullOrBlank()) {
+                    for (pair in cookieString.split(";")) {
+                        val trimmed = pair.trim()
+                        if (trimmed.contains("=")) {
+                            cm.setCookie("https://www.instagram.com", "$trimmed; Path=/; Domain=.instagram.com; Secure")
+                        }
+                    }
+                    cm.flush()
+                }
+
+                val wv = WebView(appContext).apply {
+                    visibility = View.INVISIBLE
+                    layoutParams = ViewGroup.LayoutParams(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                    measure(
+                        View.MeasureSpec.makeMeasureSpec(VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY)
+                    )
+                    layout(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                }
+                webViewRef = wv
+                cm.setAcceptThirdPartyCookies(wv, true)
+
+                wv.settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    loadsImagesAutomatically = false
+                    blockNetworkImage = true
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    cacheMode = WebSettings.LOAD_DEFAULT
+                    mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    userAgentString = MOBILE_CHROME_UA
+                }
+
+                val hookJs = buildProfileNetworkHookJs(username)
+                val extractJs = buildProfileExtractJs(username)
+
+                val bridge = object {
+                    @JavascriptInterface
+                    fun onProfilePayload(jsonPayload: String) {
+                        if (finished.get()) return
+                        try {
+                            val obj = gson.fromJson(jsonPayload, JsonObject::class.java) ?: return
+                            val status = obj.get("status")?.asString.orEmpty()
+                            if (status == "login_wall") {
+                                finish(null, "login_wall")
+                                return
+                            }
+                            if (status != "ok") return
+                            val returnedUser = obj.get("username")?.asString?.trim()?.lowercase().orEmpty()
+                            if (returnedUser != username) return
+
+                            val pk = obj.get("pk")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.isNotBlank() }
+                            val fullName = obj.get("fullName")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+                            val bio = obj.get("biography")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+                            val isPrivate = obj.get("isPrivate")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                            val followers = obj.get("followers")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+                            val following = obj.get("following")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+                            val mediaCount = obj.get("mediaCount")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+                            val picUrl = obj.get("picUrl")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.startsWith("http") }
+                            val latestReelSec = obj.get("latestStorySec")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+                            val latestStoryAt = if (latestReelSec > 10_000_000_000L) latestReelSec else if (latestReelSec > 0L) latestReelSec * 1000L else 0L
+
+                            val snap = InstagramProfileSnapshot(
+                                username = username,
+                                instagramId = pk,
+                                fullName = fullName,
+                                biography = bio,
+                                isPrivate = isPrivate,
+                                followersCount = followers,
+                                followingCount = following,
+                                mediaCount = mediaCount,
+                                profilePicUrl = picUrl,
+                                latestStoryAt = latestStoryAt
+                            )
+                            bestSnapshot = snap
+                            val hasStats = followers > 0L || following > 0L || mediaCount > 0L || isPrivate
+                            if (!pk.isNullOrBlank() && hasStats) {
+                                finish(snap, obj.get("source")?.asString ?: "network_json")
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Profile bridge parse error: ${e.message}")
+                        }
+                    }
+                }
+
+                wv.addJavascriptInterface(bridge, PROFILE_BRIDGE_NAME)
+
+                var pollsScheduled = false
+                fun schedulePolls() {
+                    if (pollsScheduled || finished.get()) return
+                    pollsScheduled = true
+                    val delays = longArrayOf(900L, 2200L, 4200L, 6500L)
+                    delays.forEach { d ->
+                        val r = Runnable {
+                            if (!finished.get()) {
+                                webViewRef?.evaluateJavascript(extractJs, null)
+                            }
+                        }
+                        scheduledCallbacks.add(r)
+                        mainHandler.postDelayed(r, d)
+                    }
+                    val finalTimeout = Runnable {
+                        finish(bestSnapshot, if (bestSnapshot != null) "best_partial" else "timeout_empty")
+                    }
+                    scheduledCallbacks.add(finalTimeout)
+                    mainHandler.postDelayed(finalTimeout, 9000L)
+                }
+
+                wv.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        val scheme = request?.url?.scheme?.lowercase() ?: return false
+                        return scheme != "http" && scheme != "https"
+                    }
+
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        view?.evaluateJavascript(hookJs, null)
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        if (finished.get()) return
+                        if (url != null && url.contains("/accounts/login")) {
+                            finish(null, "redirected_to_login")
+                            return
+                        }
+                        view?.evaluateJavascript(hookJs, null)
+                        schedulePolls()
+                    }
+                }
+
+                wv.loadUrl("https://www.instagram.com/$username/")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "WebView profile init failed for @$username", e)
+                finish(null, "init_exception")
+            }
+        }
+    }
+
+    /**
      * Scrolls through a profile in an off-screen Chromium WebView while intercepting Instagram's
      * live GraphQL/REST timeline pagination responses, streaming every page batch via [onBatch].
      * Enables loading 300+ posts even when Instagram rotates GraphQL doc_ids.
@@ -716,9 +926,131 @@ class HeadlessInstagramScraper(context: Context) {
         private const val BRIDGE_NAME = "AndroidBridge"
         private const val STORY_BRIDGE_NAME = "StoryBridge"
         private const val PAGINATED_BRIDGE_NAME = "PaginatedPostsBridge"
+        private const val PROFILE_BRIDGE_NAME = "ProfileBridge"
         private const val TOTAL_TIMEOUT_MS = 22_000L
         private const val STORY_TIMEOUT_MS = 16_000L
+        private const val PROFILE_TIMEOUT_MS = 15_000L
         private const val PAGINATED_TIMEOUT_MS = 95_000L
+
+        private fun buildProfileNetworkHookJs(targetUsername: String): String {
+            val safeTarget = targetUsername.replace("'", "").lowercase()
+            return """
+                (function() {
+                    if (window.__igProfileHookInstalled) return;
+                    window.__igProfileHookInstalled = true;
+                    const TARGET = '$safeTarget';
+
+                    function scoreUser(o) {
+                        let s = 0;
+                        if (o.pk && /^\d+$/.test(String(o.pk))) s += 4;
+                        if (o.follower_count !== undefined || (o.edge_followed_by && o.edge_followed_by.count !== undefined)) s += 5;
+                        if (o.following_count !== undefined || (o.edge_follow && o.edge_follow.count !== undefined)) s += 3;
+                        if (o.media_count !== undefined || (o.edge_owner_to_timeline_media && o.edge_owner_to_timeline_media.count !== undefined)) s += 2;
+                        if (o.hd_profile_pic_url_info || o.profile_pic_url_hd || o.profile_pic_url) s += 2;
+                        if (o.full_name !== undefined) s += 1;
+                        return s;
+                    }
+
+                    function inspectJsonText(text, source) {
+                        if (!text || text.length < 40 || text.toLowerCase().indexOf(TARGET) === -1) return;
+                        try {
+                            const root = JSON.parse(text);
+                            let best = null;
+                            let bestScore = -1;
+                            function walk(n) {
+                                if (!n || typeof n !== 'object') return;
+                                if (Array.isArray(n)) { n.forEach(walk); return; }
+                                if (typeof n.username === 'string' && n.username.trim().toLowerCase() === TARGET) {
+                                    const sc = scoreUser(n);
+                                    if (sc > bestScore) { bestScore = sc; best = n; }
+                                }
+                                Object.keys(n).forEach(function(k) { walk(n[k]); });
+                            }
+                            walk(root);
+                            if (best && bestScore >= 4 && window.ProfileBridge) {
+                                const pk = (best.pk && /^\d+$/.test(String(best.pk))) ? String(best.pk) : ((best.id && /^\d+$/.test(String(best.id))) ? String(best.id) : '');
+                                const followers = Number(best.follower_count !== undefined ? best.follower_count : (best.edge_followed_by ? best.edge_followed_by.count : 0)) || 0;
+                                const following = Number(best.following_count !== undefined ? best.following_count : (best.edge_follow ? best.edge_follow.count : 0)) || 0;
+                                const mediaCount = Number(best.media_count !== undefined ? best.media_count : (best.edge_owner_to_timeline_media ? best.edge_owner_to_timeline_media.count : 0)) || 0;
+                                const picUrl = (best.hd_profile_pic_url_info && best.hd_profile_pic_url_info.url) || best.profile_pic_url_hd || best.profile_pic_url || '';
+                                window.ProfileBridge.onProfilePayload(JSON.stringify({
+                                    status: 'ok',
+                                    source: source,
+                                    username: TARGET,
+                                    pk: pk,
+                                    fullName: best.full_name || '',
+                                    biography: best.biography || '',
+                                    isPrivate: !!best.is_private,
+                                    followers: followers,
+                                    following: following,
+                                    mediaCount: mediaCount,
+                                    picUrl: picUrl,
+                                    latestStorySec: Number(best.latest_reel_media || 0) || 0
+                                }));
+                            }
+                        } catch (_) {}
+                    }
+
+                    window.__igInspectProfileJson = inspectJsonText;
+
+                    const origFetch = window.fetch;
+                    if (origFetch) {
+                        window.fetch = function() {
+                            const url = (arguments[0] && typeof arguments[0] === 'string') ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
+                            return origFetch.apply(this, arguments).then(function(resp) {
+                                try {
+                                    if (url.indexOf('graphql') !== -1 || url.indexOf('web_profile_info') !== -1 || url.indexOf('users/') !== -1) {
+                                        resp.clone().text().then(function(t) { inspectJsonText(t, 'fetch_json'); }).catch(function(){});
+                                    }
+                                } catch (_) {}
+                                return resp;
+                            });
+                        };
+                    }
+
+                    const origOpen = XMLHttpRequest.prototype.open;
+                    const origSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.__igProfUrl = String(url || '');
+                        return origOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function() {
+                        this.addEventListener('load', function() {
+                            try {
+                                const u = this.__igProfUrl || '';
+                                if (u.indexOf('graphql') !== -1 || u.indexOf('web_profile_info') !== -1 || u.indexOf('users/') !== -1) {
+                                    inspectJsonText(this.responseText || '', 'xhr_json');
+                                }
+                            } catch (_) {}
+                        });
+                        return origSend.apply(this, arguments);
+                    };
+                })();
+            """.trimIndent()
+        }
+
+        private fun buildProfileExtractJs(targetUsername: String): String {
+            val safeTarget = targetUsername.replace("'", "").lowercase()
+            return """
+                (function() {
+                    try {
+                        const href = window.location.href || '';
+                        if (href.indexOf('/accounts/login') !== -1) {
+                            if (window.ProfileBridge) window.ProfileBridge.onProfilePayload(JSON.stringify({ status: 'login_wall' }));
+                            return;
+                        }
+                        if (typeof window.__igInspectProfileJson === 'function') {
+                            document.querySelectorAll('script[type="application/json"]').forEach(function(s) {
+                                const t = s.textContent || '';
+                                if (t.toLowerCase().indexOf('$safeTarget') !== -1) {
+                                    window.__igInspectProfileJson(t, 'ssr_script');
+                                }
+                            });
+                        }
+                    } catch (_) {}
+                })();
+            """.trimIndent()
+        }
         private const val VIEWPORT_WIDTH = 1080
         private const val VIEWPORT_HEIGHT = 1920
         private const val MOBILE_CHROME_UA =
