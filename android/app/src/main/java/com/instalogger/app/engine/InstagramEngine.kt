@@ -85,6 +85,30 @@ sealed class PostFetchResult {
     data class Error(val message: String) : PostFetchResult()
 }
 
+data class InstagramCommentItem(
+    val id: String,
+    val parentCommentId: String? = null,
+    val authorUsername: String,
+    val authorId: String? = null,
+    val authorFullName: String = "",
+    val authorAvatarUrl: String? = null,
+    val isAuthorVerified: Boolean = false,
+    val text: String,
+    val likeCount: Int = 0,
+    val replyCount: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
+    val hasGifOrMedia: Boolean = false
+)
+
+data class CommentFetchResult(
+    val comments: List<InstagramCommentItem>,
+    val mediaId: String? = null,
+    val collectionStatus: String = "complete", // "complete" or "partial"
+    val source: String = "none",
+    val rateLimited: Boolean = false,
+    val errorMessage: String? = null
+)
+
 class InstagramEngine(context: Context? = null) {
 
     private val headlessScraper: HeadlessInstagramScraper? = context?.let { HeadlessInstagramScraper(it) }
@@ -3049,6 +3073,393 @@ class InstagramEngine(context: Context? = null) {
 
         AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) DONE: total=${allByCode.size} posts discovered")
         return PostFetchResult.Success(allByCode.values.toList())
+    }
+
+    /**
+     * Multi-tier Post & Reel Comments + Threaded Replies Extractor:
+     * 1) Authenticated REST `/api/v1/media/{mediaId}/comments/` + `/child_comments/` pagination (respects Retry-After)
+     * 2) Public Zero-Login Desktop SSR Relay JSON extraction (top-level + inline preview replies)
+     * 3) Headless Chromium WebView GraphQL/REST network interceptor with auto-expand replies
+     */
+    suspend fun fetchPostComments(
+        shortcode: String,
+        cookieString: String?,
+        maxComments: Int = 500,
+        reportedTotalCount: Int = 0,
+        pageDelayMs: Long = 280L,
+        onBatchDiscovered: suspend (List<InstagramCommentItem>, Int) -> Unit = { _, _ -> }
+    ): CommentFetchResult {
+        val cleanCode = shortcode.trim().substringBefore('/').substringBefore('?')
+        if (cleanCode.isBlank()) {
+            return CommentFetchResult(emptyList(), errorMessage = "Empty shortcode")
+        }
+        val mediaId = com.instalogger.app.engine.comments.CommentTreeEngine.shortcodeToMediaId(cleanCode)
+        val hasSession = !cookieString.isNullOrBlank()
+        val byId = LinkedHashMap<String, InstagramCommentItem>()
+        var sawRateLimit = false
+        var wasTruncated = false
+        var source = "none"
+
+        suspend fun mergeBatch(items: List<InstagramCommentItem>) {
+            val fresh = mutableListOf<InstagramCommentItem>()
+            for (item in items) {
+                if (byId.size >= maxComments && !byId.containsKey(item.id)) {
+                    wasTruncated = true
+                    break
+                }
+                val prev = byId[item.id]
+                if (prev == null) {
+                    byId[item.id] = item
+                    fresh.add(item)
+                } else if (
+                    item.likeCount > prev.likeCount ||
+                    item.replyCount > prev.replyCount ||
+                    (prev.parentCommentId == null && item.parentCommentId != null)
+                ) {
+                    val merged = prev.copy(
+                        parentCommentId = prev.parentCommentId ?: item.parentCommentId,
+                        likeCount = maxOf(prev.likeCount, item.likeCount),
+                        replyCount = maxOf(prev.replyCount, item.replyCount),
+                        authorAvatarUrl = prev.authorAvatarUrl ?: item.authorAvatarUrl,
+                        isAuthorVerified = prev.isAuthorVerified || item.isAuthorVerified
+                    )
+                    byId[item.id] = merged
+                    fresh.add(merged)
+                }
+            }
+            if (fresh.isNotEmpty()) {
+                onBatchDiscovered(fresh, byId.size)
+            }
+        }
+
+        AppLogger.i(TAG, "fetchPostComments($cleanCode, mediaId=$mediaId) start (hasSession=$hasSession, max=$maxComments)")
+
+        // Tier 1: Authenticated v1 REST Comments + Child Replies pagination
+        if (hasSession && !mediaId.isNullOrBlank()) {
+            var nextMinId: String? = null
+            var page = 0
+            val maxPages = ((maxComments + 19) / 20).coerceIn(1, 35)
+            val parentsNeedingReplies = mutableListOf<InstagramCommentItem>()
+
+            while (page < maxPages && byId.size < maxComments) {
+                page++
+                val cursorParam = if (!nextMinId.isNullOrBlank()) {
+                    "&min_id=${URLEncoder.encode(nextMinId, "UTF-8")}"
+                } else ""
+                val url = "https://www.instagram.com/api/v1/media/$mediaId/comments/?can_support_threading=true&permalink_enabled=false$cursorParam"
+                try {
+                    val req = applyAuthenticatedApiHeaders(
+                        builder = Request.Builder().url(url),
+                        cookieString = cookieString!!,
+                        referer = "https://www.instagram.com/p/$cleanCode/"
+                    )
+                    var shouldStop = false
+                    var retryAfterMs = 0L
+                    clientWithRedirects.newCall(req.build()).execute().use { resp ->
+                        if (resp.code == 429) {
+                            sawRateLimit = true
+                            val retrySec = resp.header("Retry-After")?.toLongOrNull() ?: 3L
+                            retryAfterMs = (retrySec * 1000L).coerceIn(1500L, 6000L)
+                            AppLogger.w(TAG, "fetchPostComments($cleanCode) Tier1 page#$page HTTP 429 (Retry-After=${retrySec}s)")
+                            shouldStop = true
+                            return@use
+                        }
+                        if (!resp.isSuccessful) {
+                            AppLogger.d(TAG, "fetchPostComments($cleanCode) Tier1 page#$page HTTP ${resp.code}")
+                            shouldStop = true
+                            return@use
+                        }
+                        val body = resp.body?.string()?.trimStart().orEmpty()
+                        if (!body.startsWith("{")) {
+                            shouldStop = true
+                            return@use
+                        }
+                        val root = gson.fromJson(body, JsonObject::class.java)
+                        val arr = root?.getAsJsonArray("comments")
+                        if (arr == null || arr.size() == 0) {
+                            shouldStop = true
+                            return@use
+                        }
+                        val pageBatch = mutableListOf<InstagramCommentItem>()
+                        for (el in arr) {
+                            val obj = el.asJsonObject ?: continue
+                            val parsed = parseCommentNode(obj, fallbackParentId = null) ?: continue
+                            pageBatch.add(parsed)
+                            val previewChildren = parseInlineChildComments(obj, parsed.id)
+                            pageBatch.addAll(previewChildren)
+                            if (parsed.replyCount > previewChildren.size) {
+                                parentsNeedingReplies.add(parsed)
+                            }
+                        }
+                        if (pageBatch.isNotEmpty()) {
+                            source = "rest_v1"
+                            runBlocking { mergeBatch(pageBatch) }
+                        }
+                        val hasMore = root.get("has_more_comments")?.takeIf { !it.isJsonNull }?.asBoolean
+                            ?: root.get("has_more_headload_comments")?.takeIf { !it.isJsonNull }?.asBoolean
+                            ?: false
+                        val cursor = root.get("next_min_id")?.takeIf { !it.isJsonNull }?.asString
+                            ?: root.get("next_max_id")?.takeIf { !it.isJsonNull }?.asString
+                        if (!hasMore || cursor.isNullOrBlank()) {
+                            shouldStop = true
+                        } else {
+                            nextMinId = cursor
+                        }
+                    }
+                    if (retryAfterMs > 0L) {
+                        kotlinx.coroutines.delay(retryAfterMs)
+                    }
+                    if (shouldStop) break
+                    if (pageDelayMs > 0L) kotlinx.coroutines.delay(pageDelayMs)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "fetchPostComments($cleanCode) Tier1 page#$page error: ${e.message}")
+                    break
+                }
+            }
+
+            // Fetch full threaded replies for parent comments that have unexpanded child comments
+            for (parent in parentsNeedingReplies) {
+                if (byId.size >= maxComments || sawRateLimit) {
+                    wasTruncated = true
+                    break
+                }
+                var childCursor: String? = null
+                var childPage = 0
+                while (childPage < 10 && byId.size < maxComments) {
+                    childPage++
+                    val cursorQ = if (!childCursor.isNullOrBlank()) {
+                        "?max_id=${URLEncoder.encode(childCursor, "UTF-8")}"
+                    } else ""
+                    val childUrl = "https://www.instagram.com/api/v1/media/$mediaId/comments/${parent.id}/child_comments/$cursorQ"
+                    try {
+                        val req = applyAuthenticatedApiHeaders(
+                            builder = Request.Builder().url(childUrl),
+                            cookieString = cookieString!!,
+                            referer = "https://www.instagram.com/p/$cleanCode/"
+                        )
+                        var stopChildren = false
+                        clientWithRedirects.newCall(req.build()).execute().use { resp ->
+                            if (resp.code == 429) {
+                                sawRateLimit = true
+                                stopChildren = true
+                                return@use
+                            }
+                            if (!resp.isSuccessful) {
+                                stopChildren = true
+                                return@use
+                            }
+                            val body = resp.body?.string()?.trimStart().orEmpty()
+                            if (!body.startsWith("{")) {
+                                stopChildren = true
+                                return@use
+                            }
+                            val root = gson.fromJson(body, JsonObject::class.java)
+                            val arr = root?.getAsJsonArray("child_comments")
+                            if (arr == null || arr.size() == 0) {
+                                stopChildren = true
+                                return@use
+                            }
+                            val replies = mutableListOf<InstagramCommentItem>()
+                            for (el in arr) {
+                                el.asJsonObject?.let { parseCommentNode(it, fallbackParentId = parent.id)?.let(replies::add) }
+                            }
+                            if (replies.isNotEmpty()) {
+                                runBlocking { mergeBatch(replies) }
+                            }
+                            val hasMoreChild = root.get("has_more_tail_child_comments")?.takeIf { !it.isJsonNull }?.asBoolean
+                                ?: root.get("has_more_head_child_comments")?.takeIf { !it.isJsonNull }?.asBoolean
+                                ?: false
+                            val nextChild = root.get("next_max_child_cursor")?.takeIf { !it.isJsonNull }?.asString
+                                ?: root.get("next_min_child_cursor")?.takeIf { !it.isJsonNull }?.asString
+                            if (!hasMoreChild || nextChild.isNullOrBlank()) {
+                                stopChildren = true
+                            } else {
+                                childCursor = nextChild
+                            }
+                        }
+                        if (stopChildren) break
+                        if (pageDelayMs > 0L) kotlinx.coroutines.delay(pageDelayMs)
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "child_comments(${parent.id}) error: ${e.message}")
+                        break
+                    }
+                }
+            }
+        }
+
+        // Tier 2: Public Zero-Login Desktop SSR Relay JSON extraction (fast fallback when unauthenticated or REST blocked)
+        if (byId.isEmpty() && !(hasSession && System.currentTimeMillis() < anonymousSsrRleUntilMs)) {
+            try {
+                val req = Request.Builder()
+                    .url("https://www.instagram.com/p/$cleanCode/")
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .build()
+                val html = clientWithRedirects.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
+                }
+                if (html.isNotBlank()) {
+                    val ssrComments = parseCommentsFromSsrHtml(html)
+                    if (ssrComments.isNotEmpty()) {
+                        source = "desktop_ssr"
+                        mergeBatch(ssrComments)
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchPostComments($cleanCode) Tier2-SSR error: ${e.message}")
+            }
+        }
+
+        // Tier 3: Headless Chromium WebView Comment & Reply Interceptor (live GraphQL + auto-expand replies)
+        val needWebViewFallback = byId.isEmpty() ||
+            (reportedTotalCount > 0 && byId.size < minOf(reportedTotalCount, maxComments) && source != "rest_v1")
+        if (needWebViewFallback && headlessScraper != null) {
+            try {
+                val wvComments = headlessScraper.scrapePostComments(
+                    shortcode = cleanCode,
+                    cookieString = cookieString,
+                    maxComments = maxComments
+                ) { batch ->
+                    runBlocking { mergeBatch(batch) }
+                }
+                if (wvComments.isNotEmpty()) {
+                    source = if (source == "none") "webview_graphql" else "$source+webview"
+                    mergeBatch(wvComments)
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchPostComments($cleanCode) Tier3-WebView error: ${e.message}")
+            }
+        }
+
+        val finalList = byId.values.toList()
+        val isPartial = sawRateLimit ||
+            wasTruncated ||
+            !hasSession ||
+            (reportedTotalCount > 0 && finalList.size < reportedTotalCount)
+        val status = if (isPartial) "partial" else "complete"
+
+        AppLogger.i(TAG, "fetchPostComments($cleanCode) DONE: ${finalList.size} comments (status=$status, source=$source)")
+        return CommentFetchResult(
+            comments = finalList,
+            mediaId = mediaId,
+            collectionStatus = status,
+            source = source,
+            rateLimited = sawRateLimit
+        )
+    }
+
+    internal fun parseCommentsFromSsrHtml(html: String): List<InstagramCommentItem> {
+        val out = LinkedHashMap<String, InstagramCommentItem>()
+        val scriptPattern = Pattern.compile("<script[^>]*type=\"application/json\"[^>]*>(.*?)</script>", Pattern.DOTALL)
+        val matcher = scriptPattern.matcher(html)
+
+        fun collect(node: JsonObject, fallbackParentId: String?) {
+            val parsed = parseCommentNode(node, fallbackParentId) ?: return
+            out.putIfAbsent(parsed.id, parsed)
+            parseInlineChildComments(node, parsed.id).forEach { child ->
+                out.putIfAbsent(child.id, child)
+            }
+        }
+
+        fun walk(elem: JsonElement?) {
+            if (elem == null) return
+            when {
+                elem.isJsonObject -> {
+                    val obj = elem.asJsonObject
+                    val connKeys = listOf(
+                        "xdt_api__v1__media__media_id__comments__connection",
+                        "edge_media_to_parent_comment",
+                        "edge_media_to_comment"
+                    )
+                    for (k in connKeys) {
+                        obj.getAsJsonObject(k)?.getAsJsonArray("edges")?.forEach { edgeEl ->
+                            edgeEl.asJsonObject?.getAsJsonObject("node")?.let { collect(it, null) }
+                        }
+                    }
+                    obj.getAsJsonArray("comments")?.forEach { cEl ->
+                        cEl.asJsonObject?.let { collect(it, null) }
+                    }
+                    for ((_, v) in obj.entrySet()) walk(v)
+                }
+                elem.isJsonArray -> {
+                    for (child in elem.asJsonArray) walk(child)
+                }
+            }
+        }
+
+        while (matcher.find()) {
+            val raw = matcher.group(1) ?: continue
+            if (!raw.contains("comments__connection") &&
+                !raw.contains("edge_media_to_parent_comment") &&
+                !raw.contains("comment_like_count")
+            ) continue
+            try {
+                walk(gson.fromJson(raw, JsonElement::class.java))
+            } catch (_: Exception) {
+            }
+        }
+        return out.values.toList()
+    }
+
+    private fun parseCommentNode(obj: JsonObject, fallbackParentId: String?): InstagramCommentItem? {
+        val id = obj.get("pk")?.takeIf { !it.isJsonNull }?.asString
+            ?: obj.get("id")?.takeIf { !it.isJsonNull }?.asString
+            ?: return null
+        val text = obj.get("text")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+        val userObj = obj.getAsJsonObject("user") ?: obj.getAsJsonObject("owner")
+        val authorUsername = userObj?.get("username")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+        if (text.isBlank() && authorUsername.isBlank()) return null
+
+        val parentId = obj.get("parent_comment_id")?.takeIf { !it.isJsonNull }?.asString?.trim()?.ifBlank { null }
+            ?: fallbackParentId
+        val authorId = userObj?.get("pk")?.takeIf { !it.isJsonNull }?.asString
+            ?: userObj?.get("id")?.takeIf { !it.isJsonNull }?.asString
+        val authorFullName = userObj?.get("full_name")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+        val authorAvatar = userObj?.get("profile_pic_url")?.takeIf { !it.isJsonNull }?.asString
+        val isVerified = userObj?.get("is_verified")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+        val likes = obj.get("comment_like_count")?.takeIf { !it.isJsonNull }?.asInt
+            ?: obj.getAsJsonObject("edge_liked_by")?.get("count")?.takeIf { !it.isJsonNull }?.asInt
+            ?: 0
+        val replyCount = obj.get("child_comment_count")?.takeIf { !it.isJsonNull }?.asInt
+            ?: obj.getAsJsonObject("edge_threaded_comments")?.get("count")?.takeIf { !it.isJsonNull }?.asInt
+            ?: 0
+        val createdRaw = obj.get("created_at_utc")?.takeIf { !it.isJsonNull }?.asLong
+            ?: obj.get("created_at")?.takeIf { !it.isJsonNull }?.asLong
+            ?: 0L
+        val createdAtMs = when {
+            createdRaw > 10_000_000_000L -> createdRaw
+            createdRaw > 0L -> createdRaw * 1000L
+            else -> System.currentTimeMillis()
+        }
+        val hasGif = obj.has("giphy_media_info") && !obj.get("giphy_media_info").isJsonNull
+
+        return InstagramCommentItem(
+            id = id,
+            parentCommentId = parentId,
+            authorUsername = authorUsername.ifBlank { "instagram_user" },
+            authorId = authorId,
+            authorFullName = authorFullName,
+            authorAvatarUrl = authorAvatar,
+            isAuthorVerified = isVerified,
+            text = text,
+            likeCount = likes,
+            replyCount = replyCount,
+            createdAt = createdAtMs,
+            hasGifOrMedia = hasGif
+        )
+    }
+
+    private fun parseInlineChildComments(obj: JsonObject, parentId: String): List<InstagramCommentItem> {
+        val children = mutableListOf<InstagramCommentItem>()
+        val previewArr = obj.getAsJsonArray("preview_child_comments") ?: obj.getAsJsonArray("child_comments")
+        previewArr?.forEach { el ->
+            el.asJsonObject?.let { parseCommentNode(it, fallbackParentId = parentId)?.let(children::add) }
+        }
+        obj.getAsJsonObject("edge_threaded_comments")?.getAsJsonArray("edges")?.forEach { edgeEl ->
+            edgeEl.asJsonObject?.getAsJsonObject("node")?.let { parseCommentNode(it, fallbackParentId = parentId)?.let(children::add) }
+        }
+        return children
     }
 
     companion object {

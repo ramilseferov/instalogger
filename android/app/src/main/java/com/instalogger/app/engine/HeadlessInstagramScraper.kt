@@ -46,10 +46,11 @@ class HeadlessInstagramScraper(context: Context) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
-    // Separate pools so profile checks, highlight scraping, and post pagination never block one another
+    // Separate pools so profile checks, highlight scraping, post pagination, and comment scraping never block one another
     private val postScrapeMutex = Mutex()
     private val storySemaphore = Semaphore(2)
     private val profileSemaphore = Semaphore(2)
+    private val commentSemaphore = Semaphore(1)
 
     suspend fun scrapePublicPosts(username: String, limit: Int = 24): HeadlessScrapeResult {
         val cleanUser = username.trim().trimStart('@').lowercase()
@@ -921,16 +922,266 @@ class HeadlessInstagramScraper(context: Context) {
         }
     }
 
+    /**
+     * Headless WebView Post/Reel Comments & Threaded Replies Network Interceptor.
+     * Captures Instagram's live GraphQL/REST comment + child_comment payloads while automatically
+     * scrolling the comment list and expanding "View replies" buttons.
+     */
+    suspend fun scrapePostComments(
+        shortcode: String,
+        cookieString: String?,
+        maxComments: Int = 500,
+        onBatch: ((List<InstagramCommentItem>) -> Unit)? = null
+    ): List<InstagramCommentItem> {
+        val cleanCode = shortcode.trim().substringBefore('/').substringBefore('?')
+        if (cleanCode.isBlank()) return emptyList()
+        return commentSemaphore.withPermit {
+            withTimeoutOrNull(COMMENTS_TIMEOUT_MS) {
+                scrapePostCommentsOnce(cleanCode, cookieString, maxComments, onBatch)
+            } ?: emptyList()
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
+    private suspend fun scrapePostCommentsOnce(
+        shortcode: String,
+        cookieString: String?,
+        maxComments: Int,
+        onBatch: ((List<InstagramCommentItem>) -> Unit)?
+    ): List<InstagramCommentItem> = suspendCancellableCoroutine { cont ->
+        val finished = AtomicBoolean(false)
+        val scheduledCallbacks = mutableListOf<Runnable>()
+        val collected = java.util.Collections.synchronizedMap(LinkedHashMap<String, InstagramCommentItem>())
+        var webViewRef: WebView? = null
+        var scrollStarted = false
+        var lastCount = 0
+        var staleSteps = 0
+
+        fun destroyWebViewOnMain() {
+            scheduledCallbacks.forEach { mainHandler.removeCallbacks(it) }
+            scheduledCallbacks.clear()
+            val wv = webViewRef ?: return
+            webViewRef = null
+            try {
+                wv.stopLoading()
+                wv.removeJavascriptInterface(COMMENTS_BRIDGE_NAME)
+                wv.webViewClient = WebViewClient()
+                wv.loadUrl("about:blank")
+                wv.clearHistory()
+                wv.removeAllViews()
+                wv.destroy()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error destroying comments WebView: ${e.message}")
+            }
+        }
+
+        fun finish(reason: String) {
+            if (!finished.compareAndSet(false, true)) return
+            val result = synchronized(collected) { collected.values.toList() }
+            AppLogger.i(TAG, "WebView comments finish ($shortcode): ${result.size} comments [$reason]")
+            mainHandler.post { destroyWebViewOnMain() }
+            if (cont.isActive) cont.resume(result)
+        }
+
+        cont.invokeOnCancellation {
+            finished.set(true)
+            mainHandler.post { destroyWebViewOnMain() }
+        }
+
+        mainHandler.post {
+            if (finished.get()) return@post
+            try {
+                val wv = WebView(appContext).apply {
+                    visibility = View.INVISIBLE
+                    layoutParams = ViewGroup.LayoutParams(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                    measure(
+                        View.MeasureSpec.makeMeasureSpec(VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY)
+                    )
+                    layout(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                }
+                webViewRef = wv
+
+                val cm = CookieManager.getInstance()
+                cm.setAcceptCookie(true)
+                cm.setAcceptThirdPartyCookies(wv, true)
+                if (!cookieString.isNullOrBlank()) {
+                    cookieString.split(";").forEach { rawPair ->
+                        val pair = rawPair.trim()
+                        if (pair.contains("=")) {
+                            cm.setCookie("https://www.instagram.com", "$pair; Domain=.instagram.com; Path=/; Secure")
+                        }
+                    }
+                    cm.flush()
+                }
+
+                wv.settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    loadsImagesAutomatically = false
+                    blockNetworkImage = true
+                    cacheMode = WebSettings.LOAD_DEFAULT
+                    userAgentString = MOBILE_CHROME_UA
+                    mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                }
+
+                val bridge = object {
+                    @JavascriptInterface
+                    fun onCommentBatch(jsonPayload: String) {
+                        if (finished.get()) return
+                        try {
+                            val root = gson.fromJson(jsonPayload, JsonObject::class.java) ?: return
+                            val status = root.get("status")?.asString ?: ""
+                            if (status == "login_wall") {
+                                finish("login_wall")
+                                return
+                            }
+                            val arr = root.getAsJsonArray("items") ?: return
+                            val newlyAdded = mutableListOf<InstagramCommentItem>()
+                            synchronized(collected) {
+                                for (el in arr) {
+                                    if (collected.size >= maxComments) break
+                                    val o = el.asJsonObject ?: continue
+                                    val cid = o.get("id")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                                    val text = o.get("text")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+                                    val author = o.get("authorUsername")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+                                    if (cid.isBlank() || (text.isBlank() && author.isBlank())) continue
+                                    val parentId = o.get("parentCommentId")?.takeIf { !it.isJsonNull }?.asString?.trim()?.ifBlank { null }
+                                    val authorId = o.get("authorId")?.takeIf { !it.isJsonNull }?.asString?.trim()?.ifBlank { null }
+                                    val fullName = o.get("authorFullName")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+                                    val avatar = o.get("authorAvatarUrl")?.takeIf { !it.isJsonNull }?.asString?.trim()?.ifBlank { null }
+                                    val verified = o.get("isVerified")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                                    val likes = o.get("likeCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                    val replyCnt = o.get("replyCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                    val createdSec = o.get("createdAt")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
+                                    val createdMs = when {
+                                        createdSec > 10_000_000_000L -> createdSec
+                                        createdSec > 0L -> createdSec * 1000L
+                                        else -> System.currentTimeMillis()
+                                    }
+                                    val hasMedia = o.get("hasGifOrMedia")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                                    val item = InstagramCommentItem(
+                                        id = cid,
+                                        parentCommentId = parentId,
+                                        authorUsername = author.ifBlank { "instagram_user" },
+                                        authorId = authorId,
+                                        authorFullName = fullName,
+                                        authorAvatarUrl = avatar,
+                                        isAuthorVerified = verified,
+                                        text = text,
+                                        likeCount = likes,
+                                        replyCount = replyCnt,
+                                        createdAt = createdMs,
+                                        hasGifOrMedia = hasMedia
+                                    )
+                                    val prev = collected[cid]
+                                    if (prev == null) {
+                                        collected[cid] = item
+                                        newlyAdded.add(item)
+                                    } else if (
+                                        item.likeCount > prev.likeCount ||
+                                        item.replyCount > prev.replyCount ||
+                                        (prev.parentCommentId == null && item.parentCommentId != null)
+                                    ) {
+                                        val merged = prev.copy(
+                                            parentCommentId = prev.parentCommentId ?: item.parentCommentId,
+                                            likeCount = maxOf(prev.likeCount, item.likeCount),
+                                            replyCount = maxOf(prev.replyCount, item.replyCount),
+                                            authorAvatarUrl = prev.authorAvatarUrl ?: item.authorAvatarUrl,
+                                            isAuthorVerified = prev.isAuthorVerified || item.isAuthorVerified
+                                        )
+                                        collected[cid] = merged
+                                        newlyAdded.add(merged)
+                                    }
+                                }
+                            }
+                            if (newlyAdded.isNotEmpty()) {
+                                staleSteps = 0
+                                onBatch?.invoke(newlyAdded)
+                                if (collected.size >= maxComments) {
+                                    finish("reached_max_$maxComments")
+                                }
+                            }
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                wv.addJavascriptInterface(bridge, COMMENTS_BRIDGE_NAME)
+                AppLogger.i(TAG, "WebView comments intercept start: $shortcode (max=$maxComments)")
+
+                fun startExpandLoop() {
+                    if (scrollStarted || finished.get()) return
+                    scrollStarted = true
+                    val stepRunnable = object : Runnable {
+                        override fun run() {
+                            if (finished.get()) return
+                            val curCount = collected.size
+                            if (curCount >= maxComments) {
+                                finish("reached_max_$maxComments")
+                                return
+                            }
+                            if (curCount == lastCount) {
+                                staleSteps++
+                            } else {
+                                lastCount = curCount
+                                staleSteps = 0
+                            }
+                            if (staleSteps >= 5) {
+                                finish("end_of_comments")
+                                return
+                            }
+                            webViewRef?.evaluateJavascript(COMMENTS_SCROLL_AND_EXPAND_JS, null)
+                            mainHandler.postDelayed(this, 1100L)
+                        }
+                    }
+                    scheduledCallbacks.add(stepRunnable)
+                    mainHandler.postDelayed(stepRunnable, 1200L)
+                }
+
+                wv.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        val scheme = request?.url?.scheme?.lowercase() ?: return false
+                        return scheme != "http" && scheme != "https"
+                    }
+
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        view?.evaluateJavascript(COMMENTS_NETWORK_HOOK_JS, null)
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        if (finished.get()) return
+                        if (url != null && url.contains("/accounts/login")) {
+                            finish("redirected_to_login")
+                            return
+                        }
+                        view?.evaluateJavascript(COMMENTS_NETWORK_HOOK_JS, null)
+                        startExpandLoop()
+                    }
+                }
+
+                wv.loadUrl("https://www.instagram.com/p/$shortcode/")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "WebView comments init failed for $shortcode", e)
+                finish("init_exception")
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "HeadlessIGScraper"
         private const val BRIDGE_NAME = "AndroidBridge"
         private const val STORY_BRIDGE_NAME = "StoryBridge"
         private const val PAGINATED_BRIDGE_NAME = "PaginatedPostsBridge"
         private const val PROFILE_BRIDGE_NAME = "ProfileBridge"
+        private const val COMMENTS_BRIDGE_NAME = "CommentsBridge"
         private const val TOTAL_TIMEOUT_MS = 22_000L
         private const val STORY_TIMEOUT_MS = 16_000L
         private const val PROFILE_TIMEOUT_MS = 15_000L
         private const val PAGINATED_TIMEOUT_MS = 95_000L
+        private const val COMMENTS_TIMEOUT_MS = 38_000L
 
         private fun buildProfileNetworkHookJs(targetUsername: String): String {
             val safeTarget = targetUsername.replace("'", "").lowercase()
@@ -1460,6 +1711,241 @@ class HeadlessInstagramScraper(context: Context) {
                         window.AndroidBridge.onExtractionResult(JSON.stringify({ status: 'error', error: String(e), items: [] }));
                     }
                 }
+            })();
+        """.trimIndent()
+
+        private val COMMENTS_NETWORK_HOOK_JS = """
+            (function() {
+                if (window.__igCommentsHookInstalled) return;
+                window.__igCommentsHookInstalled = true;
+
+                function pushNode(out, seen, node, fallbackParentId) {
+                    if (!node || typeof node !== 'object') return;
+                    const id = String(node.pk || node.id || '');
+                    const txt = typeof node.text === 'string' ? node.text : '';
+                    const user = node.user || node.owner || null;
+                    const uname = user && user.username ? String(user.username) : '';
+                    if (!id || (!txt && !uname)) return;
+                    if (!seen.has(id)) {
+                        seen.add(id);
+                        const parentId = node.parent_comment_id
+                            ? String(node.parent_comment_id)
+                            : (fallbackParentId || '');
+                        const likes = Number(
+                            node.comment_like_count !== undefined
+                                ? node.comment_like_count
+                                : (node.edge_liked_by && node.edge_liked_by.count !== undefined ? node.edge_liked_by.count : 0)
+                        ) || 0;
+                        const replyCnt = Number(
+                            node.child_comment_count !== undefined
+                                ? node.child_comment_count
+                                : (node.edge_threaded_comments && node.edge_threaded_comments.count !== undefined ? node.edge_threaded_comments.count : 0)
+                        ) || 0;
+                        const created = Number(node.created_at_utc || node.created_at || 0) || 0;
+                        out.push({
+                            id: id,
+                            parentCommentId: parentId,
+                            authorUsername: uname,
+                            authorId: user ? String(user.pk || user.id || '') : '',
+                            authorFullName: user && user.full_name ? String(user.full_name) : '',
+                            authorAvatarUrl: user && user.profile_pic_url ? String(user.profile_pic_url) : '',
+                            isVerified: !!(user && user.is_verified),
+                            text: txt,
+                            likeCount: likes,
+                            replyCount: replyCnt,
+                            createdAt: created,
+                            hasGifOrMedia: !!(node.giphy_media_info || node.gif_media_id)
+                        });
+                    }
+                    // Extract inline preview_child_comments / child_comments / edge_threaded_comments
+                    const previewChildren = node.preview_child_comments || node.child_comments;
+                    if (Array.isArray(previewChildren)) {
+                        previewChildren.forEach(function(ch) { pushNode(out, seen, ch, id); });
+                    }
+                    if (node.edge_threaded_comments && Array.isArray(node.edge_threaded_comments.edges)) {
+                        node.edge_threaded_comments.edges.forEach(function(e) {
+                            if (e && e.node) pushNode(out, seen, e.node, id);
+                        });
+                    }
+                }
+
+                function parseCommentsJson(text, urlHint) {
+                    if (!text || text.length < 30) return;
+                    if (text.indexOf('comment_like_count') === -1 &&
+                        text.indexOf('child_comment_count') === -1 &&
+                        text.indexOf('child_comments') === -1 &&
+                        text.indexOf('edge_media_to_parent_comment') === -1 &&
+                        text.indexOf('edge_threaded_comments') === -1 &&
+                        text.indexOf('comments__connection') === -1) return;
+                    try {
+                        const root = JSON.parse(text);
+                        const out = [];
+                        const seen = new Set();
+                        let urlParent = '';
+                        const pm = String(urlHint || '').match(/comments\/(\d+)\/child_comments/);
+                        if (pm) urlParent = pm[1];
+
+                        function walk(n, inheritedParent) {
+                            if (!n || typeof n !== 'object') return;
+                            if (Array.isArray(n)) { n.forEach(function(x) { walk(x, inheritedParent); }); return; }
+
+                            if (Array.isArray(n.comments)) {
+                                n.comments.forEach(function(c) { pushNode(out, seen, c, inheritedParent); });
+                            }
+                            if (Array.isArray(n.child_comments)) {
+                                const p = n.parent_comment && (n.parent_comment.pk || n.parent_comment.id)
+                                    ? String(n.parent_comment.pk || n.parent_comment.id)
+                                    : (n.pk || n.id ? String(n.pk || n.id) : (urlParent || inheritedParent));
+                                n.child_comments.forEach(function(c) { pushNode(out, seen, c, p); });
+                            }
+                            const connKeys = [
+                                'xdt_api__v1__media__media_id__comments__connection',
+                                'xdt_api__v1__media__media_id__comments__parent_comment_id__child_comments__connection',
+                                'edge_media_to_parent_comment',
+                                'edge_media_to_comment'
+                            ];
+                            connKeys.forEach(function(k) {
+                                const c = n[k];
+                                if (c && Array.isArray(c.edges)) {
+                                    c.edges.forEach(function(e) {
+                                        if (e && e.node) pushNode(out, seen, e.node, inheritedParent);
+                                    });
+                                }
+                            });
+                            Object.keys(n).forEach(function(k) { walk(n[k], inheritedParent); });
+                        }
+                        walk(root, urlParent);
+                        if (out.length > 0 && window.CommentsBridge) {
+                            window.CommentsBridge.onCommentBatch(JSON.stringify({ status: 'ok', items: out }));
+                        }
+                    } catch (_) {}
+                }
+
+                const origFetch = window.fetch;
+                if (origFetch) {
+                    window.fetch = function() {
+                        const url = (arguments[0] && typeof arguments[0] === 'string') ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
+                        return origFetch.apply(this, arguments).then(function(resp) {
+                            try {
+                                if (url.indexOf('graphql') !== -1 || url.indexOf('comments') !== -1) {
+                                    resp.clone().text().then(function(t) { parseCommentsJson(t, url); }).catch(function(){});
+                                }
+                            } catch (_) {}
+                            return resp;
+                        });
+                    };
+                }
+
+                const origOpen = XMLHttpRequest.prototype.open;
+                const origSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    this.__igUrl = String(url || '');
+                    return origOpen.apply(this, arguments);
+                };
+                XMLHttpRequest.prototype.send = function() {
+                    this.addEventListener('load', function() {
+                        try {
+                            const u = this.__igUrl || '';
+                            if (u.indexOf('graphql') !== -1 || u.indexOf('comments') !== -1) {
+                                parseCommentsJson(this.responseText || '', u);
+                            }
+                        } catch (_) {}
+                    });
+                    return origSend.apply(this, arguments);
+                };
+            })();
+        """.trimIndent()
+
+        private val COMMENTS_SCROLL_AND_EXPAND_JS = """
+            (function() {
+                try {
+                    const href = window.location.href || '';
+                    if (href.indexOf('/accounts/login') !== -1) {
+                        if (window.CommentsBridge) window.CommentsBridge.onCommentBatch(JSON.stringify({ status: 'login_wall', items: [] }));
+                        return;
+                    }
+                    // Parse embedded SSR JSON scripts once
+                    if (!window.__igCommentsSsrScanned) {
+                        window.__igCommentsSsrScanned = true;
+                        document.querySelectorAll('script[type="application/json"]').forEach(function(s) {
+                            const txt = s.textContent || '';
+                            if (txt.indexOf('comments__connection') !== -1 || txt.indexOf('edge_media_to_parent_comment') !== -1 || txt.indexOf('comment_like_count') !== -1) {
+                                try {
+                                    const root = JSON.parse(txt);
+                                    const out = [];
+                                    const seen = new Set();
+                                    function addNode(node, parentId) {
+                                        if (!node || typeof node !== 'object') return;
+                                        const id = String(node.pk || node.id || '');
+                                        const t = typeof node.text === 'string' ? node.text : '';
+                                        const u = node.user || node.owner || null;
+                                        const un = u && u.username ? String(u.username) : '';
+                                        if (!id || (!t && !un) || seen.has(id)) return;
+                                        seen.add(id);
+                                        out.push({
+                                            id: id,
+                                            parentCommentId: node.parent_comment_id ? String(node.parent_comment_id) : (parentId || ''),
+                                            authorUsername: un,
+                                            authorId: u ? String(u.pk || u.id || '') : '',
+                                            authorFullName: u && u.full_name ? String(u.full_name) : '',
+                                            authorAvatarUrl: u && u.profile_pic_url ? String(u.profile_pic_url) : '',
+                                            isVerified: !!(u && u.is_verified),
+                                            text: t,
+                                            likeCount: Number(node.comment_like_count || (node.edge_liked_by && node.edge_liked_by.count) || 0) || 0,
+                                            replyCount: Number(node.child_comment_count || (node.edge_threaded_comments && node.edge_threaded_comments.count) || 0) || 0,
+                                            createdAt: Number(node.created_at_utc || node.created_at || 0) || 0,
+                                            hasGifOrMedia: !!(node.giphy_media_info || node.gif_media_id)
+                                        });
+                                        (node.preview_child_comments || node.child_comments || []).forEach(function(ch) { addNode(ch, id); });
+                                        if (node.edge_threaded_comments && Array.isArray(node.edge_threaded_comments.edges)) {
+                                            node.edge_threaded_comments.edges.forEach(function(e) { if (e && e.node) addNode(e.node, id); });
+                                        }
+                                    }
+                                    function walk(n) {
+                                        if (!n || typeof n !== 'object') return;
+                                        if (Array.isArray(n)) { n.forEach(walk); return; }
+                                        ['xdt_api__v1__media__media_id__comments__connection', 'edge_media_to_parent_comment', 'edge_media_to_comment'].forEach(function(k) {
+                                            if (n[k] && Array.isArray(n[k].edges)) {
+                                                n[k].edges.forEach(function(e) { if (e && e.node) addNode(e.node, ''); });
+                                            }
+                                        });
+                                        Object.keys(n).forEach(function(k) { walk(n[k]); });
+                                    }
+                                    walk(root);
+                                    if (out.length > 0 && window.CommentsBridge) {
+                                        window.CommentsBridge.onCommentBatch(JSON.stringify({ status: 'ok', items: out }));
+                                    }
+                                } catch (_) {}
+                            }
+                        });
+                    }
+
+                    // Click "Load more comments" or "View replies" buttons (up to 4 clicks per tick)
+                    let clicks = 0;
+                    const btns = document.querySelectorAll('button, div[role="button"], span[role="button"]');
+                    for (let i = 0; i < btns.length && clicks < 4; i++) {
+                        const b = btns[i];
+                        if (b.__igClicked) continue;
+                        const label = ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '')).trim().toLowerCase();
+                        if (label.indexOf('view replies') !== -1 ||
+                            label.indexOf('view all') !== -1 && label.indexOf('repl') !== -1 ||
+                            label.indexOf('load more comments') !== -1 ||
+                            label.indexOf('cavabları göstər') !== -1 ||
+                            label.indexOf('daha çox şərh') !== -1) {
+                            b.__igClicked = true;
+                            b.click();
+                            clicks++;
+                        }
+                    }
+
+                    // Scroll any scrollable comment containers + main window
+                    document.querySelectorAll('ul, div').forEach(function(el) {
+                        if (el.scrollHeight > el.clientHeight + 60 && el.clientHeight > 180) {
+                            el.scrollTop = el.scrollHeight;
+                        }
+                    });
+                    window.scrollTo(0, document.body.scrollHeight);
+                } catch (_) {}
             })();
         """.trimIndent()
     }

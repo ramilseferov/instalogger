@@ -280,8 +280,12 @@ fun InstagramPostViewerDialog(
     val assets by app.database.mediaAssetDao()
         .getAssetsForPostFlow(post.id)
         .collectAsStateWithLifecycle(initialValue = emptyList())
+    val archivedCommentsCount by app.database.postCommentDao()
+        .getCommentsCountForPostFlow(post.id)
+        .collectAsStateWithLifecycle(initialValue = 0)
     val downloadStates by app.mediaDownloadOrchestrator.downloadStates.collectAsStateWithLifecycle()
     val downloadState = downloadStates[post.id] ?: PostDownloadState.Idle
+    var showCommentsSheet by remember(post.id) { mutableStateOf(false) }
 
     val timeFormat = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
     val formattedDate = timeFormat.format(Date(post.postedAt))
@@ -554,17 +558,40 @@ fun InstagramPostViewerDialog(
                                 )
                             }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            Surface(
+                                shape = ShapeTokens.PillShape,
+                                color = AccentBlue.copy(alpha = 0.12f),
+                                modifier = Modifier
+                                    .clip(ShapeTokens.PillShape)
+                                    .bouncyClickable(pressScale = 0.95f) { showCommentsSheet = true }
                             ) {
-                                Icon(Icons.Default.ChatBubbleOutline, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
-                                Text(
-                                    text = stringResource(R.string.comments_count_format, post.commentCount),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChatBubbleOutline,
+                                        contentDescription = stringResource(R.string.comments_sheet_title),
+                                        tint = AccentBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    val displayCommentCount = maxOf(post.commentCount, archivedCommentsCount)
+                                    Text(
+                                        text = stringResource(R.string.comments_count_format, displayCommentCount),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = AccentBlue,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (archivedCommentsCount > 0) {
+                                        Icon(
+                                            Icons.Default.VerifiedUser,
+                                            contentDescription = null,
+                                            tint = StatusGreen,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -686,6 +713,13 @@ fun InstagramPostViewerDialog(
                 }
             }
         }
+    }
+
+    if (showCommentsSheet) {
+        PostCommentsBottomSheet(
+            post = post,
+            onDismiss = { showCommentsSheet = false }
+        )
     }
 }
 

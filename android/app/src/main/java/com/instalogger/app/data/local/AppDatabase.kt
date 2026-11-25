@@ -19,9 +19,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FollowerAuditEntity::class,
         FollowerHistoryEntity::class,
         MediaAssetEntity::class,
-        ProviderHealthEntity::class
+        ProviderHealthEntity::class,
+        PostCommentEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,6 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun followerHistoryDao(): FollowerHistoryDao
     abstract fun mediaAssetDao(): MediaAssetDao
     abstract fun providerHealthDao(): ProviderHealthDao
+    abstract fun postCommentDao(): PostCommentDao
 
     companion object {
         @Volatile
@@ -133,6 +135,37 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS post_comments (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        postId TEXT NOT NULL,
+                        mediaId TEXT,
+                        username TEXT NOT NULL,
+                        parentCommentId TEXT,
+                        authorUsername TEXT NOT NULL,
+                        authorId TEXT,
+                        authorFullName TEXT NOT NULL DEFAULT '',
+                        authorAvatarUrl TEXT,
+                        isAuthorVerified INTEGER NOT NULL DEFAULT 0,
+                        text TEXT NOT NULL,
+                        likeCount INTEGER NOT NULL DEFAULT 0,
+                        replyCount INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL,
+                        archivedAt INTEGER NOT NULL,
+                        collectionStatus TEXT NOT NULL DEFAULT 'complete',
+                        hasGifOrMedia INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_post_comments_postId ON post_comments (postId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_post_comments_username ON post_comments (username)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_post_comments_postId_parentCommentId ON post_comments (postId, parentCommentId)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -140,7 +173,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "instalogger_standalone.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

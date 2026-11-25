@@ -56,6 +56,11 @@ class ProfileInspector(
     private val _postBackfillProgress = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Pair<Int, Int>>>(emptyMap())
     val postBackfillProgress: kotlinx.coroutines.flow.StateFlow<Map<String, Pair<Int, Int>>> = _postBackfillProgress
 
+    private val _commentSyncProgress = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Int>>(emptyMap())
+    val commentSyncProgress: kotlinx.coroutines.flow.StateFlow<Map<String, Int>> = _commentSyncProgress
+
+    private val commentSyncMutexMap = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -2286,6 +2291,141 @@ class ProfileInspector(
         val isPrivate = target?.isPrivate ?: false
         archiveHighlightsAndPosts(cleanUser, targetId, cookie, wasPrivateToPublic = false, isPrivate = isPrivate)
         _postSyncState.value[cleanUser] ?: PostSyncStatus.FAILED
+    }
+
+    /**
+     * Fetches and archives Post/Reel comments + threaded replies into Room DB and sidecar JSON.
+     * Runs on application-lifetime background scope so closing the modal never aborts an active sync.
+     */
+    suspend fun syncPostComments(
+        post: PostEntity,
+        maxComments: Int = 500
+    ): CommentFetchResult {
+        val cleanCode = post.id.trim()
+        val cleanUser = post.username.trim().trimStart('@').lowercase()
+        val job = appBackgroundScope.async {
+            val mutex = commentSyncMutexMap.computeIfAbsent(cleanCode) { Mutex() }
+            if (!mutex.tryLock()) {
+                val existing = database.postCommentDao().getCommentsForPost(cleanCode)
+                return@async CommentFetchResult(
+                    comments = existing.map {
+                        InstagramCommentItem(
+                            id = it.id,
+                            parentCommentId = it.parentCommentId,
+                            authorUsername = it.authorUsername,
+                            authorId = it.authorId,
+                            authorFullName = it.authorFullName,
+                            authorAvatarUrl = it.authorAvatarUrl,
+                            isAuthorVerified = it.isAuthorVerified,
+                            text = it.text,
+                            likeCount = it.likeCount,
+                            replyCount = it.replyCount,
+                            createdAt = it.createdAt,
+                            hasGifOrMedia = it.hasGifOrMedia
+                        )
+                    },
+                    mediaId = existing.firstOrNull()?.mediaId,
+                    collectionStatus = if (existing.any { it.collectionStatus == "partial" }) "partial" else "complete",
+                    source = "cached_inflight"
+                )
+            }
+            try {
+                _commentSyncProgress.value = _commentSyncProgress.value + (cleanCode to 0)
+                val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
+                val mediaId = com.instalogger.app.engine.comments.CommentTreeEngine.shortcodeToMediaId(cleanCode)
+                val pageDelay = getSettingsManager().archiverSpeedPreset.value.pageDelayMs
+
+                val result = instagramEngine.fetchPostComments(
+                    shortcode = cleanCode,
+                    cookieString = cookie,
+                    maxComments = maxComments,
+                    reportedTotalCount = post.commentCount,
+                    pageDelayMs = pageDelay
+                ) { batch, discoveredTotal ->
+                    val now = System.currentTimeMillis()
+                    val entities = batch.map { item ->
+                        PostCommentEntity(
+                            id = item.id,
+                            postId = cleanCode,
+                            mediaId = mediaId,
+                            username = cleanUser,
+                            parentCommentId = item.parentCommentId,
+                            authorUsername = item.authorUsername,
+                            authorId = item.authorId,
+                            authorFullName = item.authorFullName,
+                            authorAvatarUrl = item.authorAvatarUrl,
+                            isAuthorVerified = item.isAuthorVerified,
+                            text = item.text,
+                            likeCount = item.likeCount,
+                            replyCount = item.replyCount,
+                            createdAt = item.createdAt,
+                            archivedAt = now,
+                            collectionStatus = "partial",
+                            hasGifOrMedia = item.hasGifOrMedia
+                        )
+                    }
+                    if (entities.isNotEmpty()) {
+                        database.postCommentDao().insertComments(entities)
+                    }
+                    _commentSyncProgress.value = _commentSyncProgress.value + (cleanCode to discoveredTotal)
+                }
+
+                // Final pass with finalized collectionStatus ("complete" vs "partial") + sidecar _comments.json archive
+                if (result.comments.isNotEmpty()) {
+                    val now = System.currentTimeMillis()
+                    val finalEntities = result.comments.map { item ->
+                        PostCommentEntity(
+                            id = item.id,
+                            postId = cleanCode,
+                            mediaId = result.mediaId ?: mediaId,
+                            username = cleanUser,
+                            parentCommentId = item.parentCommentId,
+                            authorUsername = item.authorUsername,
+                            authorId = item.authorId,
+                            authorFullName = item.authorFullName,
+                            authorAvatarUrl = item.authorAvatarUrl,
+                            isAuthorVerified = item.isAuthorVerified,
+                            text = item.text,
+                            likeCount = item.likeCount,
+                            replyCount = item.replyCount,
+                            createdAt = item.createdAt,
+                            archivedAt = now,
+                            collectionStatus = result.collectionStatus,
+                            hasGifOrMedia = item.hasGifOrMedia
+                        )
+                    }
+                    database.postCommentDao().insertComments(finalEntities)
+
+                    val allStored = database.postCommentDao().getCommentsForPost(cleanCode)
+                    if (allStored.size > post.commentCount) {
+                        database.postDao().insertPosts(listOf(post.copy(commentCount = allStored.size)))
+                    }
+                    // Save sidecar structured JSON archive alongside media (insta-dl pattern)
+                    try {
+                        val tree = com.instalogger.app.engine.comments.CommentTreeEngine.buildCommentTree(allStored)
+                        val stats = com.instalogger.app.engine.comments.CommentTreeEngine.computeStats(allStored, post.commentCount)
+                        val json = com.instalogger.app.engine.comments.CommentExporter.renderJson(
+                            shortcode = cleanCode,
+                            mediaId = result.mediaId ?: mediaId,
+                            targetUsername = cleanUser,
+                            nodes = tree,
+                            stats = stats
+                        )
+                        ArchiveDirectoryManager.saveUserArchiveJson(context, cleanUser, "comments/${cleanCode}_comments.json", json)
+                    } catch (e: Exception) {
+                        AppLogger.w("ProfileInspector", "Failed to save sidecar _comments.json for $cleanCode: ${e.message}")
+                    }
+                }
+                result
+            } catch (e: Exception) {
+                AppLogger.e("ProfileInspector", "syncPostComments($cleanCode) failed: ${e.message}")
+                CommentFetchResult(emptyList(), collectionStatus = "partial", errorMessage = e.message)
+            } finally {
+                _commentSyncProgress.value = _commentSyncProgress.value - cleanCode
+                mutex.unlock()
+            }
+        }
+        return job.await()
     }
 
     companion object {
