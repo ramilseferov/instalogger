@@ -9,6 +9,7 @@ import com.instalogger.app.data.local.MediaAssetEntity
 import com.instalogger.app.data.local.PostEntity
 import com.instalogger.app.engine.SessionManager
 import com.instalogger.app.settings.AppSettingsManager
+import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.VaultStorageManager
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.CancellationException
@@ -16,15 +17,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Production-grade Multi-Provider Media Download Orchestrator.
@@ -47,7 +48,8 @@ class MediaDownloadOrchestrator(
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val concurrencyGate = Semaphore(MAX_CONCURRENT_DOWNLOADS)
+    private val activeSlotLock = Any()
+    private val activeSlotCount = AtomicInteger(0)
 
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val activeProcessIds = ConcurrentHashMap<String, String>()
@@ -55,6 +57,52 @@ class MediaDownloadOrchestrator(
 
     private val _downloadStates = MutableStateFlow<Map<String, PostDownloadState>>(emptyMap())
     val downloadStates: StateFlow<Map<String, PostDownloadState>> = _downloadStates.asStateFlow()
+
+    private val _activeDownloadCount = MutableStateFlow(0)
+    val activeDownloadCount: StateFlow<Int> = _activeDownloadCount.asStateFlow()
+
+    private val _queuedDownloadCount = MutableStateFlow(0)
+    val queuedDownloadCount: StateFlow<Int> = _queuedDownloadCount.asStateFlow()
+
+    private suspend fun <T> withDynamicSlot(block: suspend () -> T): T {
+        while (true) {
+            val maxWorkers = settingsManager.archiverSpeedPreset.value.downloadWorkers.coerceIn(1, 12)
+            var acquired = false
+            synchronized(activeSlotLock) {
+                if (activeSlotCount.get() < maxWorkers) {
+                    activeSlotCount.incrementAndGet()
+                    acquired = true
+                }
+            }
+            if (acquired) {
+                _activeDownloadCount.value = activeSlotCount.get()
+                try {
+                    return block()
+                } finally {
+                    val left = activeSlotCount.decrementAndGet().coerceAtLeast(0)
+                    _activeDownloadCount.value = left
+                }
+            }
+            delay(120L)
+        }
+    }
+
+    /**
+     * Resumes any unarchived/pending/failed posts in Room DB for a given user.
+     */
+    suspend fun enqueuePendingForUser(username: String): Int {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val posts = database.postDao().getPostsListForUser(cleanUser)
+        val missing = posts.filter { post ->
+            val fileOk = !post.localPath.isNullOrBlank() &&
+                File(post.localPath).exists() &&
+                File(post.localPath).length() > 0L
+            !fileOk || post.downloadStatus != "complete"
+        }
+        if (missing.isEmpty()) return 0
+        enqueueBatch(cleanUser, missing.map { it to emptyList() })
+        return missing.size
+    }
 
     fun getPostState(postId: String): PostDownloadState {
         return _downloadStates.value[postId] ?: PostDownloadState.Idle
@@ -111,6 +159,7 @@ class MediaDownloadOrchestrator(
         }
 
         updateState(postId, PostDownloadState.Queued)
+        _queuedDownloadCount.value = activeJobs.size + 1
 
         val job = scope.launch {
             val processId = "dl_${postId}_${UUID.randomUUID().toString().take(8)}"
@@ -118,7 +167,7 @@ class MediaDownloadOrchestrator(
             val stagingDir = File(appContext.cacheDir, "ytdlp_staging/$processId")
 
             try {
-                concurrencyGate.withPermit {
+                withDynamicSlot {
                     executeJob(
                         post = post,
                         slideHints = slideHints,
@@ -131,12 +180,13 @@ class MediaDownloadOrchestrator(
                 updateState(postId, PostDownloadState.Cancelled)
             } catch (e: Exception) {
                 val safeMsg = LogSanitizer.redact(e.message ?: "Download error")
-                Log.w(TAG, "Unexpected orchestrator error for $postId: $safeMsg")
+                AppLogger.e(TAG, "Orchestrator error for $postId: $safeMsg")
                 updateState(postId, PostDownloadState.Failed(safeMsg))
             } finally {
                 activeProviderMap.remove(postId)
                 activeProcessIds.remove(postId)
                 activeJobs.remove(postId)
+                _queuedDownloadCount.value = activeJobs.size
                 try {
                     stagingDir.deleteRecursively()
                 } catch (_: Exception) {
@@ -145,6 +195,7 @@ class MediaDownloadOrchestrator(
         }
 
         activeJobs[postId] = job
+        _queuedDownloadCount.value = activeJobs.size
     }
 
     fun cancelDownload(postId: String) {

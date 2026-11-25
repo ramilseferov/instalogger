@@ -263,4 +263,24 @@ class MediaEngineUnitTest {
         assertTrue(dump.contains("[REDACTED]"))
         com.instalogger.app.util.AppLogger.clear()
     }
+
+    @Test
+    fun archiverSpeedPreset_mapsConcurrencyAndDefaultsCorrectly() {
+        val eco = com.instalogger.app.settings.ArchiverSpeedPreset.fromKey("eco")
+        val balanced = com.instalogger.app.settings.ArchiverSpeedPreset.fromKey("BALANCED")
+        val fast = com.instalogger.app.settings.ArchiverSpeedPreset.fromKey("FAST")
+        val turbo = com.instalogger.app.settings.ArchiverSpeedPreset.fromKey("turbo")
+        val fallback = com.instalogger.app.settings.ArchiverSpeedPreset.fromKey("unknown")
+
+        assertEquals(2, eco.downloadWorkers)
+        assertEquals(1, eco.targetWorkers)
+        assertEquals(4, balanced.downloadWorkers)
+        assertEquals(2, balanced.targetWorkers)
+        assertEquals(6, fast.downloadWorkers)
+        assertEquals(3, fast.targetWorkers)
+        assertEquals(10, turbo.downloadWorkers)
+        assertEquals(4, turbo.targetWorkers)
+        assertEquals(balanced, fallback)
+        assertTrue(turbo.pageDelayMs < fast.pageDelayMs && fast.pageDelayMs < balanced.pageDelayMs && balanced.pageDelayMs < eco.pageDelayMs)
+    }
 }

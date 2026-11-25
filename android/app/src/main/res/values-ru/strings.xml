@@ -403,4 +403,22 @@
     <string name="msg_target_checked_media_partial">Профиль @%1$s обновлен, но посты/хайлайты не загрузились (см. Developer Logs)</string>
     <string name="msg_refresh_partial">Обновлено: %1$d, ошибок: %2$d (см. Developer Logs)</string>
     <string name="msg_refresh_all_failed">Обновление не удалось (%1$d ошибок) — см. Developer Logs</string>
+    <string name="section_speed_title">Скорость архивации и фон</string>
+    <string name="section_speed_desc">Параллельные потоки, глубина загрузки постов и блокировка сна CPU (WakeLock).</string>
+    <string name="speed_preset_label">Режим параллельной скорости</string>
+    <string name="speed_preset_eco">Эко</string>
+    <string name="speed_preset_balanced">Баланс</string>
+    <string name="speed_preset_fast">Быстро</string>
+    <string name="speed_preset_turbo">Турбо</string>
+    <string name="max_posts_limit_label">Максимум постов на профиль</string>
+    <string name="max_posts_limit_all">Все</string>
+    <string name="keep_awake_title">Не засыпать в фоне (WakeLock)</string>
+    <string name="keep_awake_desc">Удерживает CPU активным при выключенном экране, чтобы архивация не прерывалась.</string>
+    <string name="auto_archive_pending_title">Автоархивация постов и хайлайтов</string>
+    <string name="auto_archive_pending_desc">Автоматически докачивает пропущенные посты, пустые хайлайты и открывшиеся профили параллельно.</string>
+    <string name="service_notification_live_downloads">%1$s (%2$dx) · Активно: %3$d · В очереди: %4$d</string>
+    <string name="service_notification_live_idle">%1$d активных профилей · %2$s (%3$dx параллельно)</string>
+    <string name="posts_archived_progress">%1$d / %2$d постов в архиве</string>
+    <string name="posts_syncing_all_desc">Загрузка всех постов параллельно…</string>
+    <string name="btn_load_all_posts">Загрузить все</string>
 </resources>

@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.History
@@ -87,9 +88,11 @@ fun ProfileDetailScreen(
     val history by app.database.followerHistoryDao().getHistoryForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val audits by app.database.followerAuditDao().getAuditsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val syncStateMap by app.profileInspector.postSyncState.collectAsStateWithLifecycle()
+    val backfillProgressMap by app.profileInspector.postBackfillProgress.collectAsStateWithLifecycle()
     val downloadStates by app.mediaDownloadOrchestrator.downloadStates.collectAsStateWithLifecycle()
     val cleanUserLower = remember(username) { username.trim().trimStart('@').lowercase() }
     val targetSyncStatus = syncStateMap[cleanUserLower] ?: PostSyncStatus.IDLE
+    val backfillProgress = backfillProgressMap[cleanUserLower]
     val hasSession = remember { app.sessionManager.hasSession() }
 
     var isRefreshing by remember { mutableStateOf(false) }
@@ -611,6 +614,103 @@ fun ProfileDetailScreen(
                                 }
                             }
                         } else {
+                            if (totalPostsCount > posts.size || backfillProgress != null) {
+                                item(key = "posts_backfill_banner") {
+                                    val loadedCount = maxOf(posts.size, backfillProgress?.first ?: 0)
+                                    val expectedCount = maxOf(totalPostsCount, backfillProgress?.second ?: 0)
+                                    val isLoadingAll = isActivelySyncing || backfillProgress != null
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                        shape = ShapeTokens.MediumShape,
+                                        color = MaterialTheme.colorScheme.surfaceContainer,
+                                        border = BorderStroke(0.75.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = stringResource(R.string.posts_archived_progress, loadedCount, expectedCount),
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    if (isLoadingAll) {
+                                                        Text(
+                                                            text = stringResource(R.string.posts_syncing_all_desc),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = AccentBlue
+                                                        )
+                                                    }
+                                                }
+                                                if (!isLoadingAll && totalPostsCount > posts.size) {
+                                                    FilledTonalButton(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                isFetchingPosts = true
+                                                                try {
+                                                                    app.profileInspector.syncAllPostsNow(username)
+                                                                } finally {
+                                                                    isFetchingPosts = false
+                                                                }
+                                                            }
+                                                        },
+                                                        shape = ShapeTokens.MediumShape,
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.CloudDownload,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(
+                                                            text = stringResource(R.string.btn_load_all_posts),
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            if (isLoadingAll) {
+                                                val fraction = if (expectedCount > 0) {
+                                                    (loadedCount.toFloat() / expectedCount.toFloat()).coerceIn(0f, 1f)
+                                                } else {
+                                                    0f
+                                                }
+                                                if (fraction > 0f && fraction < 1f) {
+                                                    LinearProgressIndicator(
+                                                        progress = { fraction },
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(4.dp)
+                                                            .clip(CircleShape),
+                                                        color = AccentBlue
+                                                    )
+                                                } else {
+                                                    LinearProgressIndicator(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(4.dp)
+                                                            .clip(CircleShape),
+                                                        color = AccentBlue
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             val postChunks = posts.chunked(3)
                             items(postChunks, key = { chunk -> "chunk_${chunk.first().id}" }) { chunk ->
                                 Row(

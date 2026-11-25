@@ -30,6 +30,28 @@ enum class ThemeMode {
     DARK
 }
 
+/**
+ * User-configurable parallelism and speed profile for background monitoring & media archiving.
+ */
+enum class ArchiverSpeedPreset(
+    val key: String,
+    val downloadWorkers: Int,
+    val targetWorkers: Int,
+    val pageDelayMs: Long,
+    val loopTickMs: Long
+) {
+    ECO("ECO", downloadWorkers = 2, targetWorkers = 1, pageDelayMs = 700L, loopTickMs = 8_000L),
+    BALANCED("BALANCED", downloadWorkers = 4, targetWorkers = 2, pageDelayMs = 300L, loopTickMs = 5_000L),
+    FAST("FAST", downloadWorkers = 6, targetWorkers = 3, pageDelayMs = 140L, loopTickMs = 3_000L),
+    TURBO("TURBO", downloadWorkers = 10, targetWorkers = 4, pageDelayMs = 50L, loopTickMs = 2_000L);
+
+    companion object {
+        fun fromKey(key: String?): ArchiverSpeedPreset {
+            return entries.firstOrNull { it.key.equals(key, ignoreCase = true) } ?: BALANCED
+        }
+    }
+}
+
 enum class NotificationCategory(
     val id: String,
     val prefKey: String,
@@ -186,6 +208,22 @@ class AppSettingsManager(private val context: Context) {
     private val _listCompletenessGuardEnabled = MutableStateFlow(loadBoolean(KEY_LIST_COMPLETENESS_GUARD, true))
     val listCompletenessGuardEnabled: StateFlow<Boolean> = _listCompletenessGuardEnabled.asStateFlow()
 
+    // Background Engine & Parallel Speed Controls
+    private val _archiverSpeedPreset = MutableStateFlow(
+        ArchiverSpeedPreset.fromKey(prefs.getString(KEY_ARCHIVER_SPEED, ArchiverSpeedPreset.BALANCED.key))
+    )
+    val archiverSpeedPreset: StateFlow<ArchiverSpeedPreset> = _archiverSpeedPreset.asStateFlow()
+
+    private val _keepAwakeEnabled = MutableStateFlow(loadBoolean(KEY_KEEP_AWAKE, true))
+    val keepAwakeEnabled: StateFlow<Boolean> = _keepAwakeEnabled.asStateFlow()
+
+    private val _autoArchivePendingEnabled = MutableStateFlow(loadBoolean(KEY_AUTO_ARCHIVE_PENDING, true))
+    val autoArchivePendingEnabled: StateFlow<Boolean> = _autoArchivePendingEnabled.asStateFlow()
+
+    // 0 = Unlimited (sync all posts on profile, e.g., 300, 1000+)
+    private val _maxPostsSyncLimit = MutableStateFlow(prefs.getInt(KEY_MAX_POSTS_SYNC_LIMIT, 0).coerceAtLeast(0))
+    val maxPostsSyncLimit: StateFlow<Int> = _maxPostsSyncLimit.asStateFlow()
+
     private val _categoryStates: Map<NotificationCategory, MutableStateFlow<Boolean>> =
         NotificationCategory.entries.associateWith { cat ->
             MutableStateFlow(prefs.getBoolean(cat.prefKey, cat.defaultEnabled))
@@ -332,6 +370,27 @@ class AppSettingsManager(private val context: Context) {
         prefs.edit().putBoolean(KEY_LIST_COMPLETENESS_GUARD, enabled).apply()
     }
 
+    fun setArchiverSpeedPreset(preset: ArchiverSpeedPreset) {
+        _archiverSpeedPreset.value = preset
+        prefs.edit().putString(KEY_ARCHIVER_SPEED, preset.key).apply()
+    }
+
+    fun setKeepAwakeEnabled(enabled: Boolean) {
+        _keepAwakeEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_KEEP_AWAKE, enabled).apply()
+    }
+
+    fun setAutoArchivePendingEnabled(enabled: Boolean) {
+        _autoArchivePendingEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_AUTO_ARCHIVE_PENDING, enabled).apply()
+    }
+
+    fun setMaxPostsSyncLimit(limit: Int) {
+        val safe = limit.coerceAtLeast(0)
+        _maxPostsSyncLimit.value = safe
+        prefs.edit().putInt(KEY_MAX_POSTS_SYNC_LIMIT, safe).apply()
+    }
+
     /**
      * Resolves the effective FollowerPoolPolicy by combining global defaults with per-target overrides.
      */
@@ -418,6 +477,10 @@ class AppSettingsManager(private val context: Context) {
         const val KEY_POOL_SPIKE_MULTIPLIER = "pref_pool_spike_multiplier"
         const val KEY_POOL_SUPPRESS_MINOR_LOGS = "pref_pool_suppress_minor_logs"
         const val KEY_LIST_COMPLETENESS_GUARD = "pref_list_completeness_guard"
+        const val KEY_ARCHIVER_SPEED = "pref_archiver_speed_preset"
+        const val KEY_KEEP_AWAKE = "pref_keep_awake_wakelock"
+        const val KEY_AUTO_ARCHIVE_PENDING = "pref_auto_archive_pending"
+        const val KEY_MAX_POSTS_SYNC_LIMIT = "pref_max_posts_sync_limit"
         const val DEFAULT_POOL_FIXED_THRESHOLD = 50L
         const val DEFAULT_POOL_PERCENT_THRESHOLD = 0.5f
         const val DEFAULT_POOL_SPIKE_MULTIPLIER = 3.0f

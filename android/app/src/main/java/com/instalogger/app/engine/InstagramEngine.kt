@@ -2706,6 +2706,223 @@ class InstagramEngine(context: Context? = null) {
         }
     }
 
+    /**
+     * Full multi-page paginated post fetcher (supports 300, 1000+ posts instead of stopping at page 1's 12 items).
+     * Streams each page immediately through [onPageDiscovered] so Room DB and parallel downloaders start at once:
+     * 1) Zero-Login Desktop SSR Page 1 (instant 12 posts in ~300ms for public profiles)
+     * 2) Fast Authenticated v1 Feed Pagination (33 posts/page via max_id cursor on i.instagram.com & www.instagram.com)
+     * 3) Headless Chromium Infinite Scroll Network Interceptor (captures remaining pages even when GraphQL doc_ids rotate)
+     */
+    suspend fun fetchAllPostsPaginated(
+        userId: String?,
+        username: String,
+        cookieString: String?,
+        maxPosts: Int = 0, // 0 = Unlimited (fetch all)
+        expectedTotal: Long = 0L,
+        isPrivate: Boolean = false,
+        pageDelayMs: Long = 250L,
+        onPageDiscovered: suspend (List<InstagramPostItem>, Int) -> Unit = { _, _ -> }
+    ): PostFetchResult {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val hasRealSession = !cookieString.isNullOrBlank()
+        if (isPrivate && !hasRealSession) return PostFetchResult.RequiresSession
+
+        val targetLimit = when {
+            maxPosts > 0 -> maxPosts
+            expectedTotal > 0L -> expectedTotal.coerceAtMost(2000L).toInt()
+            else -> 1000
+        }
+        val allByCode = linkedMapOf<String, InstagramPostItem>()
+        var sawRateLimit = false
+
+        suspend fun emitNew(items: List<InstagramPostItem>) {
+            val fresh = mutableListOf<InstagramPostItem>()
+            for (item in items) {
+                if (allByCode.size >= targetLimit) break
+                val prev = allByCode[item.shortcode]
+                if (prev == null) {
+                    allByCode[item.shortcode] = item
+                    fresh.add(item)
+                } else if (prev.likeCount == 0 && item.likeCount > 0) {
+                    val merged = prev.copy(
+                        likeCount = item.likeCount,
+                        commentCount = item.commentCount,
+                        caption = item.caption.ifBlank { prev.caption },
+                        timestamp = if (item.timestamp > 0L) item.timestamp else prev.timestamp,
+                        slides = if (item.slides.isNotEmpty()) item.slides else prev.slides,
+                        videoUrl = item.videoUrl ?: prev.videoUrl
+                    )
+                    allByCode[item.shortcode] = merged
+                    fresh.add(merged)
+                }
+            }
+            if (fresh.isNotEmpty()) {
+                onPageDiscovered(fresh, allByCode.size)
+            }
+        }
+
+        AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) start: targetLimit=$targetLimit expected=$expectedTotal hasSession=$hasRealSession")
+
+        // Stage 1: Instant Zero-Login Desktop SSR Page 1 (public profiles)
+        if (!isPrivate) {
+            try {
+                val page1 = fetchPostsViaDesktopSsr(cleanUser, cookieString = null, limit = 24)
+                if (page1.isNotEmpty()) {
+                    emitNew(page1)
+                    AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage1-SSR: ${page1.size} posts")
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage1-SSR error: ${e.message}")
+            }
+        }
+
+        // If we already captured all expected posts (e.g., small profile <= 12 posts), stop immediately!
+        if (expectedTotal > 0L && allByCode.size.toLong() >= expectedTotal) {
+            return PostFetchResult.Success(allByCode.values.toList())
+        }
+
+        // Stage 2: Fast Authenticated v1 Feed Cursor Pagination (33 posts/page via next_max_id)
+        if (hasRealSession && allByCode.size < targetLimit) {
+            val viewerDsId = extractDsUserId(cookieString)
+            var resolvedUid = userId?.takeIf { it.isNotBlank() && it != viewerDsId }
+            if (resolvedUid == null) {
+                resolvedUid = try { fetchViaHtml(cleanUser)?.instagramId } catch (_: Exception) { null }
+            }
+
+            var nextMaxId: String? = null
+            var pageNum = 0
+            val maxPages = ((targetLimit + 32) / 33).coerceIn(1, 65)
+
+            while (pageNum < maxPages && allByCode.size < targetLimit) {
+                pageNum++
+                val cursorQuery = if (!nextMaxId.isNullOrBlank()) "&max_id=${URLEncoder.encode(nextMaxId, "UTF-8")}" else ""
+                val candidates = buildList {
+                    if (!resolvedUid.isNullOrBlank()) {
+                        add("https://i.instagram.com/api/v1/feed/user/$resolvedUid/?count=33$cursorQuery" to IG_ANDROID_APP_UA)
+                    }
+                    add("https://www.instagram.com/api/v1/feed/user/$cleanUser/username/?count=33$cursorQuery" to DESKTOP_CHROME_UA)
+                }
+
+                var pageItems: List<InstagramPostItem> = emptyList()
+                var pageMore = false
+                var pageNextCursor: String? = null
+
+                for ((feedUrl, ua) in candidates) {
+                    try {
+                        val req = applyAuthenticatedApiHeaders(
+                            builder = Request.Builder().url(feedUrl),
+                            cookieString = cookieString!!,
+                            referer = "https://www.instagram.com/$cleanUser/",
+                            userAgent = ua
+                        )
+                        clientWithRedirects.newCall(req.build()).execute().use { resp ->
+                            if (resp.code == 429) {
+                                sawRateLimit = true
+                                AppLogger.w(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage2 page#$pageNum HTTP 429")
+                                return@use
+                            }
+                            if (resp.isSuccessful) {
+                                val body = resp.body?.string()?.trimStart().orEmpty()
+                                if (body.startsWith("{")) {
+                                    val root = gson.fromJson(body, JsonObject::class.java)
+                                    val itemsArr = root?.getAsJsonArray("items")
+                                    if (itemsArr != null && itemsArr.size() > 0) {
+                                        val parsed = mutableListOf<InstagramPostItem>()
+                                        for (itemEl in itemsArr) {
+                                            val node = itemEl.asJsonObject ?: continue
+                                            val code = node.get("code")?.takeIf { !it.isJsonNull }?.asString ?: continue
+                                            val mediaTypeInt = node.get("media_type")?.takeIf { !it.isJsonNull }?.asInt ?: 1
+                                            val slides = extractPolarisCarouselSlides(node)
+                                            val isCarousel = mediaTypeInt == 8 || slides.size > 1
+                                            val isVideo = mediaTypeInt == 2
+                                            val displayUrl = node.getAsJsonObject("image_versions2")
+                                                ?.getAsJsonArray("candidates")?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                                                ?: slides.firstOrNull()?.displayUrl
+                                                ?: ""
+                                            val videoUrl = node.getAsJsonArray("video_versions")
+                                                ?.firstOrNull()?.asJsonObject?.get("url")?.asString
+                                            val caption = node.getAsJsonObject("caption")?.get("text")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
+                                            val likes = node.get("like_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                            val comments = node.get("comment_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                            val takenAtSec = node.get("taken_at")?.takeIf { !it.isJsonNull }?.asLong ?: (System.currentTimeMillis() / 1000L)
+                                            parsed.add(
+                                                InstagramPostItem(
+                                                    id = code,
+                                                    shortcode = code,
+                                                    mediaType = when {
+                                                        isCarousel -> "carousel"
+                                                        isVideo -> "video"
+                                                        else -> "image"
+                                                    },
+                                                    displayUrl = displayUrl.ifBlank { "https://www.instagram.com/p/$code/media/?size=l" },
+                                                    videoUrl = videoUrl,
+                                                    caption = caption,
+                                                    timestamp = takenAtSec * 1000L,
+                                                    likeCount = likes,
+                                                    commentCount = comments,
+                                                    slides = slides
+                                                )
+                                            )
+                                        }
+                                        pageItems = parsed
+                                        pageMore = root.get("more_available")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                                        pageNextCursor = root.get("next_max_id")?.takeIf { !it.isJsonNull }?.asString
+                                    }
+                                }
+                            } else {
+                                AppLogger.d(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage2 page#$pageNum HTTP ${resp.code}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage2 page#$pageNum error: ${e.message}")
+                    }
+                    if (pageItems.isNotEmpty()) break
+                }
+
+                if (pageItems.isEmpty()) break
+                emitNew(pageItems)
+                AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage2 page#$pageNum: +${pageItems.size} (total=${allByCode.size}/$targetLimit)")
+
+                if (!pageMore || pageNextCursor.isNullOrBlank()) break
+                nextMaxId = pageNextCursor
+                if (pageDelayMs > 0L) {
+                    kotlinx.coroutines.delay(pageDelayMs)
+                }
+            }
+        }
+
+        // Stage 3: Headless Chromium Infinite Scroll Pagination (Zero-Login OR fallback when Stage 2 didn't cover all posts!)
+        val stillMissingPages = allByCode.size < targetLimit &&
+            (expectedTotal == 0L || allByCode.size.toLong() < expectedTotal) &&
+            (allByCode.size <= 12 || expectedTotal > allByCode.size.toLong())
+        if (stillMissingPages && headlessScraper != null && (!isPrivate || hasRealSession)) {
+            try {
+                val scrollDelay = (pageDelayMs * 3L).coerceIn(700L, 1800L)
+                val scrolled = headlessScraper.scrapePaginatedPosts(
+                    username = cleanUser,
+                    maxPosts = targetLimit,
+                    cookieString = if (hasRealSession) cookieString else null,
+                    scrollIntervalMs = scrollDelay
+                ) { batch ->
+                    runBlocking { emitNew(batch) }
+                }
+                if (scrolled.isNotEmpty()) {
+                    emitNew(scrolled)
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage3-WebView error: ${e.message}")
+            }
+        }
+
+        // Stage 4: Fallback to existing single-page fetchRecentPostsDetailed if still empty
+        if (allByCode.isEmpty()) {
+            return fetchRecentPostsDetailed(userId, cleanUser, cookieString, limit = 24, isPrivate = isPrivate)
+        }
+
+        AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) DONE: total=${allByCode.size} posts discovered")
+        return PostFetchResult.Success(allByCode.values.toList())
+    }
+
     companion object {
         private const val TAG = "InstagramEngine"
         private const val APP_ID = "936619743392459"

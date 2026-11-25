@@ -20,6 +20,12 @@ import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.VaultStorageManager
 import com.instalogger.app.util.cleanDisplayText
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -47,13 +53,22 @@ class ProfileInspector(
     private val _postSyncState = kotlinx.coroutines.flow.MutableStateFlow<Map<String, PostSyncStatus>>(emptyMap())
     val postSyncState: kotlinx.coroutines.flow.StateFlow<Map<String, PostSyncStatus>> = _postSyncState
 
+    private val _postBackfillProgress = kotlinx.coroutines.flow.MutableStateFlow<Map<String, Pair<Int, Int>>>(emptyMap())
+    val postBackfillProgress: kotlinx.coroutines.flow.StateFlow<Map<String, Pair<Int, Int>>> = _postBackfillProgress
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     private val gson = Gson()
-    private val inspectionLocks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+    private val inspectionLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private val archiveMutexMap = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    private fun getSettingsManager(): AppSettingsManager {
+        return (context.applicationContext as? InstaLoggerApp)?.settingsManager
+            ?: AppSettingsManager.getInstance(context)
+    }
 
     private suspend fun dispatchAlert(
         targetUsername: String,
@@ -1657,196 +1672,269 @@ class ProfileInspector(
         }
     }
 
+    private suspend fun persistAndEnqueuePostPage(
+        cleanUser: String,
+        rawPosts: List<InstagramPostItem>
+    ): Int {
+        if (rawPosts.isEmpty()) return 0
+        val postDao = database.postDao()
+        val existingPostsMap = postDao.getPostsListForUser(cleanUser).associateBy { it.id }
+        val postEntities = mutableListOf<PostEntity>()
+        val orchestratorQueue = mutableListOf<Pair<PostEntity, List<CarouselSlideHint>>>()
+
+        for (rawPost in rawPosts) {
+            val existingPost = existingPostsMap[rawPost.shortcode]
+            val existingLocalPath = existingPost?.localPath?.takeIf { File(it).exists() && File(it).length() > 0L }
+            val existingThumbPath = existingPost?.localThumbPath?.takeIf { File(it).exists() && File(it).length() > 0L }
+
+            val isCarousel = rawPost.mediaType == "carousel" || rawPost.slides.size > 1
+            val isVideo = rawPost.mediaType == "video" ||
+                rawPost.slides.any { it.mediaType == "video" } ||
+                (existingPost?.isVideo == true)
+            val resolvedMediaType = when {
+                isCarousel -> "carousel"
+                isVideo -> "video"
+                else -> "image"
+            }
+            val resolvedSlideCount = maxOf(
+                rawPost.slides.size,
+                existingPost?.slideCount ?: 1,
+                1
+            )
+
+            val resolvedCaption = rawPost.caption.cleanDisplayText().ifBlank { existingPost?.caption.orEmpty() }.ifBlank { null }
+            val resolvedLikes = if (rawPost.likeCount > 0) rawPost.likeCount else (existingPost?.likeCount ?: 0)
+            val resolvedComments = if (rawPost.commentCount > 0) rawPost.commentCount else (existingPost?.commentCount ?: 0)
+            val resolvedPostedAt = if (existingPost != null && rawPost.likeCount == 0 && existingPost.postedAt > 0L) {
+                existingPost.postedAt
+            } else {
+                rawPost.timestamp
+            }
+
+            val entity = PostEntity(
+                id = rawPost.shortcode,
+                username = cleanUser,
+                caption = resolvedCaption,
+                displayUrl = rawPost.displayUrl.ifBlank { existingPost?.displayUrl.orEmpty() },
+                localPath = existingLocalPath,
+                isVideo = isVideo,
+                likeCount = resolvedLikes,
+                commentCount = resolvedComments,
+                postedAt = resolvedPostedAt,
+                mediaType = resolvedMediaType,
+                slideCount = resolvedSlideCount,
+                localThumbPath = existingThumbPath,
+                durationSeconds = existingPost?.durationSeconds,
+                downloadEngine = existingPost?.downloadEngine,
+                downloadStatus = if (existingLocalPath != null) "complete" else (existingPost?.downloadStatus ?: "pending")
+            )
+            postEntities.add(entity)
+            orchestratorQueue.add(entity to rawPost.slides)
+        }
+
+        if (postEntities.isNotEmpty()) {
+            postDao.insertPosts(postEntities)
+            val totalInDb = postDao.getPostsCountForUser(cleanUser).toLong()
+            val cur = database.targetDao().getTarget(cleanUser)
+            if (cur != null && (cur.mediaCount == 0L || cur.mediaCount < totalInDb)) {
+                database.targetDao().insertTarget(cur.copy(mediaCount = totalInDb))
+            }
+            mediaDownloadOrchestrator?.enqueueBatch(cleanUser, orchestratorQueue)
+        }
+        return postEntities.size
+    }
+
     suspend fun archiveHighlightsAndPosts(
         username: String,
         targetId: String? = null,
         cookie: String? = null,
         wasPrivateToPublic: Boolean = false,
-        isPrivate: Boolean = false
+        isPrivate: Boolean = false,
+        forceFullPagination: Boolean = false
     ) = withContext(Dispatchers.IO) {
         val cleanUser = username.trim().trimStart('@').lowercase()
-        val targetRecord = database.targetDao().getTarget(cleanUser)
-        val resolvedPrivate = isPrivate || (targetRecord?.isPrivate == true && !wasPrivateToPublic)
-        val effectiveTargetId = targetId ?: targetRecord?.instagramId
-        val effectiveCookie = cookie ?: sessionManager.getCookieString()
-
-        // 1. Immediately import any media already cached on disk or daemon
-        importLocalPostsAndHighlights(cleanUser, effectiveTargetId)
-        fetchMediaFromLocalDaemon(cleanUser, effectiveTargetId)
-
-        // Private accounts without a session cannot be queried anonymously
-        if (resolvedPrivate && effectiveCookie.isNullOrBlank()) {
-            _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
+        val archiveMutex = archiveMutexMap.computeIfAbsent(cleanUser) { Mutex() }
+        if (!archiveMutex.tryLock()) {
+            AppLogger.d("ProfileInspector", "archiveHighlightsAndPosts(@$cleanUser) already running; skipping duplicate")
             return@withContext
         }
 
         try {
-            // 2. Fetch highlights list (Zero-login Desktop SSR first for public profiles; v1 API for private/fallback)
-            var hlCount = 0
-            val highlights = instagramEngine.fetchUserHighlights(
-                userId = effectiveTargetId,
-                cookieString = effectiveCookie,
-                username = cleanUser,
-                isPrivate = resolvedPrivate
-            )
-            if (highlights.isNotEmpty()) {
-                hlCount = highlights.size
-                val highlightDao = database.highlightDao()
-                val highlightEntities = mutableListOf<HighlightEntity>()
+            val targetRecord = database.targetDao().getTarget(cleanUser)
+            val resolvedPrivate = isPrivate || (targetRecord?.isPrivate == true && !wasPrivateToPublic)
+            val effectiveTargetId = targetId ?: targetRecord?.instagramId
+            val effectiveCookie = cookie ?: sessionManager.getCookieString()
+            val settings = getSettingsManager()
+            val speedPreset = settings.archiverSpeedPreset.value
+            val maxPostsLimit = settings.maxPostsSyncLimit.value
 
-                val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
-                archiveDir.mkdirs()
-                ArchiveDirectoryManager.ensureNoMedia(archiveDir)
-                val vaultManager = VaultStorageManager.getInstance(context)
+            // 1. Immediately import any media already cached on disk or daemon
+            importLocalPostsAndHighlights(cleanUser, effectiveTargetId)
+            fetchMediaFromLocalDaemon(cleanUser, effectiveTargetId)
 
-                // Phase A: Archive covers directly into hardware Vault (cacheDir temp -> validate -> Vault)
-                for (hl in highlights) {
-                    var localCover: String? = null
-                    val safeId = hl.id.replace(":", "_")
-                    val existingVaultCover = vaultManager.getVaultMediaFile(cleanUser, "highlights", "${safeId}_cover.jpg")
-                    if (existingVaultCover != null && vaultManager.readEncryptedFile(existingVaultCover) != null) {
-                        localCover = existingVaultCover.absolutePath
-                    } else if (!hl.coverUrl.isNullOrBlank()) {
-                        val tempCover = File(context.cacheDir, "hl_cover_${safeId}_${System.currentTimeMillis()}.jpg")
-                        try {
-                            instagramEngine.downloadImage(hl.coverUrl, tempCover)
-                            val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempCover)
-                            if (valid != null && !valid.isVideo) {
-                                val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", "${safeId}_cover.jpg", tempCover.readBytes())
-                                localCover = encCover.absolutePath
-                            }
-                        } catch (e: Exception) {
-                            AppLogger.w("ProfileInspector", "Highlight cover download error ($safeId): ${e.message}")
-                        } finally {
-                            try { tempCover.delete() } catch (_: Exception) {}
-                        }
-                    }
-
-                    highlightEntities.add(
-                        HighlightEntity(
-                            id = hl.id,
-                            username = cleanUser,
-                            title = hl.title.cleanDisplayText(),
-                            coverUrl = hl.coverUrl ?: "",
-                            localCoverPath = localCover,
-                            mediaCount = hl.mediaCount,
-                            archivedAt = System.currentTimeMillis()
-                        )
-                    )
-                }
-
-                if (highlightEntities.isNotEmpty()) {
-                    highlightDao.insertHighlights(highlightEntities)
-                }
-
-                // Phase B: Archive stories for each highlight into encrypted Vault
-                for (hlEntity in highlightEntities) {
-                    archiveHighlightStoriesForEntity(hlEntity, effectiveCookie)
-                }
+            // Private accounts without a session cannot be queried anonymously
+            if (resolvedPrivate && effectiveCookie.isNullOrBlank()) {
+                _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
+                return@withContext
             }
 
-            // 3. Fetch and archive recent posts (zero-login for public profiles)
+            // 2. Run Highlights archiving AND Multi-Page Post pagination IN PARALLEL!
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.SYNCING)
-            val postResult = instagramEngine.fetchRecentPostsDetailed(
-                userId = effectiveTargetId,
-                username = cleanUser,
-                cookieString = effectiveCookie,
-                limit = 24,
-                isPrivate = resolvedPrivate
-            )
-            var fetchedCount = 0
-            when (postResult) {
-                is PostFetchResult.RateLimited -> {
-                    _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.RATE_LIMITED)
-                }
-                is PostFetchResult.RequiresSession -> {
-                    val status = if (resolvedPrivate) PostSyncStatus.REQUIRES_SESSION else PostSyncStatus.FAILED
-                    _postSyncState.value = _postSyncState.value + (cleanUser to status)
-                }
-                is PostFetchResult.Error -> {
-                    _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
-                }
-                is PostFetchResult.Success -> {
-                    val rawPosts = postResult.posts
-                    fetchedCount = rawPosts.size
-                    if (rawPosts.isNotEmpty()) {
-                        val postDao = database.postDao()
-                        val existingPostsMap = postDao.getPostsListForUser(cleanUser).associateBy { it.id }
-                        val postEntities = mutableListOf<PostEntity>()
-                        val orchestratorQueue = mutableListOf<Pair<PostEntity, List<CarouselSlideHint>>>()
+            val expectedTotal = targetRecord?.mediaCount ?: 0L
+            val existingPostsCount = database.postDao().getPostsCountForUser(cleanUser)
+            val needsFullPagination = forceFullPagination ||
+                wasPrivateToPublic ||
+                existingPostsCount == 0 ||
+                (expectedTotal > 0L && existingPostsCount.toLong() < expectedTotal && (maxPostsLimit == 0 || existingPostsCount < maxPostsLimit))
 
-                        for (rawPost in rawPosts) {
-                            val existingPost = existingPostsMap[rawPost.shortcode]
-                            val existingLocalPath = existingPost?.localPath?.takeIf { File(it).exists() && File(it).length() > 0L }
-                            val existingThumbPath = existingPost?.localThumbPath?.takeIf { File(it).exists() && File(it).length() > 0L }
+            val (hlCount, fetchedCount) = coroutineScope {
+                val highlightsJob = async {
+                    var count = 0
+                    try {
+                        val highlights = instagramEngine.fetchUserHighlights(
+                            userId = effectiveTargetId,
+                            cookieString = effectiveCookie,
+                            username = cleanUser,
+                            isPrivate = resolvedPrivate
+                        )
+                        if (highlights.isNotEmpty()) {
+                            count = highlights.size
+                            val highlightDao = database.highlightDao()
+                            val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
+                            archiveDir.mkdirs()
+                            ArchiveDirectoryManager.ensureNoMedia(archiveDir)
+                            val vaultManager = VaultStorageManager.getInstance(context)
 
-                            val isCarousel = rawPost.mediaType == "carousel" || rawPost.slides.size > 1
-                            val isVideo = rawPost.mediaType == "video" ||
-                                rawPost.slides.any { it.mediaType == "video" } ||
-                                (existingPost?.isVideo == true)
-                            val resolvedMediaType = when {
-                                isCarousel -> "carousel"
-                                isVideo -> "video"
-                                else -> "image"
-                            }
-                            val resolvedSlideCount = maxOf(
-                                rawPost.slides.size,
-                                existingPost?.slideCount ?: 1,
-                                1
-                            )
+                            // Phase A: Archive covers in parallel into hardware Vault
+                            val coverSem = Semaphore(speedPreset.downloadWorkers.coerceIn(2, 10))
+                            val highlightEntities = highlights.map { hl ->
+                                async {
+                                    coverSem.withPermit {
+                                        var localCover: String? = null
+                                        val safeId = hl.id.replace(":", "_")
+                                        val existingVaultCover = vaultManager.getVaultMediaFile(cleanUser, "highlights", "${safeId}_cover.jpg")
+                                        if (existingVaultCover != null && vaultManager.readEncryptedFile(existingVaultCover) != null) {
+                                            localCover = existingVaultCover.absolutePath
+                                        } else if (!hl.coverUrl.isNullOrBlank()) {
+                                            val tempCover = File(context.cacheDir, "hl_cover_${safeId}_${System.currentTimeMillis()}.jpg")
+                                            try {
+                                                instagramEngine.downloadImage(hl.coverUrl, tempCover)
+                                                val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempCover)
+                                                if (valid != null && !valid.isVideo) {
+                                                    val encCover = vaultManager.saveEncryptedFile(cleanUser, "highlights", "${safeId}_cover.jpg", tempCover.readBytes())
+                                                    localCover = encCover.absolutePath
+                                                }
+                                            } catch (e: Exception) {
+                                                AppLogger.w("ProfileInspector", "Highlight cover download error ($safeId): ${e.message}")
+                                            } finally {
+                                                try { tempCover.delete() } catch (_: Exception) {}
+                                            }
+                                        }
 
-                            val resolvedCaption = rawPost.caption.cleanDisplayText().ifBlank { existingPost?.caption.orEmpty() }.ifBlank { null }
-                            val resolvedLikes = if (rawPost.likeCount > 0) rawPost.likeCount else (existingPost?.likeCount ?: 0)
-                            val resolvedComments = if (rawPost.commentCount > 0) rawPost.commentCount else (existingPost?.commentCount ?: 0)
-                            val resolvedPostedAt = if (existingPost != null && rawPost.likeCount == 0 && existingPost.postedAt > 0L) {
-                                existingPost.postedAt
-                            } else {
-                                rawPost.timestamp
-                            }
+                                        HighlightEntity(
+                                            id = hl.id,
+                                            username = cleanUser,
+                                            title = hl.title.cleanDisplayText(),
+                                            coverUrl = hl.coverUrl ?: "",
+                                            localCoverPath = localCover,
+                                            mediaCount = hl.mediaCount,
+                                            archivedAt = System.currentTimeMillis()
+                                        )
+                                    }
+                                }
+                            }.awaitAll()
 
-                            val entity = PostEntity(
-                                id = rawPost.shortcode,
-                                username = cleanUser,
-                                caption = resolvedCaption,
-                                displayUrl = rawPost.displayUrl.ifBlank { existingPost?.displayUrl.orEmpty() },
-                                localPath = existingLocalPath,
-                                isVideo = isVideo,
-                                likeCount = resolvedLikes,
-                                commentCount = resolvedComments,
-                                postedAt = resolvedPostedAt,
-                                mediaType = resolvedMediaType,
-                                slideCount = resolvedSlideCount,
-                                localThumbPath = existingThumbPath,
-                                durationSeconds = existingPost?.durationSeconds,
-                                downloadEngine = existingPost?.downloadEngine,
-                                downloadStatus = if (existingLocalPath != null) "complete" else (existingPost?.downloadStatus ?: "pending")
-                            )
-                            postEntities.add(entity)
-                            orchestratorQueue.add(entity to rawPost.slides)
-                        }
-
-                        if (postEntities.isNotEmpty()) {
-                            // Persist discovered post list immediately so the grid renders with zero wait
-                            postDao.insertPosts(postEntities)
-                            val cur = database.targetDao().getTarget(cleanUser)
-                            if (cur != null && (cur.mediaCount == 0L || cur.mediaCount < postEntities.size)) {
-                                database.targetDao().insertTarget(cur.copy(mediaCount = postEntities.size.toLong()))
+                            if (highlightEntities.isNotEmpty()) {
+                                highlightDao.insertHighlights(highlightEntities)
                             }
 
-                            // Hand off media extraction, FFmpeg muxing, SHA-256 dedup & Vault encryption
-                            // to the bounded multi-provider orchestrator
-                            mediaDownloadOrchestrator?.enqueueBatch(cleanUser, orchestratorQueue)
+                            // Phase B: Archive stories for highlights in parallel into encrypted Vault
+                            val storySem = Semaphore((speedPreset.downloadWorkers / 2).coerceIn(2, 5))
+                            highlightEntities.map { hlEntity ->
+                                async {
+                                    storySem.withPermit {
+                                        try {
+                                            archiveHighlightStoriesForEntity(hlEntity, effectiveCookie)
+                                        } catch (e: Exception) {
+                                            AppLogger.w("ProfileInspector", "Highlight stories error (${hlEntity.id}): ${e.message}")
+                                        }
+                                    }
+                                }
+                            }.awaitAll()
                         }
-                        _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.COMPLETED)
-                    } else {
-                        val status = if (resolvedPrivate && effectiveCookie.isNullOrBlank()) {
-                            PostSyncStatus.REQUIRES_SESSION
-                        } else {
-                            PostSyncStatus.COMPLETED
-                        }
-                        _postSyncState.value = _postSyncState.value + (cleanUser to status)
+                    } catch (e: Exception) {
+                        AppLogger.w("ProfileInspector", "Highlights parallel job failed for @$cleanUser: ${e.message}")
                     }
+                    count
                 }
+
+                val postsJob = async {
+                    var count = 0
+                    val postResult = if (needsFullPagination) {
+                        val effectiveTargetTotal = if (maxPostsLimit > 0 && expectedTotal > 0L) {
+                            minOf(expectedTotal.toInt(), maxPostsLimit)
+                        } else if (expectedTotal > 0L) {
+                            expectedTotal.toInt()
+                        } else {
+                            maxPostsLimit
+                        }
+                        _postBackfillProgress.value = _postBackfillProgress.value + (cleanUser to (existingPostsCount to effectiveTargetTotal))
+                        instagramEngine.fetchAllPostsPaginated(
+                            userId = effectiveTargetId,
+                            username = cleanUser,
+                            cookieString = effectiveCookie,
+                            maxPosts = maxPostsLimit,
+                            expectedTotal = expectedTotal,
+                            isPrivate = resolvedPrivate,
+                            pageDelayMs = speedPreset.pageDelayMs
+                        ) { pageItems, discoveredTotal ->
+                            persistAndEnqueuePostPage(cleanUser, pageItems)
+                            val liveInDb = database.postDao().getPostsCountForUser(cleanUser)
+                            val displayTotal = maxOf(effectiveTargetTotal, liveInDb, discoveredTotal)
+                            _postBackfillProgress.value = _postBackfillProgress.value + (cleanUser to (maxOf(liveInDb, discoveredTotal) to displayTotal))
+                        }
+                    } else {
+                        instagramEngine.fetchRecentPostsDetailed(
+                            userId = effectiveTargetId,
+                            username = cleanUser,
+                            cookieString = effectiveCookie,
+                            limit = 24,
+                            isPrivate = resolvedPrivate
+                        )
+                    }
+
+                    when (postResult) {
+                        is PostFetchResult.RateLimited -> {
+                            _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.RATE_LIMITED)
+                        }
+                        is PostFetchResult.RequiresSession -> {
+                            val status = if (resolvedPrivate) PostSyncStatus.REQUIRES_SESSION else PostSyncStatus.FAILED
+                            _postSyncState.value = _postSyncState.value + (cleanUser to status)
+                        }
+                        is PostFetchResult.Error -> {
+                            _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
+                        }
+                        is PostFetchResult.Success -> {
+                            val rawPosts = postResult.posts
+                            count = rawPosts.size
+                            if (!needsFullPagination && rawPosts.isNotEmpty()) {
+                                persistAndEnqueuePostPage(cleanUser, rawPosts)
+                            }
+                            // Also resume any previously pending/failed posts in DB
+                            mediaDownloadOrchestrator?.enqueuePendingForUser(cleanUser)
+
+                            val status = if (rawPosts.isEmpty() && resolvedPrivate && effectiveCookie.isNullOrBlank()) {
+                                PostSyncStatus.REQUIRES_SESSION
+                            } else {
+                                PostSyncStatus.COMPLETED
+                            }
+                            _postSyncState.value = _postSyncState.value + (cleanUser to status)
+                        }
+                    }
+                    count
+                }
+
+                highlightsJob.await() to postsJob.await()
             }
 
             // If account was private and became public, dispatch a special success alert
@@ -1864,8 +1952,85 @@ class ProfileInspector(
             }
         } catch (e: Exception) {
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
-            Log.w("ProfileInspector", "Failed to archive highlights and posts for @$cleanUser: ${e.message}")
+            AppLogger.e("ProfileInspector", "archiveHighlightsAndPosts(@$cleanUser) failed: ${e.message}")
+        } finally {
+            _postBackfillProgress.value = _postBackfillProgress.value - cleanUser
+            archiveMutex.unlock()
         }
+    }
+
+    /**
+     * Background self-healing backfill: checks if a target has unarchived posts,
+     * incomplete media downloads, empty highlights, or highlights with 0 archived stories,
+     * and triggers parallel archiving automatically.
+     */
+    suspend fun backfillUnarchivedContent(target: TargetEntity): Boolean = withContext(Dispatchers.IO) {
+        val cleanUser = target.username.trim().trimStart('@').lowercase()
+        if (isTargetDeleted(cleanUser)) return@withContext false
+        val hasSession = sessionManager.hasSession()
+        if (target.isPrivate && !hasSession) return@withContext false
+
+        val posts = database.postDao().getPostsListForUser(cleanUser)
+        val pendingDownloads = posts.count { post ->
+            val fileOk = !post.localPath.isNullOrBlank() &&
+                File(post.localPath).exists() &&
+                File(post.localPath).length() > 0L
+            !fileOk || post.downloadStatus != "complete"
+        }
+
+        val maxLimit = getSettingsManager().maxPostsSyncLimit.value
+        val effectiveExpected = when {
+            target.mediaCount <= 0L -> 0L
+            maxLimit > 0 -> minOf(target.mediaCount, maxLimit.toLong())
+            else -> target.mediaCount
+        }
+        val missingPosts = (effectiveExpected > 0L && posts.size.toLong() < effectiveExpected) ||
+            (posts.isEmpty() && target.mediaCount > 0L)
+
+        val highlights = database.highlightDao().getHighlightsListForUser(cleanUser)
+        val missingHighlights = highlights.isEmpty()
+        val hasEmptyHighlightStories = highlights.any { hl ->
+            database.highlightDao().getMediaListForHighlight(hl.id).isEmpty()
+        }
+
+        if (pendingDownloads > 0) {
+            mediaDownloadOrchestrator?.enqueuePendingForUser(cleanUser)
+        }
+
+        if (missingPosts || missingHighlights || hasEmptyHighlightStories) {
+            AppLogger.i(
+                "ProfileInspector",
+                "Auto-backfill @$cleanUser: posts=${posts.size}/${target.mediaCount} pendingDl=$pendingDownloads highlights=${highlights.size} emptyHl=$hasEmptyHighlightStories"
+            )
+            archiveHighlightsAndPosts(
+                username = cleanUser,
+                targetId = target.instagramId,
+                cookie = sessionManager.getCookieString(),
+                wasPrivateToPublic = false,
+                isPrivate = target.isPrivate,
+                forceFullPagination = missingPosts
+            )
+            return@withContext true
+        }
+        pendingDownloads > 0
+    }
+
+    /**
+     * Explicit user-triggered full multi-page post & highlight archive sync.
+     */
+    suspend fun syncAllPostsNow(username: String): PostSyncStatus = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val target = database.targetDao().getTarget(cleanUser)
+        val cookie = sessionManager.getCookieString()
+        archiveHighlightsAndPosts(
+            username = cleanUser,
+            targetId = target?.instagramId,
+            cookie = cookie,
+            wasPrivateToPublic = false,
+            isPrivate = target?.isPrivate ?: false,
+            forceFullPagination = true
+        )
+        _postSyncState.value[cleanUser] ?: PostSyncStatus.FAILED
     }
 
     private suspend fun archiveHighlightStoriesForEntity(
@@ -1878,45 +2043,50 @@ class ProfileInspector(
 
         val vaultManager = VaultStorageManager.getInstance(context)
         val safeHlId = highlight.id.replace(":", "_")
-        val mediaEntities = mutableListOf<HighlightMediaEntity>()
+        val workers = getSettingsManager().archiverSpeedPreset.value.downloadWorkers.coerceIn(2, 10)
+        val itemSem = Semaphore(workers)
 
-        for (story in stories) {
-            val ext = if (story.mediaType == "video") "mp4" else "jpg"
-            val fileName = "${safeHlId}_${story.id}.$ext"
-            val existingVault = vaultManager.getVaultMediaFile(cleanUser, "highlights", fileName)
-            var localPath = story.mediaUrl
-            var resolvedMediaType = story.mediaType
+        val mediaEntities = coroutineScope {
+            stories.map { story ->
+                async {
+                    itemSem.withPermit {
+                        val ext = if (story.mediaType == "video") "mp4" else "jpg"
+                        val fileName = "${safeHlId}_${story.id}.$ext"
+                        val existingVault = vaultManager.getVaultMediaFile(cleanUser, "highlights", fileName)
+                        var localPath = story.mediaUrl
+                        var resolvedMediaType = story.mediaType
 
-            if (existingVault != null && existingVault.exists() && existingVault.length() > 0L) {
-                localPath = existingVault.absolutePath
-            } else if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
-                val tempMedia = File(context.cacheDir, "hl_item_${story.id}_${System.currentTimeMillis()}.$ext")
-                try {
-                    instagramEngine.downloadMedia(story.mediaUrl, tempMedia)
-                    val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempMedia)
-                    if (valid != null) {
-                        val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, tempMedia.readBytes())
-                        localPath = encMedia.absolutePath
-                        resolvedMediaType = if (valid.isVideo) "video" else "image"
+                        if (existingVault != null && existingVault.exists() && existingVault.length() > 0L) {
+                            localPath = existingVault.absolutePath
+                        } else if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
+                            val tempMedia = File(context.cacheDir, "hl_item_${story.id}_${System.currentTimeMillis()}.$ext")
+                            try {
+                                instagramEngine.downloadMedia(story.mediaUrl, tempMedia)
+                                val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempMedia)
+                                if (valid != null) {
+                                    val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, tempMedia.readBytes())
+                                    localPath = encMedia.absolutePath
+                                    resolvedMediaType = if (valid.isVideo) "video" else "image"
+                                }
+                            } catch (e: Exception) {
+                                AppLogger.w("ProfileInspector", "Highlight media cache failed (${story.id}): ${e.message}")
+                            } finally {
+                                try { tempMedia.delete() } catch (_: Exception) {}
+                            }
+                        }
+
+                        HighlightMediaEntity(
+                            id = story.id,
+                            highlightId = highlight.id,
+                            username = cleanUser,
+                            mediaType = resolvedMediaType,
+                            mediaUrl = story.mediaUrl,
+                            localPath = localPath,
+                            takenAt = story.takenAt
+                        )
                     }
-                } catch (e: Exception) {
-                    AppLogger.w("ProfileInspector", "Highlight media cache failed (${story.id}): ${e.message}")
-                } finally {
-                    try { tempMedia.delete() } catch (_: Exception) {}
                 }
-            }
-
-            mediaEntities.add(
-                HighlightMediaEntity(
-                    id = story.id,
-                    highlightId = highlight.id,
-                    username = cleanUser,
-                    mediaType = resolvedMediaType,
-                    mediaUrl = story.mediaUrl,
-                    localPath = localPath,
-                    takenAt = story.takenAt
-                )
-            )
+            }.awaitAll()
         }
 
         if (mediaEntities.isNotEmpty()) {

@@ -1,25 +1,33 @@
 package com.instalogger.app.service
 
+import android.annotation.SuppressLint
 import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.MainActivity
 import com.instalogger.app.R
-import com.instalogger.app.engine.ProfileInspector
 import com.instalogger.app.settings.NotificationCategory
+import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.LanguageManager
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 
 class InstaLoggerForegroundService : Service() {
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private var isRunning = false
+    private var wakeLock: PowerManager.WakeLock? = null
+    private val lastBackfillAttemptMs = ConcurrentHashMap<String, Long>()
+    private var lastNotificationStatusText: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -28,7 +36,39 @@ class InstaLoggerForegroundService : Service() {
         startMonitoringLoop()
     }
 
-    private fun buildForegroundNotification(): Notification {
+    @SuppressLint("WakelockTimeout")
+    private fun syncWakeLock(keepAwake: Boolean) {
+        try {
+            if (keepAwake) {
+                if (wakeLock == null) {
+                    val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    wakeLock = pm?.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK,
+                        "InstaLogger::BackgroundArchiverWakeLock"
+                    )?.apply {
+                        setReferenceCounted(false)
+                    }
+                }
+                // Renew rolling 10-minute wake lock each cycle so CPU stays active without permanent leaks
+                wakeLock?.acquire(WAKELOCK_RENEWAL_MS)
+            } else {
+                releaseWakeLock()
+            }
+        } catch (e: Exception) {
+            AppLogger.w("ForegroundService", "WakeLock sync error: ${e.message}")
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun buildForegroundNotification(customStatus: String? = null): Notification {
         val resCtx = LanguageManager.getLocalizedAppContext(this)
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -42,10 +82,11 @@ class InstaLoggerForegroundService : Service() {
 
         return NotificationCompat.Builder(this, InstaLoggerApp.CHANNEL_FOREGROUND_ID)
             .setContentTitle(resCtx.getString(R.string.service_notification_title))
-            .setContentText(resCtx.getString(R.string.service_notification_desc))
+            .setContentText(customStatus ?: resCtx.getString(R.string.service_notification_desc))
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
@@ -64,13 +105,21 @@ class InstaLoggerForegroundService : Service() {
         }
     }
 
-    private fun updateForegroundNotificationLanguage() {
+    private fun updateForegroundNotification(customStatus: String? = null) {
         try {
+            val statusKey = customStatus ?: "__default__"
+            if (statusKey == lastNotificationStatusText) return
+            lastNotificationStatusText = statusKey
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(NOTIFICATION_ID, buildForegroundNotification())
+            notificationManager.notify(NOTIFICATION_ID, buildForegroundNotification(customStatus))
         } catch (_: Exception) {
             // Non-fatal
         }
+    }
+
+    private fun updateForegroundNotificationLanguage() {
+        lastNotificationStatusText = null
+        updateForegroundNotification(null)
     }
 
     private fun startMonitoringLoop() {
@@ -81,29 +130,81 @@ class InstaLoggerForegroundService : Service() {
             val app = application as InstaLoggerApp
             val database = app.database
             val profileInspector = app.profileInspector
+            val settings = app.settingsManager
+            val orchestrator = app.mediaDownloadOrchestrator
+
+            AppLogger.i("ForegroundService", "Parallel background monitoring engine started")
 
             while (isActive) {
+                val speed = settings.archiverSpeedPreset.value
+                val keepAwake = settings.keepAwakeEnabled.value
+                val autoArchive = settings.autoArchivePendingEnabled.value
+
+                syncWakeLock(keepAwake)
+
                 try {
                     val activeTargets = database.targetDao().getActiveTargets()
                     val now = System.currentTimeMillis()
 
-                    for (target in activeTargets) {
-                        val intervalMs = if (target.isTurbo) 15_000L else (target.checkIntervalSeconds * 1000L)
-                        val lastCheck = target.lastCheckedAt ?: 0L
+                    val activeDl = orchestrator.activeDownloadCount.value
+                    val queuedDl = orchestrator.queuedDownloadCount.value
+                    val resCtx = LanguageManager.getLocalizedAppContext(this@InstaLoggerForegroundService)
+                    val liveStatus = if (activeDl > 0 || queuedDl > 0) {
+                        resCtx.getString(
+                            R.string.service_notification_live_downloads,
+                            speed.key,
+                            speed.downloadWorkers,
+                            activeDl,
+                            queuedDl
+                        )
+                    } else {
+                        resCtx.getString(
+                            R.string.service_notification_live_idle,
+                            activeTargets.size,
+                            speed.key,
+                            speed.downloadWorkers
+                        )
+                    }
+                    updateForegroundNotification(liveStatus)
 
-                        if (now - lastCheck >= intervalMs) {
-                            try {
-                                profileInspector.inspectTarget(target.username)
-                            } catch (e: Exception) {
-                                // Ignore individual check error and continue loop
-                            }
+                    if (activeTargets.isNotEmpty()) {
+                        val targetSem = Semaphore(speed.targetWorkers.coerceIn(1, 6))
+                        coroutineScope {
+                            activeTargets.map { target ->
+                                async {
+                                    targetSem.withPermit {
+                                        val intervalMs = if (target.isTurbo) 15_000L else (target.checkIntervalSeconds * 1000L)
+                                        val lastCheck = target.lastCheckedAt ?: 0L
+
+                                        if (now - lastCheck >= intervalMs) {
+                                            try {
+                                                profileInspector.inspectTarget(target.username)
+                                            } catch (e: Exception) {
+                                                AppLogger.w("ForegroundService", "inspectTarget(@${target.username}) error: ${e.message}")
+                                            }
+                                        } else if (autoArchive) {
+                                            val lastBackfill = lastBackfillAttemptMs[target.username] ?: 0L
+                                            if (now - lastBackfill >= BACKFILL_COOLDOWN_MS) {
+                                                lastBackfillAttemptMs[target.username] = now
+                                                try {
+                                                    profileInspector.backfillUnarchivedContent(target)
+                                                } catch (e: Exception) {
+                                                    AppLogger.w("ForegroundService", "backfill(@${target.username}) error: ${e.message}")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }.awaitAll()
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    // Loop guard
+                    AppLogger.w("ForegroundService", "Monitoring sweep error: ${e.message}")
                 }
 
-                delay(5_000L)
+                delay(speed.loopTickMs.coerceIn(1_500L, 15_000L))
             }
         }
     }
@@ -172,6 +273,7 @@ class InstaLoggerForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        releaseWakeLock()
         instance = null
         isRunning = false
         serviceJob.cancel()
@@ -181,6 +283,8 @@ class InstaLoggerForegroundService : Service() {
 
     companion object {
         const val NOTIFICATION_ID = 1001
+        private const val WAKELOCK_RENEWAL_MS = 10 * 60 * 1000L
+        private const val BACKFILL_COOLDOWN_MS = 3 * 60 * 1000L
 
         @Volatile
         var instance: InstaLoggerForegroundService? = null

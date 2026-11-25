@@ -417,4 +417,22 @@
     <string name="msg_target_checked_media_partial">@%1$s profili yeniləndi, post/highlight sinxronizasiyası alınmadı (Developer Logs-a baxın)</string>
     <string name="msg_refresh_partial">%1$d hesab yeniləndi, %2$d hesabda xəta oldu (Developer Logs-a baxın)</string>
     <string name="msg_refresh_all_failed">Yeniləmə alınmadı (%1$d xəta) — Developer Logs-a baxın</string>
+    <string name="section_speed_title">Arxivləmə Sürəti və Arxa Fon</string>
+    <string name="section_speed_desc">Paralel işçi sayı, səhifələmə limiti və arxa fonda yatmama (WakeLock) ayarları.</string>
+    <string name="speed_preset_label">Paralel Sürət Rejimi</string>
+    <string name="speed_preset_eco">Eko</string>
+    <string name="speed_preset_balanced">Balanslı</string>
+    <string name="speed_preset_fast">Sürətli</string>
+    <string name="speed_preset_turbo">Turbo</string>
+    <string name="max_posts_limit_label">Hər Hesab üçün Maksimum Post Arxivi</string>
+    <string name="max_posts_limit_all">Hamısı</string>
+    <string name="keep_awake_title">Arxa Fonda Yatmadan İşlə (WakeLock)</string>
+    <string name="keep_awake_desc">Ekran sönəndə CPU-nu oyaq saxlayır ki, arxa fon arxivləməsi dayanmasın.</string>
+    <string name="auto_archive_pending_title">Əskik Post və Highlight-ları Avto-Arxivlə</string>
+    <string name="auto_archive_pending_desc">Boş highlight-ları, yüklənməmiş postları və gizlidən açığa keçən hesabları paralel arxivləyir.</string>
+    <string name="service_notification_live_downloads">%1$s (%2$dx) · Aktiv yükləmə: %3$d · Növbə: %4$d</string>
+    <string name="service_notification_live_idle">%1$d aktiv hesab · %2$s (%3$dx paralel rejim)</string>
+    <string name="posts_archived_progress">%1$d / %2$d post arxivləndi</string>
+    <string name="posts_syncing_all_desc">Bütün postlar paralel olaraq yüklənir…</string>
+    <string name="btn_load_all_posts">Hamısını Yüklə</string>
 </resources>

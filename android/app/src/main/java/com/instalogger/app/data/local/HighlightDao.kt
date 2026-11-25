@@ -11,6 +11,9 @@ interface HighlightDao {
     @Query("SELECT * FROM highlights WHERE username = :username ORDER BY archivedAt DESC")
     fun getHighlightsForUser(username: String): Flow<List<HighlightEntity>>
 
+    @Query("SELECT * FROM highlights WHERE username = :username ORDER BY archivedAt DESC")
+    suspend fun getHighlightsListForUser(username: String): List<HighlightEntity>
+
     @Query("SELECT * FROM highlight_media WHERE highlightId = :highlightId ORDER BY takenAt ASC")
     fun getMediaForHighlight(highlightId: String): Flow<List<HighlightMediaEntity>>
 

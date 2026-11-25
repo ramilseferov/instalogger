@@ -45,6 +45,7 @@ import com.instalogger.app.engine.media.YtDlpUpdateChannel
 import com.instalogger.app.service.BatteryHelper
 import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.settings.AppSettingsManager
+import com.instalogger.app.settings.ArchiverSpeedPreset
 import com.instalogger.app.settings.ThemeMode
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.animation.bouncyClickable
@@ -88,6 +89,12 @@ fun SettingsScreen(
     val ytDlpWifiOnly by app.settingsManager.ytDlpWifiOnly.collectAsStateWithLifecycle()
     val ytDlpQualityPreset by app.settingsManager.ytDlpQualityPreset.collectAsStateWithLifecycle()
     val ytDlpUpdateChannel by app.settingsManager.ytDlpUpdateChannel.collectAsStateWithLifecycle()
+    val archiverSpeedPreset by app.settingsManager.archiverSpeedPreset.collectAsStateWithLifecycle()
+    val keepAwakeEnabled by app.settingsManager.keepAwakeEnabled.collectAsStateWithLifecycle()
+    val autoArchivePendingEnabled by app.settingsManager.autoArchivePendingEnabled.collectAsStateWithLifecycle()
+    val maxPostsSyncLimit by app.settingsManager.maxPostsSyncLimit.collectAsStateWithLifecycle()
+    val activeDownloadCount by app.mediaDownloadOrchestrator.activeDownloadCount.collectAsStateWithLifecycle()
+    val queuedDownloadCount by app.mediaDownloadOrchestrator.queuedDownloadCount.collectAsStateWithLifecycle()
     val providerHealthList by app.providerHealthTracker.healthFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var isUpdatingYtDlp by remember { mutableStateOf(false) }
     var isTestingDaemon by remember { mutableStateOf(false) }
@@ -702,7 +709,174 @@ fun SettingsScreen(
                 }
             }
 
-            // 5. Foreground Service Card
+            // 5. Archiver Speed & Parallel Background Engine Card
+            SettingsGroupCard(
+                icon = Icons.Default.Speed,
+                title = stringResource(R.string.section_speed_title),
+                description = stringResource(R.string.section_speed_desc),
+                headerTrailing = {
+                    StatusBadge(
+                        text = if (activeDownloadCount > 0 || queuedDownloadCount > 0) {
+                            "${archiverSpeedPreset.downloadWorkers}x · $activeDownloadCount/$queuedDownloadCount"
+                        } else {
+                            "${archiverSpeedPreset.downloadWorkers}x · ${archiverSpeedPreset.targetWorkers}T"
+                        },
+                        icon = Icons.Default.Bolt,
+                        containerColor = AccentBlue.copy(alpha = 0.14f),
+                        contentColor = AccentBlue
+                    )
+                }
+            ) {
+                Text(
+                    text = stringResource(R.string.speed_preset_label),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val speedOptions = listOf(
+                        ArchiverSpeedPreset.ECO to stringResource(R.string.speed_preset_eco),
+                        ArchiverSpeedPreset.BALANCED to stringResource(R.string.speed_preset_balanced),
+                        ArchiverSpeedPreset.FAST to stringResource(R.string.speed_preset_fast),
+                        ArchiverSpeedPreset.TURBO to stringResource(R.string.speed_preset_turbo)
+                    )
+                    speedOptions.forEach { (preset, label) ->
+                        val selected = archiverSpeedPreset == preset
+                        val chipShape = RoundedCornerShape(12.dp)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 42.dp)
+                                .clip(chipShape)
+                                .background(
+                                    if (selected) AccentBlue.copy(alpha = 0.16f)
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                                )
+                                .border(
+                                    width = if (selected) 1.25.dp else 0.75.dp,
+                                    color = if (selected) AccentBlue else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = chipShape
+                                )
+                                .bouncyClickable(pressScale = 0.94f) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    app.settingsManager.setArchiverSpeedPreset(preset)
+                                }
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selected) AccentBlue else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${preset.downloadWorkers}x",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (selected) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                )
+
+                Text(
+                    text = stringResource(R.string.max_posts_limit_label),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val limitOptions = listOf(
+                        100 to "100",
+                        300 to "300",
+                        500 to "500",
+                        1000 to "1000",
+                        0 to stringResource(R.string.max_posts_limit_all)
+                    )
+                    limitOptions.forEach { (limitVal, label) ->
+                        val selected = maxPostsSyncLimit == limitVal
+                        val chipShape = RoundedCornerShape(10.dp)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 36.dp)
+                                .clip(chipShape)
+                                .background(
+                                    if (selected) AccentBlue.copy(alpha = 0.16f)
+                                    else MaterialTheme.colorScheme.surfaceContainerHigh
+                                )
+                                .border(
+                                    width = if (selected) 1.25.dp else 0.75.dp,
+                                    color = if (selected) AccentBlue else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = chipShape
+                                )
+                                .bouncyClickable(pressScale = 0.94f) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    app.settingsManager.setMaxPostsSyncLimit(limitVal)
+                                }
+                                .padding(horizontal = 2.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selected) AccentBlue else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                )
+
+                SettingSwitchRow(
+                    title = stringResource(R.string.keep_awake_title),
+                    description = stringResource(R.string.keep_awake_desc),
+                    checked = keepAwakeEnabled,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setKeepAwakeEnabled(it)
+                    }
+                )
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                )
+
+                SettingSwitchRow(
+                    title = stringResource(R.string.auto_archive_pending_title),
+                    description = stringResource(R.string.auto_archive_pending_desc),
+                    checked = autoArchivePendingEnabled,
+                    onCheckedChange = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        app.settingsManager.setAutoArchivePendingEnabled(it)
+                    }
+                )
+            }
+
+            // 5.2 Foreground Service Card
             SettingsGroupCard(
                 icon = Icons.Default.Sync,
                 title = stringResource(R.string.service_card_title),
