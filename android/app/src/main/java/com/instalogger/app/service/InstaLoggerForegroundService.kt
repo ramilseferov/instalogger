@@ -146,6 +146,14 @@ class InstaLoggerForegroundService : Service() {
 
                 try {
                     val activeTargets = database.targetDao().getActiveTargets()
+                    val (deletedZombies, liveTargets) = activeTargets.partition { profileInspector.isTargetDeleted(it.username) }
+                    for (zombie in deletedZombies) {
+                        AppLogger.i("ForegroundService", "Purging zombie tombstoned target @${zombie.username} from Room DB")
+                        database.targetDao().deleteTarget(zombie.username)
+                        consecutiveFailures.remove(zombie.username)
+                        failureBackoffUntilMs.remove(zombie.username)
+                        lastBackfillAttemptMs.remove(zombie.username)
+                    }
                     val now = System.currentTimeMillis()
 
                     val activeDl = orchestrator.activeDownloadCount.value
@@ -162,17 +170,17 @@ class InstaLoggerForegroundService : Service() {
                     } else {
                         resCtx.getString(
                             R.string.service_notification_live_idle,
-                            activeTargets.size,
+                            liveTargets.size,
                             speed.key,
                             speed.downloadWorkers
                         )
                     }
                     updateForegroundNotification(liveStatus)
 
-                    if (activeTargets.isNotEmpty()) {
+                    if (liveTargets.isNotEmpty()) {
                         val targetSem = Semaphore(speed.targetWorkers.coerceIn(1, 6))
                         coroutineScope {
-                            activeTargets.map { target ->
+                            liveTargets.map { target ->
                                 async {
                                     targetSem.withPermit {
                                         val intervalMs = if (target.isTurbo) 15_000L else (target.checkIntervalSeconds * 1000L)

@@ -1823,9 +1823,10 @@ class ProfileInspector(
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.SYNCING)
             val expectedTotal = targetRecord?.mediaCount ?: 0L
             val existingPostsCount = database.postDao().getPostsCountForUser(cleanUser)
+            val knownZeroPosts = targetRecord != null && targetRecord.lastCheckedAt != null && expectedTotal == 0L
             val needsFullPagination = forceFullPagination ||
                 wasPrivateToPublic ||
-                existingPostsCount == 0 ||
+                (!knownZeroPosts && existingPostsCount == 0) ||
                 (expectedTotal > 0L && existingPostsCount.toLong() < expectedTotal && (maxPostsLimit == 0 || existingPostsCount < maxPostsLimit))
 
             val (hlCount, fetchedCount) = coroutineScope {
@@ -1836,9 +1837,10 @@ class ProfileInspector(
                         val existingHighlights = highlightDao.getHighlightsListForUser(cleanUser)
                         val nowMs = System.currentTimeMillis()
                         val lastTrayAt = lastHighlightTrayCheckMs[cleanUser] ?: 0L
+                        val neverCheckedTray = lastTrayAt == 0L
                         val shouldQueryTray = wasPrivateToPublic ||
                             forceFullPagination ||
-                            existingHighlights.isEmpty() ||
+                            neverCheckedTray ||
                             (nowMs - lastTrayAt >= HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS)
 
                         val highlightEntities = if (shouldQueryTray) {
@@ -1951,6 +1953,10 @@ class ProfileInspector(
                 }
 
                 val postsJob = async {
+                    if (knownZeroPosts && !forceFullPagination && !wasPrivateToPublic) {
+                        _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.COMPLETED)
+                        return@async 0
+                    }
                     var count = 0
                     val postResult = if (needsFullPagination) {
                         val effectiveTargetTotal = if (maxPostsLimit > 0 && expectedTotal > 0L) {
@@ -2070,7 +2076,10 @@ class ProfileInspector(
             (posts.isEmpty() && target.mediaCount > 0L)
 
         val highlights = database.highlightDao().getHighlightsListForUser(cleanUser)
-        val missingHighlights = highlights.isEmpty()
+        val lastTrayCheckAt = lastHighlightTrayCheckMs[cleanUser] ?: 0L
+        val trayCheckDue = lastTrayCheckAt == 0L ||
+            (System.currentTimeMillis() - lastTrayCheckAt >= HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS)
+        val missingHighlights = highlights.isEmpty() && trayCheckDue
         val hasEmptyHighlightStories = highlights.any { hl ->
             database.highlightDao().getMediaListForHighlight(hl.id).isEmpty()
         }
