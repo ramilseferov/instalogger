@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -318,17 +319,25 @@ fun DownloadQueueBottomSheet(
     val hasActiveOrPaused = activeList.isNotEmpty() || pausedList.isNotEmpty()
     val hasTerminal = completedList.isNotEmpty()
 
+    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        modifier = Modifier
+            .statusBarsPadding()
+            .displayCutoutPadding()
+            .padding(top = 12.dp),
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.88f)
+                .height(maxSheetHeight)
                 .navigationBarsPadding()
+                .imePadding()
         ) {
             // 1. Header
             Row(

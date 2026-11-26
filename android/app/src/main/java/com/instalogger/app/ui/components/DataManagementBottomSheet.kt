@@ -35,11 +35,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -98,6 +102,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -235,16 +240,22 @@ fun DataManagementBottomSheet(
         )
     }
 
+    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = if (isDark) Color(0xFF10151C) else MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .statusBarsPadding()
+            .displayCutoutPadding()
+            .padding(top = 12.dp),
         dragHandle = {
             Box(
                 modifier = Modifier
-                    .padding(top = 10.dp, bottom = 4.dp)
-                    .size(width = 40.dp, height = 4.dp)
+                    .padding(top = 12.dp, bottom = 6.dp)
+                    .size(width = 44.dp, height = 4.5.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.outlineVariant)
             )
@@ -253,7 +264,9 @@ fun DataManagementBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
                 .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = 16.dp)
                 .testTag("data_management_bottom_sheet")
         ) {

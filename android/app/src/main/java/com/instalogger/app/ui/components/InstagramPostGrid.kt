@@ -356,6 +356,7 @@ fun InstagramPostViewerDialog(
                 modifier = Modifier
                     .fillMaxSize()
                     .systemBarsPadding()
+                    .displayCutoutPadding()
             ) {
                 // Top Header Bar
                 Row(

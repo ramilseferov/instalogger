@@ -208,6 +208,7 @@ fun InstagramStoryViewer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
+                    .displayCutoutPadding()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(
