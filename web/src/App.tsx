@@ -9,6 +9,10 @@ import { ProfileDetail } from './components/profile/ProfileDetail';
 import { SettingsView } from './components/settings/SettingsView';
 import { DeveloperLogsView } from './components/logs/DeveloperLogsView';
 import { DownloadsView } from './components/downloads/DownloadsView';
+import { NotificationsView } from './components/notifications/NotificationsView';
+import { StorageManagerView } from './components/storage/StorageManagerView';
+import { AppLockOverlay } from './components/auth/AppLockOverlay';
+import { useWebSocket } from './hooks/useWebSocket';
 import { UserPlus, AlertCircle, RefreshCw, Search, CheckCircle2 } from 'lucide-react';
 import { Button } from './components/common/Button';
 import { useI18n } from './i18n';
@@ -18,13 +22,16 @@ export const App: React.FC = () => {
   const [targets, setTargets] = useState<Target[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'dev_logs' | 'downloads'>('dashboard');
+  const [activeView, setActiveView] = useState<
+    'dashboard' | 'settings' | 'dev_logs' | 'downloads' | 'notifications' | 'storage'
+  >('dashboard');
   const [loading, setLoading] = useState(true);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [wsConnected, setWsConnected] = useState(false);
   const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [isLocked, setIsLocked] = useState(false);
   const [toast, setToast] = useState<{ kind: 'info' | 'err'; text: string } | null>(null);
 
   const showToast = useCallback((kind: 'info' | 'err', text: string) => {
@@ -45,46 +52,37 @@ export const App: React.FC = () => {
     }
   }, [showToast, t.toast_check_failed]);
 
-  useEffect(() => {
-    fetchTargets();
+  const refreshCounts = useCallback(() => {
     api
       .getDownloads()
       .then((res) => setActiveDownloadsCount((res.summary?.active || 0) + (res.summary?.queued || 0)))
       .catch(() => {});
+    api
+      .getNotifications()
+      .then((res) => setUnreadNotifCount(res.unread_count || 0))
+      .catch(() => {});
+  }, []);
 
-    let ws: WebSocket | null = null;
-    try {
-      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/api/ws`;
-        ws = new WebSocket(wsUrl);
-        ws.onopen = () => setWsConnected(true);
-        ws.onclose = () => setWsConnected(false);
-        ws.onerror = () => setWsConnected(false);
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'change_detected') {
-              showToast('info', `@${msg.username}: ${msg.old} -> ${msg.new}`);
-              fetchTargets();
-            } else if (msg.type === 'download_update' && msg.summary) {
-              setActiveDownloadsCount((msg.summary.active || 0) + (msg.summary.queued || 0));
-            } else if (msg.type === 'archive_completed') {
-              fetchTargets();
-            }
-          } catch {}
-        };
-      }
-    } catch {
-      setWsConnected(false);
+  useEffect(() => {
+    api
+      .getAuthStatus()
+      .then((st) => setIsLocked(Boolean(st.enabled && st.locked)))
+      .catch(() => {});
+    fetchTargets();
+    refreshCounts();
+  }, [fetchTargets, refreshCounts]);
+
+  const wsConnected = useWebSocket((msg) => {
+    if (msg.type === 'change_detected') {
+      showToast('info', `@${msg.username}: ${msg.old} -> ${msg.new}`);
+      fetchTargets();
+      refreshCounts();
+    } else if (msg.type === 'download_update' && msg.summary) {
+      setActiveDownloadsCount((msg.summary.active || 0) + (msg.summary.queued || 0));
+    } else if (msg.type === 'archive_completed') {
+      fetchTargets();
     }
-
-    return () => {
-      try {
-        ws?.close();
-      } catch {}
-    };
-  }, [fetchTargets, showToast]);
+  });
 
   const filteredTargets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -99,6 +97,15 @@ export const App: React.FC = () => {
   const handleToggleTurbo = async (target: Target, turbo: boolean) => {
     try {
       await api.toggleTurbo(target.id, turbo);
+      await fetchTargets();
+    } catch (e: any) {
+      showToast('err', e?.message || t.toast_check_failed);
+    }
+  };
+
+  const handleToggleStatus = async (target: Target, nextStatus: 'active' | 'paused') => {
+    try {
+      await api.setTargetStatus(target.id, nextStatus);
       await fetchTargets();
     } catch (e: any) {
       showToast('err', e?.message || t.toast_check_failed);
@@ -140,6 +147,32 @@ export const App: React.FC = () => {
     }
   };
 
+  if (isLocked) {
+    return <AppLockOverlay onUnlocked={() => setIsLocked(false)} />;
+  }
+
+  if (activeView === 'notifications') {
+    return (
+      <div key="view-notifications" className="animate-view-enter">
+        <NotificationsView
+          onBack={() => {
+            setActiveView('dashboard');
+            refreshCounts();
+          }}
+          onOpenSettings={() => setActiveView('settings')}
+        />
+      </div>
+    );
+  }
+
+  if (activeView === 'storage') {
+    return (
+      <div key="view-storage" className="animate-view-enter">
+        <StorageManagerView onBack={() => setActiveView('dashboard')} />
+      </div>
+    );
+  }
+
   if (activeView === 'downloads') {
     return (
       <div key="view-downloads" className="animate-view-enter">
@@ -163,6 +196,7 @@ export const App: React.FC = () => {
           onBack={() => setActiveView('dashboard')}
           onOpenDevLogs={() => setActiveView('dev_logs')}
           onOpenDownloads={() => setActiveView('downloads')}
+          onOpenStorage={() => setActiveView('storage')}
         />
       </div>
     );
@@ -221,6 +255,8 @@ export const App: React.FC = () => {
         activeCount={targets.length}
         wsConnected={wsConnected}
         activeDownloadsCount={activeDownloadsCount}
+        unreadNotificationsCount={unreadNotifCount}
+        onNotificationsClick={() => setActiveView('notifications')}
         onDownloadsClick={() => setActiveView('downloads')}
         onDevLogsClick={() => setActiveView('dev_logs')}
         onSettingsClick={() => setActiveView('settings')}
@@ -298,6 +334,7 @@ export const App: React.FC = () => {
                 checking={checkingId === target.id}
                 onSelect={(item) => setSelectedTarget(item)}
                 onToggleTurbo={handleToggleTurbo}
+                onToggleStatus={handleToggleStatus}
                 onCheckNow={handleCheckNow}
               />
             ))}

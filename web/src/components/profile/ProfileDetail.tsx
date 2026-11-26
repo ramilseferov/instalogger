@@ -18,8 +18,10 @@ import { TimelineView } from './TimelineView';
 import { MediaGallery } from './MediaGallery';
 import { AvatarHistoryModal } from './AvatarHistoryModal';
 import { FollowersModal } from './FollowersModal';
+import { FollowerGrowthChart } from './FollowerGrowthChart';
 import { HighlightCirclesRow } from './HighlightCirclesRow';
 import { InstagramStoryViewerModal } from './InstagramStoryViewerModal';
+import { useWebSocket } from '../../hooks/useWebSocket';
 import { useI18n } from '../../i18n';
 import {
   ArrowLeft,
@@ -35,6 +37,9 @@ import {
   RotateCcw,
   Key,
   Download,
+  Pause,
+  Play,
+  Clock,
 } from 'lucide-react';
 
 interface ProfileDetailProps {
@@ -123,40 +128,23 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
     [targetDownloads]
   );
 
-  // Live WebSocket updates for this target's archival and downloads
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    try {
-      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data);
-            if (msg.target_id && msg.target_id !== target.id) return;
-            if (msg.type === 'archive_started') {
-              setIsArchiving(true);
-            } else if (msg.type === 'archive_completed') {
-              setIsArchiving(false);
-              loadData();
-              loadDownloadsState();
-              onTargetUpdated();
-            } else if (msg.type === 'media_discovered' || msg.type === 'media_updated') {
-              loadData();
-              loadDownloadsState();
-            } else if (msg.type === 'download_update') {
-              loadDownloadsState();
-            }
-          } catch {}
-        };
-      }
-    } catch {}
-    return () => {
-      try {
-        ws?.close();
-      } catch {}
-    };
-  }, [target.id, loadData, loadDownloadsState, onTargetUpdated]);
+  // Live auto-reconnecting WebSocket updates for this target
+  useWebSocket((msg) => {
+    if (msg.target_id && msg.target_id !== target.id) return;
+    if (msg.type === 'archive_started') {
+      setIsArchiving(true);
+    } else if (msg.type === 'archive_completed') {
+      setIsArchiving(false);
+      loadData();
+      loadDownloadsState();
+      onTargetUpdated();
+    } else if (msg.type === 'media_discovered' || msg.type === 'media_updated') {
+      loadData();
+      loadDownloadsState();
+    } else if (msg.type === 'download_update') {
+      loadDownloadsState();
+    }
+  });
 
   // Fallback polling while archiving or active downloads are in flight
   useEffect(() => {
@@ -201,6 +189,25 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   const handleToggleTurbo = async () => {
     try {
       await api.toggleTurbo(target.id, !target.turbo_mode);
+      onTargetUpdated();
+    } catch (e: any) {
+      showToast('err', e?.message || t.toast_check_failed);
+    }
+  };
+
+  const handleToggleStatus = async () => {
+    try {
+      const next = target.status === 'paused' ? 'active' : 'paused';
+      await api.setTargetStatus(target.id, next);
+      onTargetUpdated();
+    } catch (e: any) {
+      showToast('err', e?.message || t.toast_check_failed);
+    }
+  };
+
+  const handleSetInterval = async (secs: number) => {
+    try {
+      await api.setTargetInterval(target.id, secs);
       onTargetUpdated();
     } catch (e: any) {
       showToast('err', e?.message || t.toast_check_failed);
@@ -283,6 +290,20 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleToggleStatus}
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center active:scale-95 transition-colors duration-150 ${
+                target.status === 'paused'
+                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                  : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title={target.status === 'paused' ? t.status_active : t.status_paused}
+              aria-label={target.status === 'paused' ? t.status_active : t.status_paused}
+            >
+              {target.status === 'paused' ? <Play size={14} strokeWidth={1.75} /> : <Pause size={14} strokeWidth={1.75} />}
+            </button>
+
             <Button
               variant={target.turbo_mode ? 'primary' : 'secondary'}
               size="sm"
@@ -489,7 +510,37 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
               </div>
             </div>
           </div>
+          {/* Check Interval Selector */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-[var(--border-subtle)]">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-muted)]">
+              <Clock size={12} /> {t.check_interval_label}
+            </span>
+            <div className="flex flex-wrap items-center gap-1">
+              {[
+                [60, '1m'],
+                [300, '5m'],
+                [900, '15m'],
+                [1800, '30m'],
+                [3600, '1h'],
+              ].map(([secs, label]) => (
+                <button
+                  key={secs}
+                  type="button"
+                  onClick={() => handleSetInterval(Number(secs))}
+                  className={`h-7 px-2.5 rounded-lg text-[11px] font-mono tabular-nums border transition-colors ${
+                    target.check_interval_seconds === Number(secs)
+                      ? 'bg-[var(--accent-soft)] border-[#0C7FF2] text-[#0C7FF2] dark:text-[#58A6FF] font-medium'
+                      : 'bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </Card>
+
+        <FollowerGrowthChart targetId={target.id} />
 
         {/* Smooth Collapsible Per-Profile Batching Panel */}
         <div className={`collapse-grid ${showPoolPanel && pool ? 'is-open' : ''}`}>

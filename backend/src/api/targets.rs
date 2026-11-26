@@ -24,6 +24,21 @@ pub struct ToggleTurboPayload {
     pub turbo: bool,
 }
 
+#[derive(Deserialize)]
+pub struct SetStatusPayload {
+    pub status: String, // active | paused
+}
+
+#[derive(Deserialize)]
+pub struct SetIntervalPayload {
+    pub check_interval_seconds: i64,
+}
+
+#[derive(Deserialize)]
+pub struct HistoryQuery {
+    pub range: Option<String>, // 24h | 7d | 30d | all
+}
+
 pub async fn list_targets(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     match state.db.list_targets() {
         Ok(targets) => (StatusCode::OK, Json(json!({ "status": "ok", "targets": targets }))),
@@ -201,6 +216,115 @@ pub async fn toggle_turbo(
             Json(json!({ "status": "error", "message": e.to_string() })),
         ),
     }
+}
+
+pub async fn set_target_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<SetStatusPayload>,
+) -> impl IntoResponse {
+    let norm = if payload.status.eq_ignore_ascii_case("paused") {
+        "paused"
+    } else {
+        "active"
+    };
+    match state.db.set_target_status(&id, norm) {
+        Ok(_) => (StatusCode::OK, Json(json!({ "status": "ok", "target_status": norm }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "status": "error", "message": e.to_string() })),
+        ),
+    }
+}
+
+pub async fn set_target_interval(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<SetIntervalPayload>,
+) -> impl IntoResponse {
+    let clamped = payload.check_interval_seconds.clamp(30, 86400);
+    match state.db.set_target_interval(&id, clamped) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(json!({ "status": "ok", "check_interval_seconds": clamped })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "status": "error", "message": e.to_string() })),
+        ),
+    }
+}
+
+pub async fn get_target_history(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
+) -> impl IntoResponse {
+    let target = match state.db.get_target(&id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "not_found", "message": "Target not found" })),
+            )
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error", "message": e.to_string() })),
+            )
+        }
+    };
+    let since_iso = match query.range.as_deref().unwrap_or("30d") {
+        "24h" => Some((Utc::now() - chrono::Duration::hours(24)).to_rfc3339()),
+        "7d" => Some((Utc::now() - chrono::Duration::days(7)).to_rfc3339()),
+        "30d" => Some((Utc::now() - chrono::Duration::days(30)).to_rfc3339()),
+        _ => None,
+    };
+    let points = state
+        .db
+        .list_follower_history(&target.id, since_iso.as_deref())
+        .unwrap_or_default();
+    (
+        StatusCode::OK,
+        Json(json!({ "status": "ok", "history": points })),
+    )
+}
+
+pub async fn get_media_assets(
+    State(state): State<Arc<AppState>>,
+    Path((_target_id, media_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let assets = state.db.list_media_assets(&media_id).unwrap_or_default();
+    (
+        StatusCode::OK,
+        Json(json!({ "status": "ok", "assets": assets })),
+    )
+}
+
+pub async fn delete_target_avatar(
+    State(state): State<Arc<AppState>>,
+    Path((id, filename)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let target = match state.db.get_target(&id) {
+        Ok(Some(t)) => t,
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "not_found", "message": "Target not found" })),
+            )
+        }
+    };
+    if filename.contains('/') || filename.contains('\\') || filename.contains("..") || !filename.starts_with("avatar_") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "status": "error", "message": "Invalid avatar filename" })),
+        );
+    }
+    let safe_id = target.id.replace('/', "").replace('\\', "").replace("..", "");
+    let path = format!("archives/{}/profile/{}", safe_id, filename);
+    let _ = std::fs::remove_file(&path);
+    (StatusCode::OK, Json(json!({ "status": "ok" })))
 }
 
 pub async fn check_target_now(

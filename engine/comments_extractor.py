@@ -345,6 +345,156 @@ async def fetch_comments_via_aiograpi(
     return {"ok": True, "comments": records, "collection_status": status}
 
 
+def extract_comments_sync(
+    shortcode: str,
+    cookies: Optional[Dict[str, str]] = None,
+    max_comments: int = 200,
+) -> List[CommentRecord]:
+    """Zero-dependency Instagram REST v1 & GraphQL threaded comments extractor with pagination."""
+    import requests
+    import time
+
+    clean_code = shortcode.strip().split("/")[0].split("?")[0]
+    media_id = shortcode_to_media_id(clean_code) or ""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"https://www.instagram.com/p/{clean_code}/",
+        "X-Ig-App-Id": "936619743392459",
+        "X-Requested-With": "XMLHttpRequest",
+    })
+    if cookies:
+        for k, v in cookies.items():
+            session.cookies.set(k, str(v), domain=".instagram.com")
+        if cookies.get("csrftoken"):
+            session.headers["X-CSRFToken"] = str(cookies["csrftoken"])
+
+    records: List[CommentRecord] = []
+    seen_ids = set()
+
+    # Tier 1: REST v1 comments pagination (works with session cookie)
+    if media_id:
+        min_id: Optional[str] = None
+        for _ in range(10):
+            if len(records) >= max_comments:
+                break
+            url = f"https://www.instagram.com/api/v1/media/{media_id}/comments/?can_support_threading=true&permalink_enabled=false"
+            if min_id:
+                url += f"&min_id={requests.utils.quote(min_id, safe='')}"
+            try:
+                resp = session.get(url, timeout=15)
+                if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
+                    break
+                payload = resp.json()
+                comments_arr = payload.get("comments") or []
+                if not comments_arr:
+                    break
+                for c in comments_arr:
+                    if len(records) >= max_comments:
+                        break
+                    cid = str(c.get("pk") or c.get("id") or "").strip()
+                    if not cid or cid in seen_ids:
+                        continue
+                    seen_ids.add(cid)
+                    u = c.get("user") or {}
+                    records.append(
+                        CommentRecord(
+                            comment_id=cid,
+                            shortcode=clean_code,
+                            media_id=media_id,
+                            parent_comment_id=str(c.get("parent_comment_id")) if c.get("parent_comment_id") else None,
+                            author_username=str(u.get("username") or "instagram_user"),
+                            author_id=str(u.get("pk") or u.get("id") or ""),
+                            author_full_name=str(u.get("full_name") or ""),
+                            is_verified=bool(u.get("is_verified", False)),
+                            text=str(c.get("text") or ""),
+                            created_at=_iso_from_ts(c.get("created_at_utc") or c.get("created_at")),
+                            like_count=int(c.get("comment_like_count") or 0),
+                            reply_count=int(c.get("child_comment_count") or 0),
+                            collection_status="complete",
+                        )
+                    )
+                    for child in (c.get("preview_child_comments") or []):
+                        ccid = str(child.get("pk") or child.get("id") or "").strip()
+                        if not ccid or ccid in seen_ids:
+                            continue
+                        seen_ids.add(ccid)
+                        cu = child.get("user") or {}
+                        records.append(
+                            CommentRecord(
+                                comment_id=ccid,
+                                shortcode=clean_code,
+                                media_id=media_id,
+                                parent_comment_id=cid,
+                                author_username=str(cu.get("username") or "instagram_user"),
+                                author_id=str(cu.get("pk") or cu.get("id") or ""),
+                                author_full_name=str(cu.get("full_name") or ""),
+                                is_verified=bool(cu.get("is_verified", False)),
+                                text=str(child.get("text") or ""),
+                                created_at=_iso_from_ts(child.get("created_at_utc") or child.get("created_at")),
+                                like_count=int(child.get("comment_like_count") or 0),
+                                reply_count=0,
+                                collection_status="complete",
+                            )
+                        )
+                next_min = payload.get("next_min_id")
+                if not next_min or next_min == min_id:
+                    break
+                min_id = str(next_min)
+                time.sleep(0.25)
+            except Exception:
+                break
+
+    if records:
+        return records
+
+    # Tier 2: GraphQL public comments fallback
+    try:
+        variables = json.dumps({"shortcode": clean_code, "first": min(50, max_comments)})
+        gql_url = f"https://www.instagram.com/graphql/query/?query_hash=bc3296d1ce80a24b1b6e40b1e72903f5&variables={requests.utils.quote(variables, safe='')}"
+        resp = session.get(gql_url, timeout=15)
+        if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
+            edges = (
+                resp.json()
+                .get("data", {})
+                .get("shortcode_media", {})
+                .get("edge_media_to_parent_comment", {})
+                .get("edges", [])
+            )
+            for edge in edges:
+                node = edge.get("node") if isinstance(edge, dict) else None
+                if not isinstance(node, dict):
+                    continue
+                cid = str(node.get("id") or "").strip()
+                if not cid or cid in seen_ids:
+                    continue
+                seen_ids.add(cid)
+                owner = node.get("owner") or {}
+                records.append(
+                    CommentRecord(
+                        comment_id=cid,
+                        shortcode=clean_code,
+                        media_id=media_id,
+                        parent_comment_id=None,
+                        author_username=str(owner.get("username") or "instagram_user"),
+                        author_id=str(owner.get("id") or ""),
+                        author_full_name="",
+                        is_verified=bool(owner.get("is_verified", False)),
+                        text=str(node.get("text") or ""),
+                        created_at=_iso_from_ts(node.get("created_at")),
+                        like_count=int((node.get("edge_liked_by") or {}).get("count") or 0),
+                        reply_count=int((node.get("edge_threaded_comments") or {}).get("count") or 0),
+                        collection_status="partial",
+                    )
+                )
+    except Exception:
+        pass
+
+    return records
+
+
 if __name__ == "__main__":
     import argparse
 

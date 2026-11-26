@@ -1,12 +1,14 @@
 import React from 'react';
-import { Download, Settings, Terminal } from 'lucide-react';
+import { Bell, Download, Settings, Terminal } from 'lucide-react';
 import { useI18n } from '../../i18n';
 
 interface HeaderBannerProps {
   onSettingsClick: () => void;
   onDevLogsClick: () => void;
   onDownloadsClick: () => void;
+  onNotificationsClick: () => void;
   activeDownloadsCount?: number;
+  unreadNotificationsCount?: number;
   activeCount: number;
   wsConnected: boolean;
 }
@@ -15,7 +17,9 @@ export const HeaderBanner: React.FC<HeaderBannerProps> = ({
   onSettingsClick,
   onDevLogsClick,
   onDownloadsClick,
+  onNotificationsClick,
   activeDownloadsCount = 0,
+  unreadNotificationsCount = 0,
   activeCount,
   wsConnected,
 }) => {
@@ -53,7 +57,22 @@ export const HeaderBanner: React.FC<HeaderBannerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onNotificationsClick}
+            className="relative inline-flex items-center justify-center w-9 h-9 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] active:scale-95 transition-[color,border-color,transform] duration-150"
+            title={t.notifications_center}
+            aria-label={t.notifications_center}
+          >
+            <Bell size={15} strokeWidth={1.75} />
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold tabular-nums inline-flex items-center justify-center">
+                {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={onDownloadsClick}

@@ -217,6 +217,44 @@ export interface Translations {
   session_copy: string;
   session_export: string;
   session_copied: string;
+  growth_chart_title: string;
+  growth_chart_empty: string;
+  growth_min: string;
+  growth_max: string;
+  growth_points: string;
+  comments_title: string;
+  comments_search: string;
+  comments_sort_likes: string;
+  comments_sort_newest: string;
+  comments_empty: string;
+  comments_fetch_now: string;
+  notifications_center: string;
+  notifications_unread: string;
+  notifications_mark_all_read: string;
+  notifications_empty: string;
+  notif_tree_title: string;
+  notif_tree_desc: string;
+  notif_quiet_hours: string;
+  storage_title: string;
+  storage_subtitle: string;
+  storage_total: string;
+  storage_orphans: string;
+  storage_clear_logs: string;
+  storage_prune_orphans: string;
+  storage_per_profile: string;
+  provider_health_title: string;
+  pin_lock_title: string;
+  pin_lock_desc: string;
+  pin_unlock: string;
+  pin_incorrect: string;
+  pin_set_btn: string;
+  pin_disable_btn: string;
+  check_interval_label: string;
+  avatar_compare: string;
+  avatar_before: string;
+  avatar_after: string;
+  export_csv: string;
+  export_json: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -434,6 +472,44 @@ const translations: Record<Language, Translations> = {
     session_copy: 'Kopyala',
     session_export: 'İxrac et',
     session_copied: 'Sessiya kopyalandı',
+    growth_chart_title: 'İzləyici artım qrafiki',
+    growth_chart_empty: 'Qrafik üçün ən azı 2 yoxlanış məlumatı toplanmalıdır.',
+    growth_min: 'Minimum',
+    growth_max: 'Maksimum',
+    growth_points: 'Nöqtə',
+    comments_title: 'Şərhlər',
+    comments_search: 'Şərhlərdə axtar',
+    comments_sort_likes: 'Ən çox bəyənilən',
+    comments_sort_newest: 'Ən yeni',
+    comments_empty: 'Arxivlənmiş şərh yoxdur',
+    comments_fetch_now: 'Şərhləri yüklə',
+    notifications_center: 'Bildiriş mərkəzi',
+    notifications_unread: 'oxunmamış',
+    notifications_mark_all_read: 'Hamısını oxundu et',
+    notifications_empty: 'Hələ bildiriş yoxdur',
+    notif_tree_title: 'Kateqoriya və profil bildiriş ağacı',
+    notif_tree_desc: 'Qlobal və hər profil üçün ayrıca bildiriş növlərini idarə edin',
+    notif_quiet_hours: 'Səssiz saatlar',
+    storage_title: 'Yaddaş və məlumat idarəetməsi',
+    storage_subtitle: 'Disk istifadəsi, keş təmizləmə, ZIP ixrac və provayder sağlamlığı',
+    storage_total: 'Ümumi istifadə',
+    storage_orphans: 'Yetim qovluqlar',
+    storage_clear_logs: 'Loqları təmizlə',
+    storage_prune_orphans: 'Yetimləri sil',
+    storage_per_profile: 'Profil üzrə yaddaş bölgüsü',
+    provider_health_title: 'Media provayder sağlamlığı',
+    pin_lock_title: 'Panel PIN kilidi',
+    pin_lock_desc: 'Davam etmək üçün PIN kodunuzu daxil edin',
+    pin_unlock: 'Kilidi aç',
+    pin_incorrect: 'Yanlış PIN kodu',
+    pin_set_btn: 'PIN təyin et',
+    pin_disable_btn: 'Kilidi söndür',
+    check_interval_label: 'Yoxlama intervalı',
+    avatar_compare: 'Müqayisə et',
+    avatar_before: 'Əvvəl',
+    avatar_after: 'Sonra',
+    export_csv: 'CSV',
+    export_json: 'JSON',
   },
   en: {
     app_title: 'InstaLogger',
@@ -649,6 +725,44 @@ const translations: Record<Language, Translations> = {
     session_copy: 'Copy',
     session_export: 'Export',
     session_copied: 'Session copied',
+    growth_chart_title: 'Follower growth chart',
+    growth_chart_empty: 'At least 2 check snapshots are required to plot growth.',
+    growth_min: 'Min',
+    growth_max: 'Max',
+    growth_points: 'Points',
+    comments_title: 'Comments',
+    comments_search: 'Search comments',
+    comments_sort_likes: 'Most liked',
+    comments_sort_newest: 'Newest',
+    comments_empty: 'No archived comments yet',
+    comments_fetch_now: 'Fetch comments',
+    notifications_center: 'Notifications',
+    notifications_unread: 'unread',
+    notifications_mark_all_read: 'Mark all read',
+    notifications_empty: 'No notifications yet',
+    notif_tree_title: 'Category and per-profile notification tree',
+    notif_tree_desc: 'Control global and per-profile alert categories individually',
+    notif_quiet_hours: 'Quiet hours',
+    storage_title: 'Storage and data manager',
+    storage_subtitle: 'Disk usage, cleanup, ZIP archive export, and provider health',
+    storage_total: 'Total usage',
+    storage_orphans: 'Orphan directories',
+    storage_clear_logs: 'Clear logs',
+    storage_prune_orphans: 'Prune orphans',
+    storage_per_profile: 'Storage breakdown by profile',
+    provider_health_title: 'Media provider health',
+    pin_lock_title: 'Dashboard PIN lock',
+    pin_lock_desc: 'Enter your PIN to unlock the dashboard',
+    pin_unlock: 'Unlock',
+    pin_incorrect: 'Incorrect PIN',
+    pin_set_btn: 'Set PIN',
+    pin_disable_btn: 'Disable lock',
+    check_interval_label: 'Check interval',
+    avatar_compare: 'Compare',
+    avatar_before: 'Before',
+    avatar_after: 'After',
+    export_csv: 'CSV',
+    export_json: 'JSON',
   },
   ru: {
     app_title: 'InstaLogger',
@@ -864,6 +978,44 @@ const translations: Record<Language, Translations> = {
     session_copy: 'Копировать',
     session_export: 'Экспорт',
     session_copied: 'Сессия скопирована',
+    growth_chart_title: 'График роста подписчиков',
+    growth_chart_empty: 'Для графика нужно минимум 2 проверки профиля.',
+    growth_min: 'Мин',
+    growth_max: 'Макс',
+    growth_points: 'Точек',
+    comments_title: 'Комментарии',
+    comments_search: 'Поиск комментариев',
+    comments_sort_likes: 'По лайкам',
+    comments_sort_newest: 'Новые',
+    comments_empty: 'Комментарии еще не загружены',
+    comments_fetch_now: 'Загрузить комментарии',
+    notifications_center: 'Центр уведомлений',
+    notifications_unread: 'непрочитанных',
+    notifications_mark_all_read: 'Прочитать все',
+    notifications_empty: 'Уведомлений пока нет',
+    notif_tree_title: 'Дерево уведомлений по категориям и профилям',
+    notif_tree_desc: 'Настройте типы оповещений глобально и для каждого профиля',
+    notif_quiet_hours: 'Тихие часы',
+    storage_title: 'Управление хранилищем и данными',
+    storage_subtitle: 'Использование диска, очистка, ZIP-экспорт и статус движков',
+    storage_total: 'Всего занято',
+    storage_orphans: 'Осиротевшие папки',
+    storage_clear_logs: 'Очистить логи',
+    storage_prune_orphans: 'Удалить лишние',
+    storage_per_profile: 'Хранилище по профилям',
+    provider_health_title: 'Состояние медиа-провайдеров',
+    pin_lock_title: 'PIN-блокировка панели',
+    pin_lock_desc: 'Введите PIN-код для доступа к панели',
+    pin_unlock: 'Разблокировать',
+    pin_incorrect: 'Неверный PIN-код',
+    pin_set_btn: 'Установить PIN',
+    pin_disable_btn: 'Отключить',
+    check_interval_label: 'Интервал проверки',
+    avatar_compare: 'Сравнить',
+    avatar_before: 'До',
+    avatar_after: 'После',
+    export_csv: 'CSV',
+    export_json: 'JSON',
   },
 };
 

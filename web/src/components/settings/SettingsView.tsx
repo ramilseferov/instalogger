@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
-import { ArchiverSpeedPreset, PoolMode, SystemSettings, ThemeMode, YtDlpQuality } from '../../types';
+import {
+  ArchiverSpeedPreset,
+  NotificationRule,
+  PoolMode,
+  SystemSettings,
+  Target,
+  ThemeMode,
+  YtDlpQuality,
+} from '../../types';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { SegmentedControl } from '../common/SegmentedControl';
@@ -26,12 +34,17 @@ import {
   Gauge,
   Copy,
   Share2,
+  HardDrive,
+  Shield,
+  Lock,
+  Clock,
 } from 'lucide-react';
 
 interface SettingsViewProps {
   onBack: () => void;
   onOpenDevLogs: () => void;
   onOpenDownloads?: () => void;
+  onOpenStorage?: () => void;
 }
 
 const SPEED_WORKERS: Record<ArchiverSpeedPreset, number> = {
@@ -41,10 +54,26 @@ const SPEED_WORKERS: Record<ArchiverSpeedPreset, number> = {
   TURBO: 10,
 };
 
+const DEFAULT_RULE = (scopeKey: string): NotificationRule => ({
+  scope_key: scopeKey,
+  enabled: true,
+  privacy_change: true,
+  bio_change: true,
+  avatar_change: true,
+  post_count_change: true,
+  post_vanished: true,
+  story_added: true,
+  followers_change: true,
+  following_change: true,
+  quiet_start: null,
+  quiet_end: null,
+});
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
   onBack,
   onOpenDevLogs,
   onOpenDownloads,
+  onOpenStorage,
 }) => {
   const { language, setLanguage, themeMode, setThemeMode, t } = useI18n();
   const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -79,10 +108,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [confirmClearSession, setConfirmClearSession] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Tree Notification Rules state
+  const [targets, setTargets] = useState<Target[]>([]);
+  const [rules, setRules] = useState<NotificationRule[]>([]);
+  const [selectedScope, setSelectedScope] = useState<string>('global');
+  const [activeRule, setActiveRule] = useState<NotificationRule>(DEFAULT_RULE('global'));
+  const [savingRule, setSavingRule] = useState(false);
+
+  // PIN Lock state
+  const [pinEnabled, setPinEnabled] = useState(false);
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [savingPin, setSavingPin] = useState(false);
+
   const loadSettings = async () => {
     try {
-      const s = await api.getSettings();
+      const [s, tgtList, ruleList, authStatus] = await Promise.all([
+        api.getSettings(),
+        api.getTargets().catch(() => [] as Target[]),
+        api.getNotificationRules().catch(() => [] as NotificationRule[]),
+        api.getAuthStatus().catch(() => ({ enabled: false, locked: false, timeout_minutes: 15 })),
+      ]);
       setSettings(s);
+      setTargets(tgtList);
+      setRules(ruleList);
+      setPinEnabled(Boolean(authStatus.enabled));
+      const existing = ruleList.find((r) => r.scope_key === selectedScope);
+      setActiveRule(existing ? { ...existing } : DEFAULT_RULE(selectedScope));
       setEnableTermux(s.enable_termux_api);
       setTgToken(s.telegram_bot_token);
       setTgChatId(s.telegram_chat_id);
@@ -859,12 +911,271 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </form>
 
-        {/* Section 6: Diagnostics & Queue */}
+        {/* Section 6: Tree Notification Rules */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+            {t.notif_tree_title}
+          </h2>
+          <Card className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                  <Bell size={16} strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{t.notif_tree_title}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{t.notif_tree_desc}</div>
+                </div>
+              </div>
+              <select
+                value={selectedScope}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setSelectedScope(next);
+                  const found = rules.find((r) => r.scope_key === next);
+                  setActiveRule(found ? { ...found } : DEFAULT_RULE(next));
+                }}
+                className="h-9 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl px-3 text-xs text-[var(--text-primary)] focus:outline-none"
+              >
+                <option value="global">Global</option>
+                {targets.map((tg) => (
+                  <option key={tg.id} value={tg.id}>
+                    @{tg.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="border-t border-[var(--border-subtle)] pt-3 divide-y divide-[var(--border-subtle)]">
+              <ToggleRow
+                title={selectedScope === 'global' ? 'Global' : `@${targets.find((x) => x.id === selectedScope)?.username || selectedScope}`}
+                desc={t.notif_tree_desc}
+                checked={activeRule.enabled}
+                onChange={(v) => setActiveRule({ ...activeRule, enabled: v })}
+              />
+              {activeRule.enabled && (
+                <>
+                  <ToggleRow
+                    title={t.event_privacy_opened}
+                    desc="account_opened / account_closed"
+                    checked={activeRule.privacy_change}
+                    onChange={(v) => setActiveRule({ ...activeRule, privacy_change: v })}
+                  />
+                  <ToggleRow
+                    title={t.event_bio_changed}
+                    desc="bio_change / full_name_change"
+                    checked={activeRule.bio_change}
+                    onChange={(v) => setActiveRule({ ...activeRule, bio_change: v })}
+                  />
+                  <ToggleRow
+                    title={t.event_avatar_changed}
+                    desc="avatar_change"
+                    checked={activeRule.avatar_change}
+                    onChange={(v) => setActiveRule({ ...activeRule, avatar_change: v })}
+                  />
+                  <ToggleRow
+                    title={t.event_posts_changed}
+                    desc="post_count_change"
+                    checked={activeRule.post_count_change}
+                    onChange={(v) => setActiveRule({ ...activeRule, post_count_change: v })}
+                  />
+                  <ToggleRow
+                    title={t.event_post_vanished}
+                    desc="post_vanished"
+                    checked={activeRule.post_vanished}
+                    onChange={(v) => setActiveRule({ ...activeRule, post_vanished: v })}
+                  />
+                  <ToggleRow
+                    title={t.stories}
+                    desc="story_added"
+                    checked={activeRule.story_added}
+                    onChange={(v) => setActiveRule({ ...activeRule, story_added: v })}
+                  />
+                  <ToggleRow
+                    title={t.event_followers_changed}
+                    desc="followers_change / follower_gained / follower_lost"
+                    checked={activeRule.followers_change}
+                    onChange={(v) => setActiveRule({ ...activeRule, followers_change: v })}
+                  />
+                  <ToggleRow
+                    title={t.event_following_changed}
+                    desc="following_change / following_gained / following_lost"
+                    checked={activeRule.following_change}
+                    onChange={(v) => setActiveRule({ ...activeRule, following_change: v })}
+                  />
+                </>
+              )}
+            </div>
+
+            <div className="border-t border-[var(--border-subtle)] pt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                <Clock size={14} strokeWidth={1.75} />
+                <span>{t.notif_quiet_hours}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={activeRule.quiet_start || ''}
+                  onChange={(e) => setActiveRule({ ...activeRule, quiet_start: e.target.value || null })}
+                  className="h-9 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-lg px-2.5 text-xs font-mono text-[var(--text-primary)] focus:outline-none"
+                />
+                <span className="text-xs text-[var(--text-muted)]">—</span>
+                <input
+                  type="time"
+                  value={activeRule.quiet_end || ''}
+                  onChange={(e) => setActiveRule({ ...activeRule, quiet_end: e.target.value || null })}
+                  className="h-9 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] rounded-lg px-2.5 text-xs font-mono text-[var(--text-primary)] focus:outline-none"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  disabled={savingRule}
+                  onClick={async () => {
+                    setSavingRule(true);
+                    setErrorMsg(null);
+                    try {
+                      await api.upsertNotificationRule({ ...activeRule, scope_key: selectedScope });
+                      const updated = await api.getNotificationRules();
+                      setRules(updated);
+                      flashSaved();
+                    } catch (e: any) {
+                      setErrorMsg(e?.message || t.toast_check_failed);
+                    } finally {
+                      setSavingRule(false);
+                    }
+                  }}
+                >
+                  {savingRule ? t.saving : t.save}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </section>
+
+        {/* Section 7: Dashboard PIN Lock */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+            {t.pin_lock_title}
+          </h2>
+          <Card className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                  <Shield size={16} strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{t.pin_lock_title}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{t.pin_lock_desc}</div>
+                </div>
+              </div>
+              <span
+                className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg border ${
+                  pinEnabled
+                    ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                    : 'bg-[var(--bg-subtle)] text-[var(--text-muted)] border-[var(--border-subtle)]'
+                }`}
+              >
+                {pinEnabled ? t.session_connected : t.batch_off}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {pinEnabled && (
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  placeholder="Current PIN"
+                  value={currentPin}
+                  onChange={(e) => setCurrentPin(e.target.value)}
+                  className="w-full h-10 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl px-3.5 text-xs font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+                />
+              )}
+              <input
+                type="password"
+                inputMode="numeric"
+                placeholder="4-12 digits PIN"
+                value={newPin}
+                onChange={(e) => setNewPin(e.target.value)}
+                className="w-full h-10 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl px-3.5 text-xs font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="primary"
+                icon={<Lock size={13} strokeWidth={1.75} />}
+                disabled={savingPin || newPin.trim().length < 4}
+                onClick={async () => {
+                  setSavingPin(true);
+                  setErrorMsg(null);
+                  try {
+                    await api.setupPin(newPin.trim(), pinEnabled ? currentPin.trim() : undefined);
+                    setPinEnabled(true);
+                    setCurrentPin('');
+                    setNewPin('');
+                    flashSaved();
+                  } catch (e: any) {
+                    setErrorMsg(e?.message || t.pin_incorrect);
+                  } finally {
+                    setSavingPin(false);
+                  }
+                }}
+              >
+                {t.pin_set_btn}
+              </Button>
+              {pinEnabled && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="danger"
+                  disabled={savingPin || !currentPin.trim()}
+                  onClick={async () => {
+                    setSavingPin(true);
+                    setErrorMsg(null);
+                    try {
+                      await api.setupPin('', currentPin.trim());
+                      setPinEnabled(false);
+                      setCurrentPin('');
+                      setNewPin('');
+                      flashSaved();
+                    } catch (e: any) {
+                      setErrorMsg(e?.message || t.pin_incorrect);
+                    } finally {
+                      setSavingPin(false);
+                    }
+                  }}
+                >
+                  {t.pin_disable_btn}
+                </Button>
+              )}
+            </div>
+          </Card>
+        </section>
+
+        {/* Section 8: Diagnostics, Storage & Queue */}
         <section className="space-y-2.5">
           <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
             {t.section_diagnostics}
           </h2>
           <div className="space-y-2.5">
+            {onOpenStorage && (
+              <Card onClick={onOpenStorage} className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                    <HardDrive size={17} strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--text-primary)]">{t.storage_title}</div>
+                    <div className="text-xs text-[var(--text-muted)] truncate">{t.storage_subtitle}</div>
+                  </div>
+                </div>
+                <ChevronRight size={17} strokeWidth={1.75} className="text-[var(--text-muted)] shrink-0" />
+              </Card>
+            )}
+
             {onOpenDownloads && (
               <Card onClick={onOpenDownloads} className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">

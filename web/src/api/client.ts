@@ -7,9 +7,26 @@ import {
   DevLogEntry,
   DownloadsResponse,
   RelationshipsResponse,
+  FollowerHistoryPoint,
+  MediaAsset,
+  PostComment,
+  ProviderHealth,
+  NotificationRecord,
+  NotificationRule,
+  StorageOverview,
+  AuthStatus,
 } from '../types';
 
 const BASE_URL = '/api';
+
+function authHeaders(): Record<string, string> {
+  try {
+    const tok = sessionStorage.getItem('instalogger_auth_token');
+    return tok ? { 'X-Auth-Token': tok } : {};
+  } catch {
+    return {};
+  }
+}
 
 async function parseJsonOrThrow(res: Response) {
   let data: any = null;
@@ -221,5 +238,166 @@ export const api = {
   async clearDevLogs(): Promise<void> {
     const res = await fetch(`${BASE_URL}/dev-logs`, { method: 'DELETE' });
     await parseJsonOrThrow(res);
+  },
+
+  async setTargetStatus(id: string, status: 'active' | 'paused'): Promise<void> {
+    const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    await parseJsonOrThrow(res);
+  },
+
+  async setTargetInterval(id: string, check_interval_seconds: number): Promise<void> {
+    const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/interval`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ check_interval_seconds }),
+    });
+    await parseJsonOrThrow(res);
+  },
+
+  async getTargetHistory(id: string, range: '24h' | '7d' | '30d' | 'all' = '30d'): Promise<FollowerHistoryPoint[]> {
+    const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/history?range=${range}`);
+    const data = await parseJsonOrThrow(res);
+    return data.history || [];
+  },
+
+  async getMediaAssets(targetId: string, mediaId: string): Promise<MediaAsset[]> {
+    const res = await fetch(
+      `${BASE_URL}/targets/${encodeURIComponent(targetId)}/media/${encodeURIComponent(mediaId)}/assets`
+    );
+    const data = await parseJsonOrThrow(res);
+    return data.assets || [];
+  },
+
+  async deleteTargetAvatar(targetId: string, filename: string): Promise<void> {
+    const res = await fetch(
+      `${BASE_URL}/targets/${encodeURIComponent(targetId)}/avatars/${encodeURIComponent(filename)}`,
+      { method: 'DELETE' }
+    );
+    await parseJsonOrThrow(res);
+  },
+
+  async getPostComments(targetId: string, shortcode: string): Promise<PostComment[]> {
+    const res = await fetch(
+      `${BASE_URL}/targets/${encodeURIComponent(targetId)}/posts/${encodeURIComponent(shortcode)}/comments`
+    );
+    const data = await parseJsonOrThrow(res);
+    return data.comments || [];
+  },
+
+  async syncPostComments(targetId: string, shortcode: string): Promise<PostComment[]> {
+    const res = await fetch(
+      `${BASE_URL}/targets/${encodeURIComponent(targetId)}/posts/${encodeURIComponent(shortcode)}/comments/sync`,
+      { method: 'POST' }
+    );
+    const data = await parseJsonOrThrow(res);
+    return data.comments || [];
+  },
+
+  async getNotifications(): Promise<{ notifications: NotificationRecord[]; unread_count: number }> {
+    const res = await fetch(`${BASE_URL}/notifications`);
+    const data = await parseJsonOrThrow(res);
+    return { notifications: data.notifications || [], unread_count: data.unread_count || 0 };
+  },
+
+  async markAllNotificationsRead(): Promise<void> {
+    const res = await fetch(`${BASE_URL}/notifications/read-all`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async markNotificationRead(id: number): Promise<void> {
+    const res = await fetch(`${BASE_URL}/notifications/${id}/read`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async deleteNotification(id: number): Promise<void> {
+    const res = await fetch(`${BASE_URL}/notifications/${id}`, { method: 'DELETE' });
+    await parseJsonOrThrow(res);
+  },
+
+  async clearNotifications(): Promise<void> {
+    const res = await fetch(`${BASE_URL}/notifications`, { method: 'DELETE' });
+    await parseJsonOrThrow(res);
+  },
+
+  async getNotificationRules(): Promise<NotificationRule[]> {
+    const res = await fetch(`${BASE_URL}/notification-rules`);
+    const data = await parseJsonOrThrow(res);
+    return data.rules || [];
+  },
+
+  async upsertNotificationRule(rule: NotificationRule): Promise<void> {
+    const res = await fetch(`${BASE_URL}/notification-rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rule),
+    });
+    await parseJsonOrThrow(res);
+  },
+
+  async getStorageOverview(): Promise<StorageOverview> {
+    const res = await fetch(`${BASE_URL}/storage`);
+    return await parseJsonOrThrow(res);
+  },
+
+  async cleanupStorage(scope: 'logs' | 'target_media' | 'orphans', target_id?: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/storage/cleanup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope, target_id }),
+    });
+    await parseJsonOrThrow(res);
+  },
+
+  async getProviderHealth(): Promise<ProviderHealth[]> {
+    const res = await fetch(`${BASE_URL}/providers/health`);
+    const data = await parseJsonOrThrow(res);
+    return data.providers || [];
+  },
+
+  async resetProviderHealth(): Promise<void> {
+    const res = await fetch(`${BASE_URL}/providers/health/reset`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async getAuthStatus(): Promise<AuthStatus> {
+    const res = await fetch(`${BASE_URL}/auth/status`, { headers: authHeaders() });
+    const data = await parseJsonOrThrow(res);
+    return { enabled: Boolean(data.enabled), locked: Boolean(data.locked), timeout_minutes: data.timeout_minutes || 15 };
+  },
+
+  async setupPin(pin: string, current_pin?: string, timeout_minutes?: number): Promise<{ enabled: boolean; token?: string }> {
+    const res = await fetch(`${BASE_URL}/auth/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ pin, current_pin, timeout_minutes }),
+    });
+    const data = await parseJsonOrThrow(res);
+    if (data.token) {
+      try { sessionStorage.setItem('instalogger_auth_token', data.token); } catch {}
+    }
+    return { enabled: Boolean(data.enabled), token: data.token };
+  },
+
+  async unlockPin(pin: string): Promise<string> {
+    const res = await fetch(`${BASE_URL}/auth/unlock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    const data = await parseJsonOrThrow(res);
+    const token = data.token || '';
+    if (token) {
+      try { sessionStorage.setItem('instalogger_auth_token', token); } catch {}
+    }
+    return token;
+  },
+
+  async lockDashboard(): Promise<void> {
+    await fetch(`${BASE_URL}/auth/lock`, { method: 'POST', headers: authHeaders() }).catch(() => {});
+    try { sessionStorage.removeItem('instalogger_auth_token'); } catch {}
   },
 };

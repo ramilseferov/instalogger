@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
-import { X, Download, Image as ImageIcon } from 'lucide-react';
+import { X, Download, Image as ImageIcon, Trash2, Columns2 } from 'lucide-react';
 import { useI18n } from '../../i18n';
 
 interface AvatarHistoryModalProps {
@@ -20,15 +20,20 @@ export const AvatarHistoryModal: React.FC<AvatarHistoryModalProps> = ({
   const [avatars, setAvatars] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
 
-  useEffect(() => {
-    if (!isOpen) return;
+  const loadAvatars = () => {
     setLoading(true);
     api
       .getAvatars(targetId)
       .then(setAvatars)
       .catch(() => setAvatars([]))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    loadAvatars();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -39,6 +44,14 @@ export const AvatarHistoryModal: React.FC<AvatarHistoryModalProps> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, targetId, selectedAvatar, onClose]);
+
+  const handleDeleteAvatar = async (path: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const filename = path.split('/').pop() || '';
+    if (!filename) return;
+    await api.deleteTargetAvatar(targetId, filename).catch(() => {});
+    loadAvatars();
+  };
 
   if (!isOpen) return null;
 
@@ -74,17 +87,55 @@ export const AvatarHistoryModal: React.FC<AvatarHistoryModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors duration-150"
-            aria-label={t.cancel}
-          >
-            <X size={18} strokeWidth={1.75} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {avatars.length >= 2 && (
+              <button
+                type="button"
+                onClick={() => setCompareMode((v) => !v)}
+                className={`h-8 px-2.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 border ${
+                  compareMode
+                    ? 'bg-[#0C7FF2] text-white border-[#0C7FF2]'
+                    : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)] border-[var(--border-subtle)]'
+                }`}
+              >
+                <Columns2 size={14} /> {t.avatar_compare}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors duration-150"
+              aria-label={t.cancel}
+            >
+              <X size={18} strokeWidth={1.75} />
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-4">
+        <div className="flex-1 overflow-y-auto py-4 space-y-4">
+          {compareMode && avatars.length >= 2 && (
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)]">
+              <div className="text-center space-y-1.5">
+                <span className="text-[11px] font-medium text-[var(--text-muted)]">{t.avatar_before}</span>
+                <img
+                  src={avatars[1].startsWith('/') ? avatars[1] : `/${avatars[1]}`}
+                  alt={t.avatar_before}
+                  className="w-28 h-28 rounded-full object-cover mx-auto border border-[var(--border-strong)]"
+                />
+                <div className="text-[10px] font-mono text-[var(--text-muted)]">{parseTimestamp(avatars[1])}</div>
+              </div>
+              <div className="text-center space-y-1.5">
+                <span className="text-[11px] font-medium text-[#0C7FF2]">{t.avatar_after}</span>
+                <img
+                  src={avatars[0].startsWith('/') ? avatars[0] : `/${avatars[0]}`}
+                  alt={t.avatar_after}
+                  className="w-28 h-28 rounded-full object-cover mx-auto border-2 border-[#0C7FF2]"
+                />
+                <div className="text-[10px] font-mono text-[var(--text-muted)]">{parseTimestamp(avatars[0])}</div>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <p className="text-xs text-center text-[var(--text-muted)] py-8">{t.loading}</p>
           ) : avatars.length === 0 ? (
@@ -112,14 +163,26 @@ export const AvatarHistoryModal: React.FC<AvatarHistoryModalProps> = ({
                       <span className="text-[11px] font-mono tabular-nums text-[var(--text-secondary)] truncate block">
                         {label}
                       </span>
-                      <a
-                        href={fullUrl}
-                        download
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 text-[11px] font-medium text-[#0C7FF2] dark:text-[#58A6FF] hover:underline"
-                      >
-                        <Download size={11} strokeWidth={1.75} /> {t.download_file}
-                      </a>
+                      <div className="flex items-center justify-center gap-3">
+                        <a
+                          href={fullUrl}
+                          download
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-[#0C7FF2] dark:text-[#58A6FF] hover:underline"
+                        >
+                          <Download size={11} strokeWidth={1.75} /> {t.download_file}
+                        </a>
+                        {idx > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteAvatar(path, e)}
+                            className="inline-flex items-center text-rose-500 hover:text-rose-600"
+                            title={t.delete}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

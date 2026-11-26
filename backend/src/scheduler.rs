@@ -345,6 +345,14 @@ impl Scheduler {
             .flatten()
             .unwrap_or_else(|| "az".to_string());
 
+        // Record follower / following / media count time-series snapshot
+        if snapshot.followers_count > 0 || snapshot.following_count > 0 || snapshot.media_count > 0 {
+            let eff_followers = if snapshot.followers_count > 0 { snapshot.followers_count } else { target.followers_count };
+            let eff_following = if snapshot.following_count > 0 { snapshot.following_count } else { target.following_count };
+            let eff_media = if snapshot.media_count > 0 { snapshot.media_count } else { target.media_count };
+            let _ = self.db.record_follower_history(&target.id, eff_followers, eff_following, eff_media);
+        }
+
         // State transitions
         let account_opened = target.is_private && !snapshot.is_private;
         let account_closed = !target.is_private && snapshot.is_private;
@@ -353,13 +361,13 @@ impl Scheduler {
         if account_opened {
             target_updated.last_status_change_at = Some(Utc::now());
             let (title, body) = format_notification(&notif_lang, "account_opened", &target.username, "");
-            self.notify.send(&title, &body, true).await?;
+            self.notify.send_event(&target.id, &target.username, "account_opened", &title, &body, true).await?;
             let _ = self.trigger_full_archive(&target.username, &target.id, session_path).await;
             archive_triggered = true;
         } else if account_closed {
             target_updated.last_status_change_at = Some(Utc::now());
             let (title, body) = format_notification(&notif_lang, "account_closed", &target.username, "");
-            self.notify.send(&title, &body, false).await?;
+            self.notify.send_event(&target.id, &target.username, "account_closed", &title, &body, false).await?;
         } else if snapshot.is_private && snapshot.followed_by_viewer {
             let _ = self.trigger_full_archive(&target.username, &target.id, session_path).await;
             archive_triggered = true;
@@ -368,16 +376,38 @@ impl Scheduler {
         let has_avatar_change = changes.iter().any(|c| c.event_type == "avatar_change");
         if has_avatar_change {
             let (title, body) = format_notification(&notif_lang, "avatar_change", &target.username, "");
-            let _ = self.notify.send(&title, &body, false).await;
+            let _ = self.notify.send_event(&target.id, &target.username, "avatar_change", &title, &body, false).await;
         }
 
         if let Some(fc) = changes.iter().find(|c| c.event_type == "followers_change") {
             let old_n = fc.old_value.parse::<i64>().unwrap_or(0);
             let new_n = fc.new_value.parse::<i64>().unwrap_or(0);
-            let diff = new_n - old_n;
-            let detail = if diff > 0 { format!("+{}", diff) } else { diff.to_string() };
-            let (title, body) = format_notification(&notif_lang, "followers_change", &target.username, &detail);
-            let _ = self.notify.send(&title, &body, false).await;
+            let policy = self.resolve_pool_policy(&target.id);
+            let pool_state_key = format!("target_pool_state:{}", target.id);
+            let pool_state: crate::pool::PoolMetricState = self
+                .db
+                .get_setting(&pool_state_key)
+                .ok()
+                .flatten()
+                .and_then(|raw| serde_json::from_str(&raw).ok())
+                .unwrap_or_default();
+            let now_ms = Utc::now().timestamp_millis();
+            let eval = crate::pool::evaluate_change(&pool_state, old_n, new_n, &policy, now_ms);
+            if let Ok(serialized) = serde_json::to_string(&eval.updated_state) {
+                let _ = self.db.set_setting(&pool_state_key, &serialized);
+            }
+            if eval.should_dispatch_notification {
+                let diff = if eval.net_delta != 0 { eval.net_delta } else { new_n - old_n };
+                let detail = if diff > 0 { format!("+{}", diff) } else { diff.to_string() };
+                let ev_type = if eval.action == crate::pool::PoolAction::FlushSpike {
+                    "follower_spike"
+                } else {
+                    "followers_change"
+                };
+                let (title, body) = format_notification(&notif_lang, "followers_change", &target.username, &detail);
+                let high_prio = eval.action == crate::pool::PoolAction::FlushSpike;
+                let _ = self.notify.send_event(&target.id, &target.username, ev_type, &title, &body, high_prio).await;
+            }
         }
 
         let post_count_grew = snapshot.media_count > target.media_count;
@@ -391,7 +421,7 @@ impl Scheduler {
             let diff = new_n - old_n;
             let detail = if diff > 0 { format!("+{}", diff) } else { diff.to_string() };
             let (title, body) = format_notification(&notif_lang, "post_count_change", &target.username, &detail);
-            let _ = self.notify.send(&title, &body, false).await;
+            let _ = self.notify.send_event(&target.id, &target.username, "post_count_change", &title, &body, false).await;
         }
 
         target_updated.username = snapshot.username;
@@ -471,6 +501,73 @@ impl Scheduler {
         Ok(())
     }
 
+    pub fn resolve_pool_policy(&self, target_id: &str) -> crate::pool::PoolPolicy {
+        let get_bool = |k: &str, def: bool| -> bool {
+            self.db
+                .get_setting(k)
+                .ok()
+                .flatten()
+                .map(|v| v == "true")
+                .unwrap_or(def)
+        };
+        let get_i64 = |k: &str, def: i64| -> i64 {
+            self.db
+                .get_setting(k)
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(def)
+        };
+        let get_f64 = |k: &str, def: f64| -> f64 {
+            self.db
+                .get_setting(k)
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(def)
+        };
+
+        let mut policy = crate::pool::PoolPolicy {
+            mode: crate::pool::PoolMode::parse(
+                &self.db.get_setting("pool_mode").ok().flatten().unwrap_or_default(),
+            ),
+            fixed_threshold: get_i64("pool_fixed_threshold", 50),
+            percent_threshold: get_f64("pool_percent_threshold", 0.5),
+            digest_window_minutes: get_i64("pool_digest_minutes", 0),
+            cooldown_minutes: get_i64("pool_cooldown_minutes", 0),
+            anti_flicker_enabled: get_bool("pool_anti_flicker", true),
+            spike_alert_enabled: get_bool("pool_spike_alert", true),
+            spike_multiplier: 3.0,
+            suppress_minor_logs: get_bool("pool_suppress_logs", true),
+        };
+
+        if let Ok(Some(raw)) = self.db.get_setting(&format!("target_pool:{}", target_id)) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                let ov = v.get("override_mode").and_then(|x| x.as_str()).unwrap_or("GLOBAL");
+                if ov != "GLOBAL" {
+                    policy.mode = crate::pool::PoolMode::parse(ov);
+                    if let Some(t) = v.get("custom_threshold").and_then(|x| x.as_i64()) {
+                        policy.fixed_threshold = t.max(1);
+                    }
+                    if let Some(p) = v.get("custom_percent").and_then(|x| x.as_f64()) {
+                        policy.percent_threshold = p.clamp(0.01, 100.0);
+                    }
+                    if let Some(d) = v.get("custom_digest_minutes").and_then(|x| x.as_i64()) {
+                        if d >= 0 {
+                            policy.digest_window_minutes = d;
+                        }
+                    }
+                    if let Some(c) = v.get("custom_cooldown_minutes").and_then(|x| x.as_i64()) {
+                        if c >= 0 {
+                            policy.cooldown_minutes = c;
+                        }
+                    }
+                }
+            }
+        }
+        policy
+    }
+
     pub async fn sync_relationships(
         &self,
         target_id: &str,
@@ -497,7 +594,7 @@ impl Scheduler {
             .unwrap_or_else(|| "az".to_string());
         let target_opt = self.db.get_target(target_id).ok().flatten();
 
-        let mut process_kind = |kind: &str,
+        let process_kind = |kind: &str,
                                 fresh: &[crate::models::RelationshipUser],
                                 reported_total: i64|
          -> Vec<(String, crate::models::RelationshipUser)> {
@@ -551,7 +648,7 @@ impl Scheduler {
 
         for (ev, u) in emitted {
             let (title, body) = format_notification(&notif_lang, &ev, username, &u.username);
-            let _ = self.notify.send(&title, &body, false).await;
+            let _ = self.notify.send_event(target_id, username, &ev, &title, &body, false).await;
             let msg = serde_json::json!({
                 "type": "change_detected",
                 "target_id": target_id,
@@ -628,6 +725,23 @@ impl Scheduler {
                 vanished_at: None,
             };
             let _ = self.db.upsert_media(&media);
+            if !item.slides.is_empty() {
+                let assets: Vec<crate::models::MediaAsset> = item
+                    .slides
+                    .iter()
+                    .map(|sl| crate::models::MediaAsset {
+                        id: format!("{}_slide_{}", item.id, sl.position),
+                        media_id: item.id.clone(),
+                        target_id: target_id.to_string(),
+                        position: sl.position,
+                        media_type: sl.media_type.clone(),
+                        cdn_url: sl.cdn_url.clone(),
+                        relative_file_path: String::new(),
+                        file_size_bytes: 0,
+                    })
+                    .collect();
+                let _ = self.db.upsert_media_assets(&assets);
+            }
         }
 
         // Exact Vanished Post Detection (when blitz fetched full active post/reel list)
@@ -687,7 +801,7 @@ impl Scheduler {
                     let old_meta = format!("{}|{}", shortcode, old_item.relative_file_path);
                     let _ = self.db.log_change(target_id, "post_vanished", &old_meta, &detail);
                     let (title, body) = format_notification(&notif_lang, "post_vanished", username, &detail);
-                    let _ = self.notify.send(&title, &body, true).await;
+                    let _ = self.notify.send_event(target_id, username, "post_vanished", &title, &body, true).await;
                     let msg = serde_json::json!({
                         "type": "change_detected",
                         "target_id": target_id,

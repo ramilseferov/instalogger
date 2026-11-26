@@ -262,6 +262,40 @@ def parse_posts_blitz(node: Dict[str, Any]) -> Dict[str, Any]:
 
     timestamp = int(node.get("taken_at_timestamp") or node.get("taken_at") or int(time.time()))
 
+    # Extract all carousel slides when present (carousel_media or edge_sidecar_to_children)
+    slides: List[Dict[str, Any]] = []
+    carousel_raw = node.get("carousel_media") or []
+    sidecar_edges = (node.get("edge_sidecar_to_children") or {}).get("edges") or []
+    if isinstance(carousel_raw, list) and len(carousel_raw) > 1:
+        for idx, cm in enumerate(carousel_raw):
+            if not isinstance(cm, dict):
+                continue
+            cm_vids = cm.get("video_versions") or []
+            cm_imgs = (cm.get("image_versions2") or {}).get("candidates") or []
+            cm_is_vid = bool(cm_vids) or cm.get("media_type") == 2
+            cm_url = (cm_vids[0].get("url") if cm_vids and isinstance(cm_vids[0], dict) else "") or (
+                cm_imgs[0].get("url") if cm_imgs and isinstance(cm_imgs[0], dict) else ""
+            )
+            if cm_url:
+                slides.append({
+                    "position": idx,
+                    "media_type": "video" if cm_is_vid else "image",
+                    "cdn_url": cm_url,
+                })
+    elif isinstance(sidecar_edges, list) and len(sidecar_edges) > 1:
+        for idx, edge in enumerate(sidecar_edges):
+            sn = edge.get("node") if isinstance(edge, dict) else None
+            if not isinstance(sn, dict):
+                continue
+            sn_is_vid = bool(sn.get("is_video", False))
+            sn_url = (sn.get("video_url") if sn_is_vid else None) or sn.get("display_url") or sn.get("display_uri") or ""
+            if sn_url:
+                slides.append({
+                    "position": idx,
+                    "media_type": "video" if sn_is_vid else "image",
+                    "cdn_url": sn_url,
+                })
+
     return {
         "id": f"{media_type}_{shortcode}",
         "shortcode": shortcode,
@@ -269,6 +303,7 @@ def parse_posts_blitz(node: Dict[str, Any]) -> Dict[str, Any]:
         "cdn_url": cdn_url,
         "caption": caption,
         "posted_at": timestamp,
+        "slides": slides,
         "dimensions": {
             "height": (node.get("dimensions") or {}).get("height", 0),
             "width": (node.get("dimensions") or {}).get("width", 0),
@@ -694,6 +729,43 @@ def action_fetch_relationships(
     }))
 
 
+def action_fetch_comments(
+    shortcode: str,
+    session_path: Optional[str],
+    limit: int = 200,
+):
+    """Extract threaded comments for a post/reel via comments_extractor."""
+    try:
+        try:
+            from engine.comments_extractor import extract_comments_sync
+        except ImportError:
+            from comments_extractor import extract_comments_sync
+        cookies: Dict[str, str] = {}
+        if session_path and os.path.exists(session_path):
+            with open(session_path, "r", encoding="utf-8", errors="ignore") as f:
+                cookies = parse_cookie_text(f.read())
+        records = extract_comments_sync(shortcode=shortcode, cookies=cookies, max_comments=limit)
+        out = [
+            {
+                "id": r.comment_id,
+                "post_id": r.shortcode,
+                "parent_comment_id": r.parent_comment_id,
+                "author_username": r.author_username,
+                "author_full_name": r.author_full_name,
+                "is_verified": bool(r.is_verified),
+                "text": r.text,
+                "like_count": int(r.like_count),
+                "reply_count": int(r.reply_count),
+                "created_at": r.created_at,
+                "collection_status": r.collection_status,
+            }
+            for r in records
+        ]
+        print(json.dumps({"status": "ok", "shortcode": shortcode, "comments": out, "count": len(out)}))
+    except Exception as e:
+        print(json.dumps({"status": "error", "message": str(e), "comments": [], "count": 0}))
+
+
 def action_check_highlights(target: str, output_dir: str, session_path: Optional[str]):
     """Traverse and extract highlight collections."""
     client = InstagramClient(session_path)
@@ -776,6 +848,11 @@ def main():
     p_rel.add_argument("--session", default=None, help="Session file path")
     p_rel.add_argument("--limit", type=int, default=500, help="Max users per list")
 
+    p_com = subparsers.add_parser("fetch_comments")
+    p_com.add_argument("--shortcode", required=True, help="Post/Reel shortcode")
+    p_com.add_argument("--session", default=None, help="Session file path")
+    p_com.add_argument("--limit", type=int, default=200, help="Max comments")
+
     args = parser.parse_args()
 
     if args.action == "check_profile":
@@ -810,6 +887,8 @@ def main():
         action_check_highlights(args.target, args.output_dir, args.session)
     elif args.action == "fetch_relationships":
         action_fetch_relationships(args.target, args.target_id, args.session, args.limit)
+    elif args.action == "fetch_comments":
+        action_fetch_comments(args.shortcode, args.session, args.limit)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,13 @@ use crate::models::RelationshipUser;
 use crate::scheduler::ProfileSnapshot;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlitzSlide {
+    pub position: i64,
+    pub media_type: String,
+    pub cdn_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlitzItem {
     pub id: String,
     pub shortcode: String,
@@ -19,6 +26,35 @@ pub struct BlitzItem {
     pub posted_at: i64,
     pub target_id: Option<String>,
     pub relative_file_path: Option<String>,
+    #[serde(default)]
+    pub slides: Vec<BlitzSlide>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FetchedComment {
+    pub id: String,
+    #[serde(default)]
+    pub post_id: String,
+    #[serde(default)]
+    pub parent_comment_id: Option<String>,
+    pub author_username: String,
+    #[serde(default)]
+    pub author_full_name: String,
+    #[serde(default)]
+    pub is_verified: bool,
+    pub text: String,
+    #[serde(default)]
+    pub like_count: i64,
+    #[serde(default)]
+    pub reply_count: i64,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default = "default_complete")]
+    pub collection_status: String,
+}
+
+fn default_complete() -> String {
+    "complete".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,5 +331,46 @@ impl WorkerBridge {
         let parsed: RelationshipsResult = serde_json::from_str(last_line)
             .map_err(|e| anyhow!("Invalid fetch_relationships JSON: {}", e))?;
         Ok(parsed)
+    }
+
+    pub async fn fetch_comments(
+        &self,
+        shortcode: &str,
+        session_path: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<FetchedComment>> {
+        let mut cmd = Command::new(&self.python_bin);
+        cmd.arg(&self.script_path)
+            .arg("fetch_comments")
+            .arg("--shortcode")
+            .arg(shortcode)
+            .arg("--limit")
+            .arg(limit.to_string());
+        if let Some(sess) = session_path {
+            cmd.arg("--session").arg(sess);
+        }
+        let output = cmd.output().await?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let last_line = stdout.lines().rev().find(|l| l.trim().starts_with('{')).unwrap_or("");
+        if !output.status.success() || last_line.is_empty() {
+            return Err(anyhow!(
+                "Worker fetch_comments failed (exit {:?}): {}",
+                output.status.code(),
+                stderr.trim()
+            ));
+        }
+        let parsed: serde_json::Value = serde_json::from_str(last_line)
+            .map_err(|e| anyhow!("Invalid fetch_comments JSON: {}", e))?;
+        if parsed.get("status").and_then(|s| s.as_str()) != Some("ok") {
+            return Err(anyhow!(
+                "{}",
+                parsed.get("message").and_then(|m| m.as_str()).unwrap_or("Comments fetch failed")
+            ));
+        }
+        let comments: Vec<FetchedComment> = serde_json::from_value(
+            parsed.get("comments").cloned().unwrap_or_else(|| serde_json::json!([])),
+        )?;
+        Ok(comments)
     }
 }

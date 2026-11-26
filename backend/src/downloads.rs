@@ -445,6 +445,11 @@ impl DownloadManager {
                             &actual_path,
                             outcome.file_size,
                         );
+                        if let Some(ref prov) = outcome.provider {
+                            if prov != "cached" {
+                                let _ = mgr.db.record_provider_result(prov, true, None);
+                            }
+                        }
                         if let Ok(mut list) = mgr.items.lock() {
                             if let Some(d) = list.iter_mut().find(|x| x.id == item.id) {
                                 if d.status == "downloading" {
@@ -483,6 +488,7 @@ impl DownloadManager {
                             }
                         }
                         error!("Download failed for {}: {}", item.shortcode, err_str);
+                        let _ = mgr.db.record_provider_result("yt-dlp", false, Some(&err_str));
                         crate::api::dev_logs::push_dev_log(
                             "W",
                             "Downloads",

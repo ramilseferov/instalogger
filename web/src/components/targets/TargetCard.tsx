@@ -2,7 +2,7 @@ import React from 'react';
 import { Target } from '../../types';
 import { Card } from '../common/Card';
 import { StatusBadge } from '../common/StatusBadge';
-import { Zap, RefreshCw, ChevronRight, User } from 'lucide-react';
+import { Zap, RefreshCw, ChevronRight, User, Pause, Play } from 'lucide-react';
 import { useI18n } from '../../i18n';
 
 interface TargetCardProps {
@@ -11,6 +11,7 @@ interface TargetCardProps {
   checking?: boolean;
   onSelect: (target: Target) => void;
   onToggleTurbo: (target: Target, turbo: boolean) => void;
+  onToggleStatus?: (target: Target, nextStatus: 'active' | 'paused') => void;
   onCheckNow: (target: Target) => void;
 }
 
@@ -20,9 +21,11 @@ export const TargetCard: React.FC<TargetCardProps> = ({
   checking = false,
   onSelect,
   onToggleTurbo,
+  onToggleStatus,
   onCheckNow,
 }) => {
   const { t } = useI18n();
+  const isPaused = target.status === 'paused';
   const hasActiveStory =
     typeof target.latest_story_at === 'number' &&
     target.latest_story_at > 0 &&
@@ -67,6 +70,11 @@ export const TargetCard: React.FC<TargetCardProps> = ({
                 </span>
               )}
               {target.turbo_mode && <StatusBadge status="turbo" />}
+              {isPaused && (
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-500/12 text-amber-700 dark:text-amber-300">
+                  {t.status_paused}
+                </span>
+              )}
             </div>
             <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">
               {target.full_name || t.no_name}
@@ -96,6 +104,21 @@ export const TargetCard: React.FC<TargetCardProps> = ({
         </div>
 
         <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+          {onToggleStatus && (
+            <button
+              type="button"
+              onClick={() => onToggleStatus(target, isPaused ? 'active' : 'paused')}
+              title={isPaused ? t.status_active : t.status_paused}
+              aria-label={isPaused ? t.status_active : t.status_paused}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors duration-150 ${
+                isPaused
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {isPaused ? <Play size={14} strokeWidth={1.75} /> : <Pause size={14} strokeWidth={1.75} />}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onToggleTurbo(target, !target.turbo_mode)}

@@ -1,7 +1,11 @@
+pub mod auth;
+pub mod comments;
 pub mod dev_logs;
 pub mod downloads;
 pub mod media;
+pub mod notifications;
 pub mod settings;
+pub mod storage;
 pub mod targets;
 pub mod ws;
 
@@ -46,6 +50,9 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
             get(targets::get_target).delete(targets::delete_target),
         )
         .route("/targets/{id}/turbo", post(targets::toggle_turbo))
+        .route("/targets/{id}/status", post(targets::set_target_status))
+        .route("/targets/{id}/interval", post(targets::set_target_interval))
+        .route("/targets/{id}/history", get(targets::get_target_history))
         .route("/targets/{id}/check-now", post(targets::check_target_now))
         .route("/targets/{id}/sync-media", post(targets::sync_target_media))
         .route(
@@ -55,9 +62,34 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         .route("/targets/{id}/pool/flush", post(targets::flush_target_pool))
         .route("/targets/{id}/logs", get(targets::get_target_logs))
         .route("/targets/{id}/avatars", get(targets::get_target_avatars))
+        .route("/targets/{id}/avatars/{filename}", axum::routing::delete(targets::delete_target_avatar))
         .route("/targets/{id}/relationships", get(targets::get_target_relationships))
         .route("/targets/{id}/sync-relationships", post(targets::sync_target_relationships))
         .route("/targets/{id}/media", get(media::list_media))
+        .route("/targets/{id}/media/{media_id}/assets", get(targets::get_media_assets))
+        .route("/targets/{id}/posts/{shortcode}/comments", get(comments::list_post_comments))
+        .route("/targets/{id}/posts/{shortcode}/comments/sync", post(comments::sync_post_comments))
+        .route("/targets/{id}/posts/{shortcode}/comments/export", get(comments::export_post_comments))
+        .route(
+            "/notifications",
+            get(notifications::list_notifications).delete(notifications::clear_notifications),
+        )
+        .route("/notifications/read-all", post(notifications::mark_all_read))
+        .route("/notifications/{id}/read", post(notifications::mark_one_read))
+        .route("/notifications/{id}", axum::routing::delete(notifications::delete_one_notification))
+        .route(
+            "/notification-rules",
+            get(notifications::list_notification_rules).post(notifications::upsert_notification_rule),
+        )
+        .route("/storage", get(storage::get_storage_overview))
+        .route("/storage/cleanup", post(storage::cleanup_storage))
+        .route("/storage/export/{target_id}", get(storage::export_target_archive_zip))
+        .route("/providers/health", get(storage::list_provider_health))
+        .route("/providers/health/reset", post(storage::reset_provider_health))
+        .route("/auth/status", get(auth::get_auth_status))
+        .route("/auth/setup", post(auth::setup_pin))
+        .route("/auth/unlock", post(auth::unlock_pin))
+        .route("/auth/lock", post(auth::lock_dashboard))
         .route("/downloads", get(downloads::list_downloads))
         .route("/downloads/pause-all", post(downloads::pause_all_downloads))
         .route("/downloads/resume-all", post(downloads::resume_all_downloads))
@@ -94,6 +126,7 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
             header::CONTENT_TYPE,
             header::AUTHORIZATION,
             header::ACCEPT,
+            header::HeaderName::from_static("x-auth-token"),
         ]);
 
     Router::new()

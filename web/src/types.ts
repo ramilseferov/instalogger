@@ -150,3 +150,103 @@ export interface RelationshipsResponse {
   following: RelationshipUser[];
   audits: FollowerAudit[];
 }
+
+export interface FollowerHistoryPoint {
+  id: number;
+  target_id: string;
+  followers_count: number;
+  following_count: number;
+  media_count: number;
+  recorded_at: string;
+}
+
+export interface MediaAsset {
+  id: string;
+  media_id: string;
+  target_id: string;
+  position: number;
+  media_type: 'image' | 'video' | string;
+  cdn_url: string;
+  relative_file_path: string;
+  file_size_bytes: number;
+}
+
+export interface PostComment {
+  id: string;
+  post_id: string;
+  target_id: string;
+  parent_comment_id: string | null;
+  author_username: string;
+  author_full_name: string;
+  is_verified: boolean;
+  text: string;
+  like_count: number;
+  reply_count: number;
+  created_at: string;
+  collection_status: string;
+}
+
+export interface ProviderHealth {
+  provider_id: string;
+  status: 'healthy' | 'degraded' | 'cooldown' | string;
+  consecutive_failures: number;
+  cooldown_until: number;
+  success_count: number;
+  failure_count: number;
+  last_error: string | null;
+  updated_at: string;
+}
+
+export interface NotificationRecord {
+  id: number;
+  target_id: string;
+  username: string;
+  event_type: string;
+  title: string;
+  body: string;
+  is_read: boolean;
+  timestamp: string;
+}
+
+export interface NotificationRule {
+  scope_key: string;
+  enabled: boolean;
+  privacy_change: boolean;
+  bio_change: boolean;
+  avatar_change: boolean;
+  post_count_change: boolean;
+  post_vanished: boolean;
+  story_added: boolean;
+  followers_change: boolean;
+  following_change: boolean;
+  quiet_start: string | null;
+  quiet_end: string | null;
+}
+
+export interface TargetStorageBreakdown {
+  target_id: string;
+  username: string;
+  total_bytes: number;
+  posts_bytes: number;
+  reels_bytes: number;
+  stories_bytes: number;
+  highlights_bytes: number;
+  avatars_bytes: number;
+  file_count: number;
+}
+
+export interface StorageOverview {
+  total_bytes: number;
+  db_bytes: number;
+  logs_bytes: number;
+  archives_bytes: number;
+  orphan_bytes: number;
+  orphan_dirs: number;
+  targets: TargetStorageBreakdown[];
+}
+
+export interface AuthStatus {
+  enabled: boolean;
+  locked: boolean;
+  timeout_minutes: number;
+}

@@ -123,6 +123,22 @@ export const FollowersModal: React.FC<FollowersModalProps> = ({
     window.setTimeout(() => setCopiedUser((cur) => (cur === uname ? null : cur)), 1500);
   };
 
+  const exportList = (fmt: 'csv' | 'json') => {
+    const list = tab === 'followers' ? followers : following;
+    if (list.length === 0) return;
+    const content =
+      fmt === 'json'
+        ? JSON.stringify(list, null, 2)
+        : ['username,full_name,is_private', ...list.map((u) => `"${u.username}","${(u.full_name || '').replace(/"/g, '""')}",${u.is_private}`)].join('\n');
+    const blob = new Blob([content], { type: fmt === 'json' ? 'application/json' : 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${username}_${tab}.${fmt}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -194,19 +210,39 @@ export const FollowersModal: React.FC<FollowersModalProps> = ({
           )}
 
           {tab !== 'changes' ? (
-            <div className="relative">
-              <Search
-                size={14}
-                strokeWidth={1.75}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
-              />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t.relationships_search}
-                className="w-full h-9 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl pl-9 pr-3 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search
+                  size={14}
+                  strokeWidth={1.75}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t.relationships_search}
+                  className="w-full h-9 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl pl-9 pr-3 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+                />
+              </div>
+              {activeUsers.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => exportList('csv')}
+                    className="h-9 px-2.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-[11px] font-medium text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
+                  >
+                    {t.export_csv}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => exportList('json')}
+                    className="h-9 px-2.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-[11px] font-medium text-[var(--text-secondary)] hover:border-[var(--border-strong)]"
+                  >
+                    {t.export_json}
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5">

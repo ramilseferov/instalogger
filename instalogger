@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# InstaLogger CLI Controller
+# InstaLogger CLI Controller & Terminal Companion
 
 set -e
 
@@ -10,21 +10,35 @@ HOME_BIN="$HOME/.instalogger/bin/instalogger_backend"
 PREFIX_BIN="$PREFIX/bin/instalogger_backend"
 BIN_RELEASE="$BASE_DIR/backend/target/release/instalogger_backend"
 BIN_DEBUG="$BASE_DIR/backend/target/debug/instalogger_backend"
+API_BASE="${INSTALOGGER_API:-http://127.0.0.1:3000/api}"
 
-# Ensure runtime directories exist
 mkdir -p "$BASE_DIR/data" "$BASE_DIR/archives" "$BASE_DIR/sessions" "$BASE_DIR/logs" "$BASE_DIR/run" "$HOME/.instalogger/bin"
 
 usage() {
-    echo "Usage: ./instalogger {start|stop|restart|status|logs|--help}"
-    echo ""
-    echo "Commands:"
-    echo "  start     Start the Instalogger background daemon with CPU wake-lock"
-    echo "  stop      Stop the daemon gracefully and release wake-lock"
-    echo "  restart   Restart the daemon"
-    echo "  status    Check running state, PID, and health endpoint"
-    echo "  logs      Follow daemon stdout/stderr log output"
-    echo "  --help    Show this help message"
-    echo ""
+    cat <<'EOF'
+InstaLogger CLI Controller
+
+Daemon Commands:
+  ./instalogger start                     Start background daemon with CPU wake-lock
+  ./instalogger stop                      Stop background daemon gracefully
+  ./instalogger restart                   Restart background daemon
+  ./instalogger status                    Check running state, PID, and health endpoint
+  ./instalogger logs                      Follow daemon log output
+
+Management Commands (talks to local daemon API):
+  ./instalogger targets                   List tracked profiles and metrics
+  ./instalogger add <username> [--turbo]  Add a new profile to track
+  ./instalogger remove <id|username>      Remove a tracked profile
+  ./instalogger check <id|username|all>   Trigger immediate profile check
+  ./instalogger sync <id|username>        Trigger full media archive sync
+  ./instalogger followers <id|user> [--sync]
+                                          Inspect or sync followers/following snapshot
+  ./instalogger comments <id|user> <shortcode> [--sync] [--export json|csv|txt|md]
+                                          Inspect, fetch, or export post comments
+  ./instalogger storage [--clean-logs | --prune-orphans]
+                                          Inspect disk usage or run cleanup actions
+  ./instalogger doctor                    Run full environment and runtime diagnostics
+EOF
 }
 
 find_binary() {
@@ -65,19 +79,22 @@ start_daemon() {
         fi
     fi
 
-    # Termux wake-lock to prevent CPU sleep when phone screen is turned off
     if command -v termux-wake-lock >/dev/null 2>&1; then
-        echo "[+] Enabling termux-wake-lock (preventing Android OS sleep)..."
+        echo "[+] Enabling termux-wake-lock..."
         termux-wake-lock || true
     fi
 
     echo "[+] Starting Instalogger daemon in background..."
     cd "$BASE_DIR"
-    nohup "$BIN" < /dev/null >> "$LOG_FILE" 2>&1 &
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$BIN" < /dev/null >> "$LOG_FILE" 2>&1 &
+    else
+        nohup "$BIN" < /dev/null >> "$LOG_FILE" 2>&1 &
+    fi
     NEW_PID=$!
     disown "$NEW_PID" 2>/dev/null || true
     echo "$NEW_PID" > "$PID_FILE"
-    echo "[✓] Instalogger daemon started successfully (PID: $NEW_PID)."
+    echo "[OK] Instalogger daemon started (PID: $NEW_PID)."
     echo "[*] Web dashboard: http://localhost:3000"
     echo "[*] Logs: $LOG_FILE"
 }
@@ -91,24 +108,23 @@ stop_daemon() {
         if kill -0 "$PID" 2>/dev/null; then
             kill "$PID" 2>/dev/null || true
             echo "[+] Sent termination signal to PID $PID. Waiting..."
-            for i in {1..10}; do
+            for _ in {1..10}; do
                 if ! kill -0 "$PID" 2>/dev/null; then
                     break
                 fi
                 sleep 0.5
             done
             if kill -0 "$PID" 2>/dev/null; then
-                echo "[!] Process did not terminate; sending SIGKILL..."
-                kill -9 "$PID" 2>/dev/null || true
+                echo "[!] Process did not exit cleanly after SIGTERM; still running (PID: $PID)."
+            else
+                echo "[OK] Daemon stopped."
             fi
-            echo "[✓] Daemon stopped."
         else
             echo "[-] Process $PID is not running."
         fi
         rm -f "$PID_FILE"
     fi
 
-    # Release wake lock
     if command -v termux-wake-unlock >/dev/null 2>&1; then
         echo "[+] Releasing termux-wake-lock..."
         termux-wake-unlock || true
@@ -119,9 +135,9 @@ check_status() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
         if kill -0 "$PID" 2>/dev/null; then
-            echo "[✓] Instalogger is Running (PID: $PID)"
+            echo "[OK] Instalogger is Running (PID: $PID)"
             if command -v curl >/dev/null 2>&1; then
-                HEALTH=$(curl -s -m 2 http://127.0.0.1:3000/api/health 2>/dev/null || echo "API unreachable")
+                HEALTH=$(curl -s -m 2 "$API_BASE/health" 2>/dev/null || echo "API unreachable")
                 echo "[*] Health Check: $HEALTH"
             fi
             return 0
@@ -143,6 +159,233 @@ show_logs() {
     fi
 }
 
+cli_python() {
+    python3 - "$API_BASE" "$BASE_DIR" "$@" <<'PYEOF'
+import json
+import os
+import shutil
+import sqlite3
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+api_base = sys.argv[1].rstrip("/")
+base_dir = sys.argv[2]
+cmd = sys.argv[3] if len(sys.argv) > 3 else ""
+args = sys.argv[4:]
+
+def req(method, path, body=None, timeout=60):
+    url = f"{api_base}{path}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    token = os.environ.get("INSTALOGGER_TOKEN")
+    if token:
+        headers["x-auth-token"] = token
+    r = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                return resp.status, json.loads(raw)
+            except Exception:
+                return resp.status, raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        try:
+            return e.code, json.loads(raw)
+        except Exception:
+            return e.code, {"message": raw}
+    except Exception as e:
+        print(f"[ERR] Cannot reach InstaLogger daemon at {api_base}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def fmt_bytes(b):
+    if b < 1024:
+        return f"{b} B"
+    if b < 1024 * 1024:
+        return f"{b/1024:.1f} KB"
+    if b < 1024 * 1024 * 1024:
+        return f"{b/(1024*1024):.1f} MB"
+    return f"{b/(1024*1024*1024):.2f} GB"
+
+def resolve_target(key):
+    _, data = req("GET", "/targets")
+    targets = data.get("targets", []) if isinstance(data, dict) else []
+    clean = key.lstrip("@").lower()
+    for t in targets:
+        if t.get("id") == key or str(t.get("username", "")).lower() == clean:
+            return t
+    return None
+
+if cmd == "targets":
+    code, data = req("GET", "/targets")
+    if code != 200:
+        print(f"[ERR] HTTP {code}: {data}")
+        sys.exit(1)
+    targets = data.get("targets", [])
+    if not targets:
+        print("No tracked targets.")
+        sys.exit(0)
+    print(f"{'ID':<14} {'USERNAME':<22} {'STATUS':<8} {'PRIV':<6} {'FOLLOWERS':>10} {'FOLLOWING':>10} {'POSTS':>7} {'TURBO':<6}")
+    print("-" * 92)
+    for t in targets:
+        print(
+            f"{str(t.get('id','')):<14} @{str(t.get('username','')):<21} {str(t.get('status','')):<8} "
+            f"{('yes' if t.get('is_private') else 'no'):<6} {int(t.get('followers_count') or 0):>10,} "
+            f"{int(t.get('following_count') or 0):>10,} {int(t.get('media_count') or 0):>7,} "
+            f"{('on' if t.get('turbo_mode') else 'off'):<6}"
+        )
+
+elif cmd == "add":
+    if not args:
+        print("Usage: ./instalogger add <username> [--turbo]")
+        sys.exit(1)
+    username = args[0].lstrip("@")
+    turbo = "--turbo" in args[1:]
+    code, data = req("POST", "/targets", {"username": username, "turbo_mode": turbo})
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    sys.exit(0 if code in (200, 201) else 1)
+
+elif cmd == "remove":
+    if not args:
+        print("Usage: ./instalogger remove <id|username>")
+        sys.exit(1)
+    t = resolve_target(args[0])
+    tid = t["id"] if t else args[0]
+    code, data = req("DELETE", f"/targets/{urllib.parse.quote(tid)}")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    sys.exit(0 if code == 200 else 1)
+
+elif cmd == "check":
+    if not args:
+        print("Usage: ./instalogger check <id|username|all>")
+        sys.exit(1)
+    if args[0] == "all":
+        _, data = req("GET", "/targets")
+        for t in data.get("targets", []):
+            code, res = req("POST", f"/targets/{t['id']}/check")
+            print(f"@{t['username']}: HTTP {code} {res.get('status', res)}")
+    else:
+        t = resolve_target(args[0])
+        tid = t["id"] if t else args[0]
+        code, data = req("POST", f"/targets/{urllib.parse.quote(tid)}/check")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        sys.exit(0 if code == 200 else 1)
+
+elif cmd == "sync":
+    if not args:
+        print("Usage: ./instalogger sync <id|username>")
+        sys.exit(1)
+    t = resolve_target(args[0])
+    tid = t["id"] if t else args[0]
+    code, data = req("POST", f"/targets/{urllib.parse.quote(tid)}/archive", timeout=180)
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    sys.exit(0 if code == 200 else 1)
+
+elif cmd == "followers":
+    if not args:
+        print("Usage: ./instalogger followers <id|username> [--sync]")
+        sys.exit(1)
+    t = resolve_target(args[0])
+    tid = t["id"] if t else args[0]
+    if "--sync" in args[1:]:
+        code, res = req("POST", f"/targets/{urllib.parse.quote(tid)}/relationships/sync", timeout=180)
+        print(f"[SYNC] HTTP {code}: {res}")
+    code, data = req("GET", f"/targets/{urllib.parse.quote(tid)}/relationships")
+    if code != 200:
+        print(f"[ERR] HTTP {code}: {data}")
+        sys.exit(1)
+    followers = data.get("followers", [])
+    following = data.get("following", [])
+    audits = data.get("audits", [])
+    print(f"Followers cached: {len(followers)} | Following cached: {len(following)} | Recent audits: {len(audits)}")
+    for u in followers[:20]:
+        print(f"  @{u.get('username')}  ({u.get('full_name') or '-'})")
+    if len(followers) > 20:
+        print(f"  ... and {len(followers) - 20} more")
+
+elif cmd == "comments":
+    if len(args) < 2:
+        print("Usage: ./instalogger comments <id|username> <shortcode> [--sync] [--export json|csv|txt|md]")
+        sys.exit(1)
+    t = resolve_target(args[0])
+    tid = t["id"] if t else args[0]
+    shortcode = args[1]
+    if "--sync" in args[2:]:
+        code, res = req("POST", f"/targets/{urllib.parse.quote(tid)}/posts/{urllib.parse.quote(shortcode)}/comments/sync", timeout=120)
+        print(f"[SYNC] HTTP {code}: {res}")
+    if "--export" in args[2:]:
+        idx = args.index("--export")
+        fmt = args[idx + 1] if idx + 1 < len(args) else "json"
+        code, data = req("GET", f"/targets/{urllib.parse.quote(tid)}/posts/{urllib.parse.quote(shortcode)}/comments/export?format={urllib.parse.quote(fmt)}")
+        print(data if isinstance(data, str) else json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        code, data = req("GET", f"/targets/{urllib.parse.quote(tid)}/posts/{urllib.parse.quote(shortcode)}/comments")
+        if code != 200:
+            print(f"[ERR] HTTP {code}: {data}")
+            sys.exit(1)
+        comments = data.get("comments", [])
+        print(f"Comments ({len(comments)}):")
+        for c in comments[:30]:
+            print(f"  @{c.get('author_username')} [{c.get('like_count',0)} likes]: {c.get('text')}")
+
+elif cmd == "storage":
+    if "--clean-logs" in args:
+        code, res = req("POST", "/storage/cleanup", {"scope": "logs"})
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+    elif "--prune-orphans" in args:
+        code, res = req("POST", "/storage/cleanup", {"scope": "orphans"})
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+    else:
+        code, data = req("GET", "/storage")
+        if code != 200:
+            print(f"[ERR] HTTP {code}: {data}")
+            sys.exit(1)
+        print(f"Total storage : {fmt_bytes(data.get('total_bytes', 0))}")
+        print(f"  Database    : {fmt_bytes(data.get('db_bytes', 0))}")
+        print(f"  Archives    : {fmt_bytes(data.get('archives_bytes', 0))}")
+        print(f"  Logs        : {fmt_bytes(data.get('logs_bytes', 0))}")
+        print(f"  Orphans     : {data.get('orphan_dirs', 0)} dirs ({fmt_bytes(data.get('orphan_bytes', 0))})")
+        for p in data.get("targets", []):
+            print(f"  - @{p.get('username'):<20} {fmt_bytes(p.get('total_bytes', 0)):>10} ({p.get('file_count', 0)} files)")
+
+elif cmd == "doctor":
+    print("InstaLogger System Diagnostics")
+    print("-" * 44)
+    print(f"Python3      : {sys.version.split()[0]}")
+    for mod in ("PIL", "sqlite3"):
+        try:
+            __import__(mod)
+            print(f"Python {mod:<6}: OK")
+        except Exception:
+            print(f"Python {mod:<6}: MISSING")
+    for tool in ("yt-dlp", "ffmpeg", "gallery-dl", "curl"):
+        path = shutil.which(tool)
+        print(f"Binary {tool:<10}: {'OK (' + path + ')' if path else 'not installed'}")
+    db_path = os.path.join(base_dir, "data", "instalogger.db")
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+            conn.close()
+            print(f"SQLite DB    : OK ({fmt_bytes(os.path.getsize(db_path))}, {len(tables)} tables)")
+        except Exception as e:
+            print(f"SQLite DB    : ERROR ({e})")
+    else:
+        print("SQLite DB    : not created yet")
+    sess_path = os.path.join(base_dir, "sessions", "instagram_session.json")
+    print(f"Session file : {'PRESENT' if os.path.exists(sess_path) else 'not configured'}")
+    try:
+        with urllib.request.urlopen(f"{api_base}/health", timeout=2) as r:
+            print(f"Daemon API   : ONLINE ({r.read().decode('utf-8', errors='replace')})")
+    except Exception:
+        print("Daemon API   : OFFLINE")
+PYEOF
+}
+
 case "$1" in
     start)
         start_daemon
@@ -160,6 +403,9 @@ case "$1" in
         ;;
     logs)
         show_logs
+        ;;
+    targets|add|remove|check|sync|followers|comments|storage|doctor)
+        cli_python "$@"
         ;;
     --help|-h|"")
         usage

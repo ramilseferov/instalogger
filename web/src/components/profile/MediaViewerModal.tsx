@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
-import { ArchivedMedia } from '../../types';
-import { X, Download, Calendar, EyeOff, Film, Image as ImageIcon } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArchivedMedia, MediaAsset } from '../../types';
+import { api } from '../../api/client';
+import { PostCommentsModal } from './PostCommentsModal';
+import { X, Download, Calendar, EyeOff, Film, Image as ImageIcon, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
 import { useI18n } from '../../i18n';
 
 interface MediaViewerModalProps {
@@ -10,23 +12,51 @@ interface MediaViewerModalProps {
 
 export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClose }) => {
   const { t } = useI18n();
+  const [slides, setSlides] = useState<MediaAsset[]>([]);
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [showComments, setShowComments] = useState(false);
+
+  useEffect(() => {
+    if (!media) return;
+    setSlideIdx(0);
+    setSlides([]);
+    setShowComments(false);
+    api
+      .getMediaAssets(media.target_id, media.id)
+      .then((list) => setSlides(list))
+      .catch(() => setSlides([]));
+  }, [media]);
 
   useEffect(() => {
     if (!media) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !showComments) onClose();
+      if (slides.length > 1 && e.key === 'ArrowRight') {
+        setSlideIdx((i) => Math.min(slides.length - 1, i + 1));
+      }
+      if (slides.length > 1 && e.key === 'ArrowLeft') {
+        setSlideIdx((i) => Math.max(0, i - 1));
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [media, onClose]);
+  }, [media, onClose, slides.length, showComments]);
 
   if (!media) return null;
 
-  const isVideo = /\.mp4$/i.test(media.relative_file_path);
-  const mediaUrl = media.relative_file_path.startsWith('/')
-    ? media.relative_file_path
-    : `/${media.relative_file_path}`;
+  const activeSlide = slides.length > 1 ? slides[slideIdx] : null;
+  const rawPath = activeSlide?.relative_file_path || media.relative_file_path;
+  const mediaUrl = activeSlide
+    ? (activeSlide.relative_file_path
+        ? (activeSlide.relative_file_path.startsWith('/') ? activeSlide.relative_file_path : `/${activeSlide.relative_file_path}`)
+        : activeSlide.cdn_url)
+    : (rawPath.startsWith('/') ? rawPath : `/${rawPath}`);
+  const isVideo = activeSlide
+    ? activeSlide.media_type === 'video' || /\.mp4$/i.test(mediaUrl)
+    : /\.mp4$/i.test(media.relative_file_path);
   const posterUrl = isVideo ? mediaUrl.replace(/\.mp4$/i, '_thumb.jpg') : undefined;
+  const shortcode = media.id.replace(/^(post|reel|story|highlight)_/, '');
+  const canHaveComments = media.media_type === 'post' || media.media_type === 'reel';
 
   return (
     <div
@@ -64,9 +94,10 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
           </button>
         </div>
 
-        <div className="flex-1 bg-black flex items-center justify-center overflow-hidden min-h-[280px]">
+        <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden min-h-[280px]">
           {isVideo ? (
             <video
+              key={mediaUrl}
               src={mediaUrl}
               poster={posterUrl}
               controls
@@ -76,13 +107,45 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
             />
           ) : (
             <img
+              key={mediaUrl}
               src={mediaUrl}
               alt={media.caption || ''}
               className="max-h-[60vh] w-auto object-contain"
               onError={(e) => {
-                if (media.cdn_url) (e.target as HTMLImageElement).src = media.cdn_url;
+                const img = e.currentTarget;
+                const fallback = activeSlide?.cdn_url || media.cdn_url;
+                if (fallback && !img.dataset.fallbackApplied) {
+                  img.dataset.fallbackApplied = '1';
+                  img.src = fallback;
+                }
               }}
             />
+          )}
+
+          {slides.length > 1 && (
+            <>
+              <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-black/65 text-white text-[11px] font-mono tabular-nums">
+                {slideIdx + 1} / {slides.length}
+              </span>
+              {slideIdx > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSlideIdx((i) => Math.max(0, i - 1))}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+              )}
+              {slideIdx < slides.length - 1 && (
+                <button
+                  type="button"
+                  onClick={() => setSlideIdx((i) => Math.min(slides.length - 1, i + 1))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -93,21 +156,41 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
             </p>
           )}
 
-          <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)]">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)]">
             <span className="flex items-center gap-1.5 tabular-nums">
               <Calendar size={13} strokeWidth={1.75} />
               {media.posted_at ? new Date(media.posted_at).toLocaleString() : '—'}
             </span>
-            <a
-              href={mediaUrl}
-              download
-              className="inline-flex items-center gap-1.5 text-[#0C7FF2] dark:text-[#58A6FF] hover:underline font-medium"
-            >
-              <Download size={13} strokeWidth={1.75} /> {t.download_file}
-            </a>
+            <div className="flex items-center gap-3">
+              {canHaveComments && (
+                <button
+                  type="button"
+                  onClick={() => setShowComments(true)}
+                  className="inline-flex items-center gap-1.5 text-[var(--text-primary)] hover:text-[#0C7FF2] font-medium"
+                >
+                  <MessageSquare size={13} strokeWidth={1.75} /> {t.comments_title}
+                </button>
+              )}
+              <a
+                href={mediaUrl}
+                download
+                className="inline-flex items-center gap-1.5 text-[#0C7FF2] dark:text-[#58A6FF] hover:underline font-medium"
+              >
+                <Download size={13} strokeWidth={1.75} /> {t.download_file}
+              </a>
+            </div>
           </div>
         </div>
       </div>
+
+      {canHaveComments && (
+        <PostCommentsModal
+          isOpen={showComments}
+          targetId={media.target_id}
+          shortcode={shortcode}
+          onClose={() => setShowComments(false)}
+        />
+      )}
     </div>
   );
 };
