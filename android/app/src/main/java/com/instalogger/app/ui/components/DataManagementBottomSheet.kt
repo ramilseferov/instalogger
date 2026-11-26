@@ -32,6 +32,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -147,10 +148,60 @@ fun DataManagementBottomSheet(
     onDismissRequest: () -> Unit,
     onStorageChanged: (DeviceStorageSnapshot) -> Unit = {},
 ) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
+
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        containerColor = if (isDark) Color(0xFF10151C) else MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .statusBarsPadding()
+            .displayCutoutPadding()
+            .padding(top = 12.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 6.dp)
+                    .size(width = 44.dp, height = 4.5.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.outlineVariant)
+            )
+        }
+    ) {
+        DataManagementContent(
+            showHeaderBar = true,
+            onDismiss = onDismissRequest,
+            onStorageChanged = onStorageChanged,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 16.dp)
+                .testTag("data_management_bottom_sheet"),
+        )
+    }
+}
+
+/**
+ * Reusable Data & Storage Management content body used both inside [DataManagementBottomSheet]
+ * (in-app Settings) and [com.instalogger.app.ManageSpaceActivity] (Android System Settings -> Manage Space).
+ */
+@Composable
+fun DataManagementContent(
+    showHeaderBar: Boolean,
+    onDismiss: () -> Unit = {},
+    onStorageChanged: (DeviceStorageSnapshot) -> Unit = {},
+    refreshTrigger: Int = 0,
+    modifier: Modifier = Modifier,
+    extraFooterContent: (@Composable ColumnScope.() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
     var snapshot by remember { mutableStateOf<DeviceStorageSnapshot?>(null) }
@@ -204,7 +255,7 @@ fun DataManagementBottomSheet(
         isAnalyzing = false
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshTrigger) {
         refreshSnapshot()
     }
 
@@ -240,36 +291,8 @@ fun DataManagementBottomSheet(
         )
     }
 
-    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
-
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        containerColor = if (isDark) Color(0xFF10151C) else MaterialTheme.colorScheme.surface,
-        modifier = Modifier
-            .statusBarsPadding()
-            .displayCutoutPadding()
-            .padding(top = 12.dp),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 12.dp, bottom = 6.dp)
-                    .size(width = 44.dp, height = 4.5.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.outlineVariant)
-            )
-        }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = maxSheetHeight)
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 16.dp)
-                .testTag("data_management_bottom_sheet")
-        ) {
+    Column(modifier = modifier) {
+        if (showHeaderBar) {
             // Top Sheet Header Bar
             Row(
                 modifier = Modifier
@@ -332,7 +355,7 @@ fun DataManagementBottomSheet(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = onDismissRequest) {
+                    IconButton(onClick = onDismiss) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = stringResource(R.string.dialog_cancel),
@@ -341,6 +364,7 @@ fun DataManagementBottomSheet(
                     }
                 }
             }
+        }
 
             Column(
                 modifier = Modifier
@@ -868,9 +892,13 @@ fun DataManagementBottomSheet(
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp),
                 )
+
+                if (extraFooterContent != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    extraFooterContent()
+                }
             }
         }
-    }
 
     // Confirmation Dialog: Clear Selected Categories
     if (showConfirmClearSelected) {

@@ -543,4 +543,9 @@
     <string name="storage_confirm_target_title">Clear media for %1$s?</string>
     <string name="storage_confirm_target_desc">All locally archived media and JSON files for %1$s (%2$s, %3$d files) will be deleted. The account will stay in your tracking list.</string>
     <string name="storage_target_cleared_format">Freed %2$s for %1$s</string>
+    <string name="storage_factory_reset_title">Reset All App Data</string>
+    <string name="storage_factory_reset_desc">Permanently deletes all tracked accounts, encrypted Vault archives, comments, logs, caches, and WebView cookies.</string>
+    <string name="storage_factory_reset_btn">Reset All Local Data</string>
+    <string name="storage_factory_reset_confirm_title">Erase all local app data?</string>
+    <string name="storage_factory_reset_confirm_desc">This action permanently deletes your entire tracking list, encrypted Vault media, comments, and caches. This cannot be undone. Continue?</string>
 </resources>

@@ -613,4 +613,9 @@
     <string name="storage_confirm_target_title">%1$s mediasını təmizlə?</string>
     <string name="storage_confirm_target_desc">%1$s üçün arxivlənmiş bütün media və JSON faylları (%2$s, %3$d fayl) cihazdan silinəcək. Hesab izləmə siyahısında qalacaq.</string>
     <string name="storage_target_cleared_format">%1$s üçün %2$s yaddaş azad edildi</string>
+    <string name="storage_factory_reset_title">Bütün tətbiq məlumatlarını sıfırla</string>
+    <string name="storage_factory_reset_desc">Bütün izlənən hesablar, şifrəli Vault arxivləri, şərhlər, jurnallar, keşlər və WebView çərəzləri tamamilə silinəcək.</string>
+    <string name="storage_factory_reset_btn">Bütün Yerli Məlumatları Sıfırla</string>
+    <string name="storage_factory_reset_confirm_title">Bütün məlumatlar silinsin?</string>
+    <string name="storage_factory_reset_confirm_desc">Bu əməliyyat tətbiqdəki bütün izləmə siyahısını, şifrəli media arxivlərini, şərhləri və keşləri geri qaytarılmadan siləcək. Davam etmək istəyirsiniz?</string>
 </resources>

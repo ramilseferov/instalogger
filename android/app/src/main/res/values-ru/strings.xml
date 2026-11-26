@@ -599,4 +599,9 @@
     <string name="storage_confirm_target_title">Очистить медиа для %1$s?</string>
     <string name="storage_confirm_target_desc">Все локально сохранённые медиа и JSON-файлы для %1$s (%2$s, %3$d файлов) будут удалены. Аккаунт останется в списке отслеживания.</string>
     <string name="storage_target_cleared_format">Для %1$s освобождено %2$s</string>
+    <string name="storage_factory_reset_title">Сбросить все данные приложения</string>
+    <string name="storage_factory_reset_desc">Полностью удалит все отслеживаемые аккаунты, зашифрованные архивы Vault, комментарии, журналы, кэш и куки WebView.</string>
+    <string name="storage_factory_reset_btn">Сбросить все локальные данные</string>
+    <string name="storage_factory_reset_confirm_title">Удалить все данные?</string>
+    <string name="storage_factory_reset_confirm_desc">Это действие безвозвратно удалит список отслеживания, все зашифрованные медиа Vault, комментарии и кэш. Продолжить?</string>
 </resources>

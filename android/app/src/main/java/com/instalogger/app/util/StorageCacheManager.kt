@@ -522,6 +522,32 @@ object StorageCacheManager {
         return freedAndSnapshot
     }
 
+    /**
+     * Complete local data reset invoked only after explicit user confirmation from Android's
+     * Manage Space screen (`ManageSpaceActivity`). Clears all storage categories, WebView cookies,
+     * and tracked target database records.
+     */
+    suspend fun clearAllAppData(context: Context): Pair<Long, DeviceStorageSnapshot> {
+        val appCtx = context.applicationContext
+        val beforeTotal = analyzeStorage(appCtx).totalAppCacheBytes
+        clearSelectedCategories(appCtx, StorageCategoryType.entries.toSet())
+        clearOnlyWebViewCookies(appCtx)
+        val afterSnapshot = withContext(Dispatchers.IO) {
+            val writableDb = AppDatabase.getInstance(appCtx).openHelper.writableDatabase
+            runCatching {
+                writableDb.execSQL("DELETE FROM targets")
+                writableDb.execSQL("DELETE FROM posts")
+                writableDb.execSQL("DELETE FROM highlights")
+                writableDb.execSQL("DELETE FROM highlight_media")
+            }
+            compactDatabase(writableDb)
+            analyzeStorage(appCtx)
+        }
+        val freed = (beforeTotal - afterSnapshot.totalAppCacheBytes).coerceAtLeast(0L)
+        AppLogger.i("StorageManager", "Full app data reset completed (${formatBytes(freed)} freed)")
+        return Pair(freed, afterSnapshot)
+    }
+
     internal data class VaultArchiveScanResult(
         val postsBytes: Long,
         val postsFiles: Int,
