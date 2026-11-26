@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -31,40 +32,48 @@ class PythonProviderOrchestrator:
         ytdlp: Optional[InstagramProvider] = None,
         gallerydl: Optional[InstagramProvider] = None,
         http_provider: Optional[InstagramProvider] = None,
+        yt_dlp_enabled: bool = True,
+        quality_preset: str = "BEST",
     ):
-        self.ytdlp = ytdlp or YtDlpProvider()
+        self.yt_dlp_enabled = yt_dlp_enabled
+        self.ytdlp = ytdlp or YtDlpProvider(quality_preset=quality_preset)
         self.gallerydl = gallerydl or GalleryDlProvider()
         self.http_provider = http_provider or InstaloaderHttpProvider()
+        self._lock = threading.Lock()
         self._cooldowns: Dict[str, float] = {}
         self._failures: Dict[str, int] = {}
 
     def select_chain(self, media_type_hint: str) -> List[InstagramProvider]:
         hint = (media_type_hint or "image").lower()
         if hint in ("video", "reel"):
-            return [self.ytdlp, self.gallerydl, self.http_provider]
+            chain = [self.ytdlp, self.gallerydl, self.http_provider] if self.yt_dlp_enabled else [self.gallerydl, self.http_provider]
+            return chain
         if hint == "carousel":
-            return [self.gallerydl, self.ytdlp, self.http_provider]
+            chain = [self.gallerydl, self.ytdlp, self.http_provider] if self.yt_dlp_enabled else [self.gallerydl, self.http_provider]
+            return chain
         return [self.gallerydl, self.http_provider]
 
     def can_use(self, provider: InstagramProvider, now: Optional[float] = None) -> bool:
         if not provider.is_available():
             return False
         ts = now if now is not None else time.time()
-        return ts >= self._cooldowns.get(provider.provider_id, 0.0)
+        with self._lock:
+            return ts >= self._cooldowns.get(provider.provider_id, 0.0)
 
     def _record_outcome(self, outcome: DownloadOutcome) -> None:
         pid = outcome.provider_id
         now = time.time()
-        if outcome.status == DownloadStatus.SUCCESS:
-            self._failures[pid] = 0
-            self._cooldowns[pid] = 0.0
-        elif outcome.status == DownloadStatus.RATE_LIMITED:
-            self._failures[pid] = self._failures.get(pid, 0) + 1
-            self._cooldowns[pid] = now + min(outcome.retry_after_seconds * self._failures[pid], 900)
-        elif outcome.status == DownloadStatus.ERROR:
-            self._failures[pid] = self._failures.get(pid, 0) + 1
-            if self._failures[pid] >= 3:
-                self._cooldowns[pid] = now + 60.0
+        with self._lock:
+            if outcome.status == DownloadStatus.SUCCESS:
+                self._failures[pid] = 0
+                self._cooldowns[pid] = 0.0
+            elif outcome.status == DownloadStatus.RATE_LIMITED:
+                self._failures[pid] = self._failures.get(pid, 0) + 1
+                self._cooldowns[pid] = now + min(outcome.retry_after_seconds * self._failures[pid], 900)
+            elif outcome.status == DownloadStatus.ERROR:
+                self._failures[pid] = self._failures.get(pid, 0) + 1
+                if self._failures[pid] >= 3:
+                    self._cooldowns[pid] = now + 60.0
 
     def hydrate_item(
         self,

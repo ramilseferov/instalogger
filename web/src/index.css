@@ -175,6 +175,44 @@
   overflow: hidden;
 }
 
+/* Shimmer skeleton placeholders */
+@keyframes skeletonShimmer {
+  0% {
+    transform: translate3d(-100%, 0, 0);
+  }
+  100% {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.skeleton-box {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg-subtle);
+}
+
+.skeleton-box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  animation: skeletonShimmer 1.35s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.dark .skeleton-box::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+}
+
 /* Theme-aware scrollbars */
 ::-webkit-scrollbar {
   width: 6px;

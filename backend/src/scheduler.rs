@@ -8,6 +8,7 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 
 use crate::db::Database;
+use crate::downloads::DownloadManager;
 use crate::models::{ArchivedMedia, Target};
 use crate::notify::Notifier;
 use crate::worker::WorkerBridge;
@@ -192,6 +193,7 @@ pub struct Scheduler {
     pub db: Database,
     pub notify: Arc<Notifier>,
     pub worker: Arc<WorkerBridge>,
+    pub downloads: Arc<DownloadManager>,
     pub events_tx: broadcast::Sender<String>,
 }
 
@@ -201,12 +203,14 @@ impl Scheduler {
         notify: Arc<Notifier>,
         worker: Arc<WorkerBridge>,
     ) -> (Self, broadcast::Receiver<String>) {
-        let (tx, rx) = broadcast::channel(100);
+        let (tx, rx) = broadcast::channel(200);
+        let downloads = DownloadManager::new(db.clone(), Arc::clone(&worker), tx.clone());
         (
             Self {
                 db,
                 notify,
                 worker,
+                downloads,
                 events_tx: tx,
             },
             rx,
@@ -353,16 +357,35 @@ impl Scheduler {
         session_path: Option<&str>,
     ) -> Result<()> {
         info!("Initiating Full Archive for @{} ({})", username, target_id);
+        self.downloads.mark_archiving(target_id, true);
 
         let out_dir = format!("archives/{}", target_id);
-        std::fs::create_dir_all(&out_dir)?;
+        if let Err(e) = std::fs::create_dir_all(&out_dir) {
+            self.downloads.mark_archiving(target_id, false);
+            return Err(e.into());
+        }
 
-        let blitz = self
+        let max_posts_limit = self
+            .db
+            .get_setting("max_posts_sync_limit")
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(50);
+
+        let blitz = match self
             .worker
-            .archive_blitz(username, &out_dir, session_path)
-            .await?;
+            .archive_blitz(username, &out_dir, session_path, max_posts_limit)
+            .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                self.downloads.mark_archiving(target_id, false);
+                return Err(e);
+            }
+        };
 
-        // Upsert items
+        // Upsert items into SQLite immediately so Gallery shows them right away
         for item in &blitz.items {
             let media = ArchivedMedia {
                 id: item.id.clone(),
@@ -374,7 +397,7 @@ impl Scheduler {
                 relative_file_path: item
                     .relative_file_path
                     .clone()
-                    .unwrap_or_else(|| format!("archives/{}/{}/{}.jpg", target_id, item.media_type, item.shortcode)),
+                    .unwrap_or_else(|| format!("archives/{}/{}s/{}.jpg", target_id, item.media_type, item.shortcode)),
                 file_size_bytes: 0,
                 posted_at: DateTime::from_timestamp(item.posted_at, 0).unwrap_or_else(Utc::now),
                 download_status: "pending".to_string(),
@@ -385,7 +408,6 @@ impl Scheduler {
             let _ = self.db.upsert_media(&media);
         }
 
-        // Update target media_count if items were discovered and current count is less
         if !blitz.items.is_empty() {
             if let Ok(Some(mut current_target)) = self.db.get_target(target_id) {
                 if current_target.media_count == 0 || current_target.media_count < blitz.items.len() as i64 {
@@ -393,42 +415,35 @@ impl Scheduler {
                     let _ = self.db.update_target_profile(&current_target);
                 }
             }
+            let discovered_msg = serde_json::json!({
+                "type": "media_discovered",
+                "target_id": target_id,
+                "count": blitz.items.len()
+            });
+            let _ = self.events_tx.send(discovered_msg.to_string());
         }
 
-        // Dump payload
+        // Dump payload for audit
         let blitz_json_path = format!("{}/blitz_items.json", out_dir);
         let blitz_payload = serde_json::json!({
             "target_id": target_id,
             "items": blitz.items
         });
-        std::fs::write(&blitz_json_path, blitz_payload.to_string())?;
+        let _ = std::fs::write(&blitz_json_path, blitz_payload.to_string());
 
-        let worker_clone = Arc::clone(&self.worker);
-        let db_clone = self.db.clone();
-        let target_id_owned = target_id.to_string();
-        let out_dir_owned = out_dir.clone();
-        let items_for_sync = blitz.items.clone();
+        let auto_download = self
+            .db
+            .get_setting("auto_download_media")
+            .ok()
+            .flatten()
+            .map(|v| v != "false")
+            .unwrap_or(true);
 
-        tokio::spawn(async move {
-            info!("Starting Phase 2 asset hydration for target {}", target_id_owned);
-            if let Err(e) = worker_clone
-                .hydrate_assets(&target_id_owned, &blitz_json_path, &out_dir_owned)
-                .await
-            {
-                error!("Hydration failed for target {}: {}", target_id_owned, e);
-            } else {
-                for item in items_for_sync {
-                    if let Some(rel) = item.relative_file_path {
-                        if let Ok(meta) = std::fs::metadata(&rel) {
-                            if meta.len() > 0 {
-                                let _ = db_clone.mark_media_completed(&item.id, meta.len() as i64);
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        if auto_download && !blitz.items.is_empty() {
+            self.downloads.enqueue_batch(target_id, username, &blitz.items);
+        }
 
+        self.downloads.mark_archiving(target_id, false);
         Ok(())
     }
 

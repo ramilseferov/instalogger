@@ -28,6 +28,21 @@ pub struct BlitzResult {
     pub count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HydrateSingleResult {
+    pub status: String,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub actual_path: Option<String>,
+    #[serde(default)]
+    pub file_size: i64,
+    #[serde(default)]
+    pub speed_bps: i64,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct WorkerBridge {
     pub python_bin: String,
@@ -93,6 +108,7 @@ impl WorkerBridge {
         target: &str,
         output_dir: &str,
         session_path: Option<&str>,
+        limit: i64,
     ) -> Result<BlitzResult> {
         let mut cmd = Command::new(&self.python_bin);
         cmd.arg(&self.script_path)
@@ -100,7 +116,9 @@ impl WorkerBridge {
             .arg("--target")
             .arg(target)
             .arg("--output-dir")
-            .arg(output_dir);
+            .arg(output_dir)
+            .arg("--limit")
+            .arg(limit.to_string());
 
         if let Some(sess) = session_path {
             cmd.arg("--session").arg(sess);
@@ -123,6 +141,73 @@ impl WorkerBridge {
             .map_err(|e| anyhow!("Failed to parse archive_blitz JSON: {}. Output: {}", e, stdout))?;
 
         Ok(res)
+    }
+
+    pub async fn hydrate_single(
+        &self,
+        target_id: &str,
+        item_id: &str,
+        shortcode: &str,
+        media_type: &str,
+        cdn_url: &str,
+        rel_path: &str,
+        output_dir: &str,
+        caption: &str,
+        cookie_file: Option<&str>,
+        quality: &str,
+        yt_dlp_enabled: bool,
+    ) -> Result<HydrateSingleResult> {
+        let mut cmd = Command::new(&self.python_bin);
+        cmd.kill_on_drop(true)
+            .arg(&self.script_path)
+            .arg("hydrate_single")
+            .arg("--target-id")
+            .arg(target_id)
+            .arg("--item-id")
+            .arg(item_id)
+            .arg("--shortcode")
+            .arg(shortcode)
+            .arg("--media-type")
+            .arg(media_type)
+            .arg("--cdn-url")
+            .arg(cdn_url)
+            .arg("--rel-path")
+            .arg(rel_path)
+            .arg("--output-dir")
+            .arg(output_dir)
+            .arg("--caption")
+            .arg(caption)
+            .arg("--quality")
+            .arg(quality)
+            .arg("--yt-dlp-enabled")
+            .arg(if yt_dlp_enabled { "true" } else { "false" });
+
+        if let Some(c) = cookie_file {
+            cmd.arg("--cookies").arg(c);
+        }
+
+        let output = cmd.output().await?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let last_line = stdout.lines().rev().find(|l| l.trim().starts_with('{')).unwrap_or("");
+
+        if !output.status.success() || last_line.is_empty() {
+            return Err(anyhow!(
+                "Hydrate single failed (exit {:?}): {}",
+                output.status.code(),
+                stderr.trim()
+            ));
+        }
+
+        let parsed: HydrateSingleResult = serde_json::from_str(last_line)
+            .map_err(|e| anyhow!("Invalid hydrate_single JSON: {}", e))?;
+        if parsed.status != "ok" {
+            return Err(anyhow!(
+                "{}",
+                parsed.error.unwrap_or_else(|| "Download failed".to_string())
+            ));
+        }
+        Ok(parsed)
     }
 
     pub async fn hydrate_assets(

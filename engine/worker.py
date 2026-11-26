@@ -1,23 +1,49 @@
 #!/usr/bin/env python3
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import os
 import sys
+import tempfile
+import threading
 import time
 import urllib.parse
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 import requests
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 try:
-    from engine.instagram_client import InstagramClient
+    from engine.instagram_client import InstagramClient, parse_cookie_text
     from engine.providers import PythonProviderOrchestrator
 except ImportError:
-    from instagram_client import InstagramClient
+    from instagram_client import InstagramClient, parse_cookie_text
     from providers import PythonProviderOrchestrator
+
+
+def build_netscape_cookie_tempfile(session_path: Optional[str]) -> Optional[Path]:
+    """Convert raw/JSON session cookie file into a temporary Netscape cookies.txt for yt-dlp."""
+    if not session_path or not os.path.exists(session_path):
+        return None
+    try:
+        with open(session_path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if content.startswith("# Netscape HTTP Cookie File"):
+            return Path(session_path)
+        cookies = parse_cookie_text(content)
+        if not cookies:
+            return None
+        fd, tmp_name = tempfile.mkstemp(prefix="ig_cookies_", suffix=".txt")
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write("# Netscape HTTP Cookie File\n")
+            for k, v in cookies.items():
+                out.write(f".instagram.com\tTRUE\t/\tTRUE\t2147483647\t{k}\t{v}\n")
+        return Path(tmp_name)
+    except Exception:
+        return None
 
 
 def sanitize_identifier(val: Any) -> str:
@@ -194,7 +220,7 @@ def action_check_profile(target: str, session_path: Optional[str]):
     print(json.dumps({"status": "ok", "profile": profile}))
 
 
-def action_archive_blitz(target: str, output_dir: str, session_path: Optional[str]):
+def action_archive_blitz(target: str, output_dir: str, session_path: Optional[str], limit: int = 24):
     """Phase 1 Blitz: Quickly extract all media metadata & CDN URLs without waiting for downloads."""
     client = InstagramClient(session_path)
     res = client.fetch_web_profile(target)
@@ -207,14 +233,21 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
     avatar_rel = sync_profile_avatar(profile, client.session)
     profile["profile_pic_path"] = avatar_rel
 
+    effective_limit = 500 if limit <= 0 else max(1, min(limit, 500))
     media_edges = (user_data.get("edge_owner_to_timeline_media") or {}).get("edges", [])
-    if not media_edges and (not profile.get("is_private") or profile.get("followed_by_viewer")):
-        media_edges = client.fetch_user_posts(profile["username"], profile.get("id"), limit=24)
+    if (not media_edges or len(media_edges) < min(effective_limit, profile.get("media_count") or 0)) and (
+        not profile.get("is_private") or profile.get("followed_by_viewer")
+    ):
+        extra_edges = client.fetch_user_posts(profile["username"], profile.get("id"), limit=effective_limit)
+        if extra_edges:
+            media_edges = list(media_edges) + list(extra_edges)
 
     items = []
     seen_shortcodes = set()
 
     for edge in media_edges:
+        if len(items) >= effective_limit:
+            break
         node = edge.get("node", {})
         item = parse_posts_blitz(node)
         if not item["shortcode"] or item["shortcode"] in seen_shortcodes:
@@ -257,8 +290,169 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
     }))
 
 
-def action_hydrate_assets(target_id: str, input_json: str, output_dir: str, cookie_file: Optional[str] = None):
-    """Phase 2 Hydration: Multi-Provider download (yt-dlp + gallery-dl + HTTP) with SHA-256 deduplication."""
+def _hydrate_one_item(
+    orchestrator: PythonProviderOrchestrator,
+    target_id: str,
+    output_dir: str,
+    item: Dict[str, Any],
+    cookie_path: Optional[Path],
+    sha_index: Dict[str, str],
+    sha_lock: threading.Lock,
+) -> Dict[str, Any]:
+    t0 = time.monotonic()
+    cdn_url = item.get("cdn_url") or ""
+    shortcode = item.get("shortcode") or item.get("id") or "item"
+    media_type = item.get("media_type") or "post"
+    item_id = item.get("id") or f"{media_type}_{shortcode}"
+    rel_path = item.get("relative_file_path", "")
+    dest_path = Path(os.path.join(output_dir, rel_path.replace(f"archives/{target_id}/", "")))
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Check if either target path or alternate extension already exists
+    existing_file: Optional[Path] = None
+    for cand in (dest_path, dest_path.with_suffix(".mp4"), dest_path.with_suffix(".jpg")):
+        if cand.exists() and cand.stat().st_size > 0:
+            existing_file = cand
+            break
+
+    provider_used = "cached"
+    asset_records: List[Dict[str, Any]] = []
+    ok = True
+    actual_file: Optional[Path] = existing_file
+
+    if existing_file is None:
+        with sha_lock:
+            local_sha = dict(sha_index)
+        ok, provider_used, asset_records = orchestrator.hydrate_item(
+            shortcode=shortcode,
+            media_type_hint=media_type,
+            dest_path=dest_path,
+            cdn_url=cdn_url,
+            cookie_file=cookie_path,
+            sha_index=local_sha,
+        )
+        if ok:
+            with sha_lock:
+                sha_index.update(local_sha)
+            if asset_records:
+                actual_file = Path(asset_records[0]["file_path"])
+        else:
+            actual_file = None
+
+    file_size = actual_file.stat().st_size if (actual_file and actual_file.exists()) else 0
+    elapsed = max(time.monotonic() - t0, 0.01)
+    speed_bps = int(file_size / elapsed) if (file_size > 0 and provider_used != "cached") else 0
+
+    actual_rel = rel_path
+    if actual_file and actual_file.exists():
+        try:
+            rel_from_cwd = os.path.relpath(str(actual_file), os.getcwd()).replace("\\", "/")
+            actual_rel = rel_from_cwd
+        except Exception:
+            actual_rel = str(actual_file).replace("\\", "/")
+
+    # Save sidecar caption & metadata
+    if ok and actual_file:
+        base_no_ext = os.path.splitext(str(actual_file))[0]
+        caption = item.get("caption", "")
+        if caption:
+            try:
+                with open(f"{base_no_ext}_caption.txt", "w", encoding="utf-8") as f_cap:
+                    f_cap.write(caption)
+            except Exception:
+                pass
+        enriched_meta = dict(item)
+        enriched_meta["provider"] = provider_used
+        enriched_meta["relative_file_path"] = actual_rel
+        if asset_records:
+            enriched_meta["assets"] = asset_records
+        try:
+            with open(f"{base_no_ext}_meta.json", "w", encoding="utf-8") as f_meta:
+                json.dump(enriched_meta, f_meta, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    return {
+        "ok": ok,
+        "id": item_id,
+        "shortcode": shortcode,
+        "media_type": media_type,
+        "provider": provider_used,
+        "actual_path": actual_rel,
+        "file_size": file_size,
+        "speed_bps": speed_bps,
+        "error": None if ok else provider_used,
+    }
+
+
+def action_hydrate_single(
+    target_id: str,
+    item_id: str,
+    shortcode: str,
+    media_type: str,
+    cdn_url: str,
+    rel_path: str,
+    output_dir: str,
+    caption: str = "",
+    cookie_file: Optional[str] = None,
+    quality: str = "BEST",
+    yt_dlp_enabled: bool = True,
+):
+    """Hydrate a single media item cleanly (used by Rust parallel DownloadManager)."""
+    tmp_cookie = build_netscape_cookie_tempfile(cookie_file)
+    try:
+        orchestrator = PythonProviderOrchestrator(
+            yt_dlp_enabled=yt_dlp_enabled,
+            quality_preset=quality,
+        )
+        sha_index_file = Path(output_dir) / ".sha256_index.json"
+        sha_index: Dict[str, str] = {}
+        if sha_index_file.exists():
+            try:
+                sha_index = json.loads(sha_index_file.read_text(encoding="utf-8"))
+            except Exception:
+                sha_index = {}
+
+        res = _hydrate_one_item(
+            orchestrator=orchestrator,
+            target_id=target_id,
+            output_dir=output_dir,
+            item={
+                "id": item_id,
+                "shortcode": shortcode,
+                "media_type": media_type,
+                "cdn_url": cdn_url,
+                "relative_file_path": rel_path,
+                "caption": caption,
+            },
+            cookie_path=tmp_cookie,
+            sha_index=sha_index,
+            sha_lock=threading.Lock(),
+        )
+        try:
+            sha_index_file.parent.mkdir(parents=True, exist_ok=True)
+            sha_index_file.write_text(json.dumps(sha_index, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        print(json.dumps({"status": "ok" if res["ok"] else "error", **res}), flush=True)
+    finally:
+        if tmp_cookie and cookie_file and str(tmp_cookie) != str(cookie_file):
+            try:
+                tmp_cookie.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def action_hydrate_assets(
+    target_id: str,
+    input_json: str,
+    output_dir: str,
+    cookie_file: Optional[str] = None,
+    workers: int = 4,
+    quality: str = "BEST",
+    yt_dlp_enabled: bool = True,
+):
+    """Phase 2 Hydration: Parallel Multi-Provider download (yt-dlp + gallery-dl + HTTP) with SHA-256 deduplication."""
     if not os.path.exists(input_json):
         print(json.dumps({"status": "error", "message": f"Input file not found: {input_json}"}))
         return
@@ -270,85 +464,84 @@ def action_hydrate_assets(target_id: str, input_json: str, output_dir: str, cook
     total = len(items)
     downloaded = 0
     total_bytes = 0
+    max_workers = max(1, min(int(workers or 4), 10))
 
-    from pathlib import Path
-    orchestrator = PythonProviderOrchestrator()
-    cookie_path = Path(cookie_file) if cookie_file else None
-    sha_index_file = Path(output_dir) / ".sha256_index.json"
-    sha_index: Dict[str, str] = {}
-    if sha_index_file.exists():
+    tmp_cookie = build_netscape_cookie_tempfile(cookie_file)
+    try:
+        orchestrator = PythonProviderOrchestrator(
+            yt_dlp_enabled=yt_dlp_enabled,
+            quality_preset=quality,
+        )
+        sha_index_file = Path(output_dir) / ".sha256_index.json"
+        sha_index: Dict[str, str] = {}
+        if sha_index_file.exists():
+            try:
+                sha_index = json.loads(sha_index_file.read_text(encoding="utf-8"))
+            except Exception:
+                sha_index = {}
+        sha_lock = threading.Lock()
+        completed_count = 0
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    _hydrate_one_item,
+                    orchestrator,
+                    target_id,
+                    output_dir,
+                    item,
+                    tmp_cookie,
+                    sha_index,
+                    sha_lock,
+                )
+                for item in items
+            ]
+            for fut in as_completed(futures):
+                completed_count += 1
+                res = fut.result()
+                if res["ok"]:
+                    downloaded += 1
+                    total_bytes += res["file_size"]
+                    print(json.dumps({
+                        "status": "progress",
+                        "current": completed_count,
+                        "total": total,
+                        "id": res["id"],
+                        "shortcode": res["shortcode"],
+                        "media_type": res["media_type"],
+                        "provider": res["provider"],
+                        "actual_path": res["actual_path"],
+                        "file_size": res["file_size"],
+                        "speed_bps": res["speed_bps"],
+                    }), flush=True)
+                else:
+                    print(json.dumps({
+                        "status": "warning",
+                        "current": completed_count,
+                        "total": total,
+                        "id": res["id"],
+                        "shortcode": res["shortcode"],
+                        "message": f"Hydration failed for {res['shortcode']}: {res['error']}",
+                    }), flush=True)
+
         try:
-            sha_index = json.loads(sha_index_file.read_text(encoding="utf-8"))
+            sha_index_file.parent.mkdir(parents=True, exist_ok=True)
+            sha_index_file.write_text(json.dumps(sha_index, indent=2), encoding="utf-8")
         except Exception:
-            sha_index = {}
-
-    for idx, item in enumerate(items, 1):
-        cdn_url = item.get("cdn_url") or ""
-        shortcode = item.get("shortcode") or item.get("id") or f"item_{idx}"
-        media_type = item.get("media_type") or "post"
-
-        rel_path = item.get("relative_file_path", "")
-        dest_path = Path(os.path.join(output_dir, rel_path.replace(f"archives/{target_id}/", "")))
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-        provider_used = "cached"
-        asset_records: List[Dict[str, Any]] = []
-
-        if not dest_path.exists() or dest_path.stat().st_size == 0:
-            ok, provider_used, asset_records = orchestrator.hydrate_item(
-                shortcode=shortcode,
-                media_type_hint=media_type,
-                dest_path=dest_path,
-                cdn_url=cdn_url,
-                cookie_file=cookie_path,
-                sha_index=sha_index,
-            )
-            if ok:
-                downloaded += 1
-                total_bytes += sum(rec.get("file_size", 0) for rec in asset_records)
-            else:
-                print(json.dumps({
-                    "status": "warning",
-                    "message": f"Hydration failed for {shortcode}: {provider_used}"
-                }))
-        else:
-            downloaded += 1
-
-        # Save sidecar caption and normalized metadata
-        base_no_ext = os.path.splitext(str(dest_path))[0]
-        caption = item.get("caption", "")
-        if caption:
-            with open(f"{base_no_ext}_caption.txt", "w", encoding="utf-8") as f_cap:
-                f_cap.write(caption)
-
-        enriched_meta = dict(item)
-        enriched_meta["provider"] = provider_used
-        if asset_records:
-            enriched_meta["assets"] = asset_records
-        with open(f"{base_no_ext}_meta.json", "w", encoding="utf-8") as f_meta:
-            json.dump(enriched_meta, f_meta, indent=2, ensure_ascii=False)
+            pass
 
         print(json.dumps({
-            "status": "progress",
-            "current": idx,
-            "total": total,
-            "shortcode": shortcode,
-            "media_type": media_type,
-            "provider": provider_used,
+            "status": "completed",
+            "total_items": total,
+            "downloaded_items": downloaded,
+            "bytes_downloaded": total_bytes,
         }), flush=True)
-
-    try:
-        sha_index_file.parent.mkdir(parents=True, exist_ok=True)
-        sha_index_file.write_text(json.dumps(sha_index, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
-    print(json.dumps({
-        "status": "completed",
-        "total_items": total,
-        "downloaded_items": downloaded,
-        "bytes_downloaded": total_bytes
-    }))
+    finally:
+        if tmp_cookie and cookie_file and str(tmp_cookie) != str(cookie_file):
+            try:
+                tmp_cookie.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def action_check_highlights(target: str, output_dir: str, session_path: Optional[str]):
@@ -398,12 +591,29 @@ def main():
     p_blitz.add_argument("--target", required=True, help="Target username")
     p_blitz.add_argument("--output-dir", default="archives", help="Storage output directory")
     p_blitz.add_argument("--session", default=None, help="Session file path")
+    p_blitz.add_argument("--limit", type=int, default=24, help="Max posts limit (0=unlimited)")
 
     p_hydrate = subparsers.add_parser("hydrate_assets")
     p_hydrate.add_argument("--target-id", required=True, help="Target numeric Instagram user ID")
     p_hydrate.add_argument("--input-json", required=True, help="Path to JSON file containing blitz items")
     p_hydrate.add_argument("--output-dir", required=True, help="Target archives root directory")
-    p_hydrate.add_argument("--cookies", default=None, help="Optional Netscape cookies file path")
+    p_hydrate.add_argument("--cookies", default=None, help="Optional cookies file path")
+    p_hydrate.add_argument("--workers", type=int, default=4, help="Parallel download workers")
+    p_hydrate.add_argument("--quality", default="BEST", help="Video quality preset")
+    p_hydrate.add_argument("--yt-dlp-enabled", default="true", help="Enable yt-dlp engine")
+
+    p_single = subparsers.add_parser("hydrate_single")
+    p_single.add_argument("--target-id", required=True)
+    p_single.add_argument("--item-id", required=True)
+    p_single.add_argument("--shortcode", required=True)
+    p_single.add_argument("--media-type", required=True)
+    p_single.add_argument("--cdn-url", default="")
+    p_single.add_argument("--rel-path", required=True)
+    p_single.add_argument("--output-dir", required=True)
+    p_single.add_argument("--caption", default="")
+    p_single.add_argument("--cookies", default=None)
+    p_single.add_argument("--quality", default="BEST")
+    p_single.add_argument("--yt-dlp-enabled", default="true")
 
     p_hl = subparsers.add_parser("check_highlights")
     p_hl.add_argument("--target", required=True, help="Target username")
@@ -415,9 +625,31 @@ def main():
     if args.action == "check_profile":
         action_check_profile(args.target, args.session)
     elif args.action == "archive_blitz":
-        action_archive_blitz(args.target, args.output_dir, args.session)
+        action_archive_blitz(args.target, args.output_dir, args.session, args.limit)
     elif args.action == "hydrate_assets":
-        action_hydrate_assets(args.target_id, args.input_json, args.output_dir, args.cookies)
+        action_hydrate_assets(
+            args.target_id,
+            args.input_json,
+            args.output_dir,
+            args.cookies,
+            args.workers,
+            args.quality,
+            str(args.yt_dlp_enabled).lower() != "false",
+        )
+    elif args.action == "hydrate_single":
+        action_hydrate_single(
+            target_id=args.target_id,
+            item_id=args.item_id,
+            shortcode=args.shortcode,
+            media_type=args.media_type,
+            cdn_url=args.cdn_url,
+            rel_path=args.rel_path,
+            output_dir=args.output_dir,
+            caption=args.caption,
+            cookie_file=args.cookies,
+            quality=args.quality,
+            yt_dlp_enabled=str(args.yt_dlp_enabled).lower() != "false",
+        )
     elif args.action == "check_highlights":
         action_check_highlights(args.target, args.output_dir, args.session)
 

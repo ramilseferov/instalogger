@@ -1,11 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Target, ChangeLog, ArchivedMedia, TargetPoolConfig, TargetPoolOverrideMode } from '../../types';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  Target,
+  ChangeLog,
+  ArchivedMedia,
+  DownloadItem,
+  TargetPoolConfig,
+  TargetPoolOverrideMode,
+} from '../../types';
 import { api } from '../../api/client';
 import { Card } from '../common/Card';
 import { StatusBadge } from '../common/StatusBadge';
 import { Button } from '../common/Button';
 import { SegmentedControl } from '../common/SegmentedControl';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { SkeletonTimeline } from '../common/Skeleton';
 import { TimelineView } from './TimelineView';
 import { MediaGallery } from './MediaGallery';
 import { AvatarHistoryModal } from './AvatarHistoryModal';
@@ -25,12 +33,14 @@ import {
   CheckCircle2,
   RotateCcw,
   Key,
+  Download,
 } from 'lucide-react';
 
 interface ProfileDetailProps {
   target: Target;
   onBack: () => void;
   onOpenSettings: () => void;
+  onOpenDownloads?: () => void;
   onTargetUpdated: () => void;
 }
 
@@ -38,6 +48,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   target,
   onBack,
   onOpenSettings,
+  onOpenDownloads,
   onTargetUpdated,
 }) => {
   const { t } = useI18n();
@@ -45,6 +56,10 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   const [logs, setLogs] = useState<ChangeLog[]>([]);
   const [media, setMedia] = useState<ArchivedMedia[]>([]);
   const [pool, setPool] = useState<TargetPoolConfig | null>(null);
+  const [loadingData, setLoadingData] = useState(true);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [syncingTrigger, setSyncingTrigger] = useState(false);
+  const [targetDownloads, setTargetDownloads] = useState<DownloadItem[]>([]);
   const [showPoolPanel, setShowPoolPanel] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -59,6 +74,14 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
     }, 4500);
   }, []);
 
+  const loadDownloadsState = useCallback(async () => {
+    try {
+      const res = await api.getDownloads();
+      setIsArchiving((res.archiving_targets || []).includes(target.id));
+      setTargetDownloads(res.items.filter((it) => it.target_id === target.id));
+    } catch {}
+  }, [target.id]);
+
   const loadData = useCallback(async () => {
     try {
       const [l, m, p] = await Promise.all([
@@ -71,12 +94,90 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
       if (p) setPool(p);
     } catch (e: any) {
       showToast('err', e?.message || t.toast_check_failed);
+    } finally {
+      setLoadingData(false);
     }
   }, [target.id, showToast, t.toast_check_failed]);
 
   useEffect(() => {
+    setLoadingData(true);
     loadData();
-  }, [loadData]);
+    loadDownloadsState();
+  }, [loadData, loadDownloadsState]);
+
+  const downloadMap = useMemo(() => {
+    const map: Record<string, DownloadItem> = {};
+    for (const item of targetDownloads) {
+      map[item.id] = item;
+    }
+    return map;
+  }, [targetDownloads]);
+
+  const activeDownloadsCount = useMemo(
+    () => targetDownloads.filter((it) => it.status === 'downloading' || it.status === 'queued').length,
+    [targetDownloads]
+  );
+
+  // Live WebSocket updates for this target's archival and downloads
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    try {
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.target_id && msg.target_id !== target.id) return;
+            if (msg.type === 'archive_started') {
+              setIsArchiving(true);
+            } else if (msg.type === 'archive_completed') {
+              setIsArchiving(false);
+              loadData();
+              loadDownloadsState();
+              onTargetUpdated();
+            } else if (msg.type === 'media_discovered' || msg.type === 'media_updated') {
+              loadData();
+              loadDownloadsState();
+            } else if (msg.type === 'download_update') {
+              loadDownloadsState();
+            }
+          } catch {}
+        };
+      }
+    } catch {}
+    return () => {
+      try {
+        ws?.close();
+      } catch {}
+    };
+  }, [target.id, loadData, loadDownloadsState, onTargetUpdated]);
+
+  // Fallback polling while archiving or active downloads are in flight
+  useEffect(() => {
+    if (!isArchiving && activeDownloadsCount === 0) return;
+    const timer = window.setInterval(() => {
+      loadData();
+      loadDownloadsState();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [isArchiving, activeDownloadsCount, loadData, loadDownloadsState]);
+
+  const handleSyncMedia = async () => {
+    if (syncingTrigger) return;
+    setSyncingTrigger(true);
+    setIsArchiving(true);
+    try {
+      await api.syncTargetMedia(target.id);
+      await loadDownloadsState();
+      showToast('ok', t.downloads_syncing_posts);
+    } catch (e: any) {
+      setIsArchiving(false);
+      showToast('err', `${t.toast_check_failed}: ${e?.message || ''}`);
+    } finally {
+      setSyncingTrigger(false);
+    }
+  };
 
   const handleCheckNow = async () => {
     setRefreshing(true);
@@ -414,6 +515,47 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
           </div>
         </div>
 
+        {(isArchiving || activeDownloadsCount > 0) ? (
+          <div className="rounded-2xl p-3.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0 text-xs text-[var(--text-secondary)]">
+              <RefreshCw size={14} strokeWidth={1.75} className="animate-spin text-[#0C7FF2] shrink-0" />
+              <span className="truncate">
+                {t.downloads_syncing_posts}
+                {activeDownloadsCount > 0 ? ` (${activeDownloadsCount})` : ''}
+              </span>
+            </div>
+            {onOpenDownloads && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                icon={<Download size={13} strokeWidth={1.75} />}
+                onClick={onOpenDownloads}
+                className="shrink-0"
+              >
+                {t.downloads}
+              </Button>
+            )}
+          </div>
+        ) : !loadingData && !target.is_private && target.media_count > media.length ? (
+          <div className="rounded-2xl p-3.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-between gap-3">
+            <span className="text-xs text-[var(--text-secondary)] tabular-nums">
+              {media.length} / {target.media_count} {t.posts}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              icon={<Download size={13} strokeWidth={1.75} />}
+              onClick={handleSyncMedia}
+              disabled={syncingTrigger}
+              className="shrink-0"
+            >
+              {t.downloads_sync_media}
+            </Button>
+          </div>
+        ) : null}
+
         <HighlightCirclesRow
           media={media}
           onSelectHighlight={(title, items) => setActiveStoryGroup({ title, items })}
@@ -439,7 +581,20 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
         />
 
         <div key={activeTab} className="animate-view-enter">
-          {activeTab === 'gallery' ? <MediaGallery media={media} /> : <TimelineView logs={logs} />}
+          {activeTab === 'gallery' ? (
+            <MediaGallery
+              media={media}
+              loading={loadingData}
+              syncing={isArchiving || activeDownloadsCount > 0}
+              expectedCount={target.media_count}
+              downloadMap={downloadMap}
+              onSyncMedia={!target.is_private ? handleSyncMedia : undefined}
+            />
+          ) : loadingData ? (
+            <SkeletonTimeline count={3} />
+          ) : (
+            <TimelineView logs={logs} />
+          )}
         </div>
 
         <AvatarHistoryModal

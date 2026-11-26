@@ -467,6 +467,16 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_media_hydrated(&self, id: &str, relative_file_path: &str, file_size_bytes: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE archived_media SET relative_file_path = ?1, file_size_bytes = ?2, download_status = 'completed', downloaded_at = ?3 WHERE id = ?4",
+            params![relative_file_path, file_size_bytes, now, id],
+        )?;
+        Ok(())
+    }
+
     pub fn list_media_by_target(
         &self,
         target_id: &str,

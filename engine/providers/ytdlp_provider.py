@@ -30,9 +30,17 @@ class YtDlpProvider:
         ProviderCapability.METADATA,
     }
 
-    def __init__(self, binary_path: Optional[str] = None, timeout_seconds: int = 120):
+    QUALITY_FORMATS: Dict[str, str] = {
+        "BEST": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/best",
+        "HD_1080": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/best[height<=1080]/best",
+        "HD_720": "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/best[height<=720]/best",
+        "DATA_SAVER": "bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/worst[ext=mp4]/best",
+    }
+
+    def __init__(self, binary_path: Optional[str] = None, timeout_seconds: int = 120, quality_preset: str = "BEST"):
         self.binary_path = binary_path or shutil.which("yt-dlp")
         self.timeout_seconds = timeout_seconds
+        self.quality_preset = (quality_preset or "BEST").upper()
 
     def is_available(self) -> bool:
         return bool(self.binary_path and Path(self.binary_path).exists())
@@ -99,9 +107,10 @@ class YtDlpProvider:
                 if existing.is_file():
                     existing.unlink(missing_ok=True)
 
+            fmt = self.QUALITY_FORMATS.get(self.quality_preset, self.QUALITY_FORMATS["BEST"])
             cmd = [
                 self.binary_path,
-                "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/best",
+                "-f", fmt,
                 "--merge-output-format", "mp4",
                 "--write-thumbnail",
                 "--convert-thumbnails", "jpg",

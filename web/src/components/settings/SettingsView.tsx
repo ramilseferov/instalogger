@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
-import { PoolMode, SystemSettings, ThemeMode } from '../../types';
+import { ArchiverSpeedPreset, PoolMode, SystemSettings, ThemeMode, YtDlpQuality } from '../../types';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { SegmentedControl } from '../common/SegmentedControl';
@@ -22,14 +22,28 @@ import {
   Moon,
   Monitor,
   ChevronRight,
+  Download,
+  Gauge,
 } from 'lucide-react';
 
 interface SettingsViewProps {
   onBack: () => void;
   onOpenDevLogs: () => void;
+  onOpenDownloads?: () => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLogs }) => {
+const SPEED_WORKERS: Record<ArchiverSpeedPreset, number> = {
+  ECO: 2,
+  BALANCED: 4,
+  FAST: 6,
+  TURBO: 10,
+};
+
+export const SettingsView: React.FC<SettingsViewProps> = ({
+  onBack,
+  onOpenDevLogs,
+  onOpenDownloads,
+}) => {
   const { language, setLanguage, themeMode, setThemeMode, t } = useI18n();
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [sessionCookie, setSessionCookie] = useState('');
@@ -37,6 +51,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
   const [tgChatId, setTgChatId] = useState('');
   const [enableTermux, setEnableTermux] = useState(true);
   const [notifLang, setNotifLang] = useState<'az' | 'en' | 'ru'>('az');
+
+  const [archiverSpeed, setArchiverSpeed] = useState<ArchiverSpeedPreset>('BALANCED');
+  const [downloadWorkers, setDownloadWorkers] = useState(4);
+  const [maxPostsLimit, setMaxPostsLimit] = useState(50);
+  const [ytDlpEnabled, setYtDlpEnabled] = useState(true);
+  const [ytDlpQuality, setYtDlpQuality] = useState<YtDlpQuality>('BEST');
+  const [autoDownloadMedia, setAutoDownloadMedia] = useState(true);
 
   const [poolMode, setPoolMode] = useState<PoolMode>('OFF');
   const [poolFixed, setPoolFixed] = useState(50);
@@ -63,6 +84,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
       setTgToken(s.telegram_bot_token);
       setTgChatId(s.telegram_chat_id);
       setNotifLang(s.notification_language || 'az');
+      setArchiverSpeed(s.archiver_speed_preset || 'BALANCED');
+      setDownloadWorkers(s.download_workers ?? 4);
+      setMaxPostsLimit(s.max_posts_sync_limit ?? 50);
+      setYtDlpEnabled(s.yt_dlp_enabled ?? true);
+      setYtDlpQuality(s.yt_dlp_quality || 'BEST');
+      setAutoDownloadMedia(s.auto_download_media ?? true);
       setPoolMode(s.pool_mode || 'OFF');
       setPoolFixed(s.pool_fixed_threshold ?? 50);
       setPoolPercent(s.pool_percent_threshold ?? 0.5);
@@ -98,6 +125,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
         telegram_chat_id: tgChatId,
         notification_language: notifLang,
         session_cookie: sessionCookie.trim() || undefined,
+        archiver_speed_preset: archiverSpeed,
+        download_workers: downloadWorkers,
+        max_posts_sync_limit: maxPostsLimit,
+        yt_dlp_enabled: ytDlpEnabled,
+        yt_dlp_quality: ytDlpQuality,
+        auto_download_media: autoDownloadMedia,
         pool_mode: poolMode,
         pool_fixed_threshold: poolFixed,
         pool_percent_threshold: poolPercent,
@@ -462,7 +495,148 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
             </Card>
           </section>
 
-          {/* Section 4: Follower Change Batching */}
+          {/* Section 4: Downloads & Media Engine */}
+          <section className="space-y-2.5">
+            <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+              {t.section_downloads}
+            </h2>
+            <Card className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                    <Download size={16} strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--text-primary)] truncate">
+                      {t.dl_engine_title}
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)]">{t.dl_engine_desc}</div>
+                  </div>
+                </div>
+                <span
+                  className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg border ${
+                    settings?.yt_dlp_available
+                      ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                      : 'bg-amber-500/12 text-amber-700 dark:text-amber-300 border-amber-500/20'
+                  }`}
+                >
+                  {settings?.yt_dlp_available ? t.dl_engine_ready : t.dl_engine_fallback}
+                </span>
+              </div>
+
+              <div className="border-t border-[var(--border-subtle)] pt-3">
+                <ToggleRow
+                  title={t.dl_engine_title}
+                  desc={t.dl_engine_desc}
+                  checked={ytDlpEnabled}
+                  onChange={setYtDlpEnabled}
+                />
+              </div>
+
+              <div className={`collapse-grid ${ytDlpEnabled ? 'is-open' : ''}`}>
+                <div className="space-y-2 pt-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                    {t.dl_quality_title}
+                  </label>
+                  <SegmentedControl<YtDlpQuality>
+                    value={ytDlpQuality}
+                    onChange={setYtDlpQuality}
+                    options={[
+                      { value: 'BEST', label: t.dl_quality_best },
+                      { value: 'HD_1080', label: '1080p' },
+                      { value: 'HD_720', label: '720p' },
+                      { value: 'DATA_SAVER', label: '480p' },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--border-subtle)] pt-4 space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                    <Gauge size={16} strokeWidth={1.75} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text-primary)]">
+                      {t.dl_speed_title}
+                    </div>
+                    <div className="text-xs text-[var(--text-muted)]">{t.dl_speed_desc}</div>
+                  </div>
+                </div>
+
+                <SegmentedControl<ArchiverSpeedPreset>
+                  value={archiverSpeed}
+                  onChange={(preset) => {
+                    setArchiverSpeed(preset);
+                    setDownloadWorkers(SPEED_WORKERS[preset]);
+                  }}
+                  options={[
+                    { value: 'ECO', label: t.dl_speed_eco },
+                    { value: 'BALANCED', label: t.dl_speed_balanced },
+                    { value: 'FAST', label: t.dl_speed_fast },
+                    { value: 'TURBO', label: t.dl_speed_turbo },
+                  ]}
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                      {t.dl_workers_title}
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[1, 2, 4, 6, 8, 10].map((w) => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => setDownloadWorkers(w)}
+                          className={`h-8 px-3 rounded-lg text-xs font-mono tabular-nums border transition-colors duration-150 ${
+                            downloadWorkers === w
+                              ? 'bg-[var(--accent-soft)] border-[#0C7FF2] text-[#0C7FF2] dark:text-[#58A6FF] font-medium'
+                              : 'bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                          }`}
+                        >
+                          {w}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                      {t.dl_max_posts_title}
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[24, 50, 100, 250, 0].map((limit) => (
+                        <button
+                          key={limit}
+                          type="button"
+                          onClick={() => setMaxPostsLimit(limit)}
+                          className={`h-8 px-2.5 rounded-lg text-xs tabular-nums border transition-colors duration-150 ${
+                            maxPostsLimit === limit
+                              ? 'bg-[var(--accent-soft)] border-[#0C7FF2] text-[#0C7FF2] dark:text-[#58A6FF] font-medium'
+                              : 'bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                          }`}
+                        >
+                          {limit === 0 ? t.dl_max_posts_unlimited : limit}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--border-subtle)] pt-3">
+                <ToggleRow
+                  title={t.dl_auto_title}
+                  desc={t.dl_auto_desc}
+                  checked={autoDownloadMedia}
+                  onChange={setAutoDownloadMedia}
+                />
+              </div>
+            </Card>
+          </section>
+
+          {/* Section 5: Follower Change Batching */}
           <section className="space-y-2.5">
             <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
               {t.section_follower_batch}
@@ -637,23 +811,40 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
           </div>
         </form>
 
-        {/* Section 5: Diagnostics */}
+        {/* Section 6: Diagnostics & Queue */}
         <section className="space-y-2.5">
           <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
             {t.section_diagnostics}
           </h2>
-          <Card onClick={onOpenDevLogs} className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
-                <Terminal size={17} strokeWidth={1.75} />
+          <div className="space-y-2.5">
+            {onOpenDownloads && (
+              <Card onClick={onOpenDownloads} className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                    <Download size={17} strokeWidth={1.75} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--text-primary)]">{t.downloads}</div>
+                    <div className="text-xs text-[var(--text-muted)] truncate">{t.downloads_subtitle}</div>
+                  </div>
+                </div>
+                <ChevronRight size={17} strokeWidth={1.75} className="text-[var(--text-muted)] shrink-0" />
+              </Card>
+            )}
+
+            <Card onClick={onOpenDevLogs} className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                  <Terminal size={17} strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{t.dev_logs}</div>
+                  <div className="text-xs text-[var(--text-muted)] truncate">{t.dev_logs_desc}</div>
+                </div>
               </div>
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-[var(--text-primary)]">{t.dev_logs}</div>
-                <div className="text-xs text-[var(--text-muted)] truncate">{t.dev_logs_desc}</div>
-              </div>
-            </div>
-            <ChevronRight size={17} strokeWidth={1.75} className="text-[var(--text-muted)] shrink-0" />
-          </Card>
+              <ChevronRight size={17} strokeWidth={1.75} className="text-[var(--text-muted)] shrink-0" />
+            </Card>
+          </div>
         </section>
       </div>
 

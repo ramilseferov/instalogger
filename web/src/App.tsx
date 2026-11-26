@@ -2,11 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Target } from './types';
 import { api } from './api/client';
 import { HeaderBanner } from './components/common/HeaderBanner';
+import { SkeletonTargetList } from './components/common/Skeleton';
 import { TargetCard } from './components/targets/TargetCard';
 import { AddTargetModal } from './components/targets/AddTargetModal';
 import { ProfileDetail } from './components/profile/ProfileDetail';
 import { SettingsView } from './components/settings/SettingsView';
 import { DeveloperLogsView } from './components/logs/DeveloperLogsView';
+import { DownloadsView } from './components/downloads/DownloadsView';
 import { UserPlus, AlertCircle, RefreshCw, Search, CheckCircle2 } from 'lucide-react';
 import { Button } from './components/common/Button';
 import { useI18n } from './i18n';
@@ -16,12 +18,13 @@ export const App: React.FC = () => {
   const [targets, setTargets] = useState<Target[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'dev_logs'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'settings' | 'dev_logs' | 'downloads'>('dashboard');
   const [loading, setLoading] = useState(true);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [wsConnected, setWsConnected] = useState(false);
+  const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
   const [toast, setToast] = useState<{ kind: 'info' | 'err'; text: string } | null>(null);
 
   const showToast = useCallback((kind: 'info' | 'err', text: string) => {
@@ -44,6 +47,10 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchTargets();
+    api
+      .getDownloads()
+      .then((res) => setActiveDownloadsCount((res.summary?.active || 0) + (res.summary?.queued || 0)))
+      .catch(() => {});
 
     let ws: WebSocket | null = null;
     try {
@@ -59,6 +66,10 @@ export const App: React.FC = () => {
             const msg = JSON.parse(event.data);
             if (msg.type === 'change_detected') {
               showToast('info', `@${msg.username}: ${msg.old} -> ${msg.new}`);
+              fetchTargets();
+            } else if (msg.type === 'download_update' && msg.summary) {
+              setActiveDownloadsCount((msg.summary.active || 0) + (msg.summary.queued || 0));
+            } else if (msg.type === 'archive_completed') {
               fetchTargets();
             }
           } catch {}
@@ -129,6 +140,14 @@ export const App: React.FC = () => {
     }
   };
 
+  if (activeView === 'downloads') {
+    return (
+      <div key="view-downloads" className="animate-view-enter">
+        <DownloadsView onBack={() => setActiveView('dashboard')} />
+      </div>
+    );
+  }
+
   if (activeView === 'dev_logs') {
     return (
       <div key="view-dev-logs" className="animate-view-enter">
@@ -143,6 +162,7 @@ export const App: React.FC = () => {
         <SettingsView
           onBack={() => setActiveView('dashboard')}
           onOpenDevLogs={() => setActiveView('dev_logs')}
+          onOpenDownloads={() => setActiveView('downloads')}
         />
       </div>
     );
@@ -160,6 +180,10 @@ export const App: React.FC = () => {
           onOpenSettings={() => {
             setSelectedTarget(null);
             setActiveView('settings');
+          }}
+          onOpenDownloads={() => {
+            setSelectedTarget(null);
+            setActiveView('downloads');
           }}
           onTargetUpdated={() => {
             fetchTargets();
@@ -196,6 +220,8 @@ export const App: React.FC = () => {
       <HeaderBanner
         activeCount={targets.length}
         wsConnected={wsConnected}
+        activeDownloadsCount={activeDownloadsCount}
+        onDownloadsClick={() => setActiveView('downloads')}
         onDevLogsClick={() => setActiveView('dev_logs')}
         onSettingsClick={() => setActiveView('settings')}
       />
@@ -241,10 +267,7 @@ export const App: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
-            <RefreshCw size={22} strokeWidth={1.75} className="animate-spin text-[#0C7FF2]" />
-            <p className="text-xs font-medium">{t.loading_targets}</p>
-          </div>
+          <SkeletonTargetList count={3} />
         ) : filteredTargets.length === 0 ? (
           <div className="bg-[var(--bg-surface)] rounded-2xl p-10 text-center border border-[var(--border-subtle)] space-y-4">
             <div className="w-12 h-12 rounded-xl bg-[var(--accent-soft)] text-[#0C7FF2] dark:text-[#58A6FF] flex items-center justify-center mx-auto">

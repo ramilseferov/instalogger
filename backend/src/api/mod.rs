@@ -1,4 +1,5 @@
 pub mod dev_logs;
+pub mod downloads;
 pub mod media;
 pub mod settings;
 pub mod targets;
@@ -46,6 +47,7 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         )
         .route("/targets/{id}/turbo", post(targets::toggle_turbo))
         .route("/targets/{id}/check-now", post(targets::check_target_now))
+        .route("/targets/{id}/sync-media", post(targets::sync_target_media))
         .route(
             "/targets/{id}/pool",
             get(targets::get_target_pool).post(targets::update_target_pool),
@@ -54,6 +56,14 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         .route("/targets/{id}/logs", get(targets::get_target_logs))
         .route("/targets/{id}/avatars", get(targets::get_target_avatars))
         .route("/targets/{id}/media", get(media::list_media))
+        .route("/downloads", get(downloads::list_downloads))
+        .route("/downloads/pause-all", post(downloads::pause_all_downloads))
+        .route("/downloads/resume-all", post(downloads::resume_all_downloads))
+        .route("/downloads/clear-completed", post(downloads::clear_completed_downloads))
+        .route("/downloads/{id}/pause", post(downloads::pause_download))
+        .route("/downloads/{id}/resume", post(downloads::resume_download))
+        .route("/downloads/{id}/cancel", post(downloads::cancel_download))
+        .route("/downloads/{id}/retry", post(downloads::retry_download))
         .route(
             "/settings",
             get(settings::get_settings).post(settings::update_settings),

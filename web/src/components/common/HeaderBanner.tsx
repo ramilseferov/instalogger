@@ -1,10 +1,12 @@
 import React from 'react';
-import { Settings, Terminal } from 'lucide-react';
+import { Download, Settings, Terminal } from 'lucide-react';
 import { useI18n } from '../../i18n';
 
 interface HeaderBannerProps {
   onSettingsClick: () => void;
   onDevLogsClick: () => void;
+  onDownloadsClick: () => void;
+  activeDownloadsCount?: number;
   activeCount: number;
   wsConnected: boolean;
 }
@@ -12,6 +14,8 @@ interface HeaderBannerProps {
 export const HeaderBanner: React.FC<HeaderBannerProps> = ({
   onSettingsClick,
   onDevLogsClick,
+  onDownloadsClick,
+  activeDownloadsCount = 0,
   activeCount,
   wsConnected,
 }) => {
@@ -50,6 +54,26 @@ export const HeaderBanner: React.FC<HeaderBannerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onDownloadsClick}
+            className="relative inline-flex items-center justify-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] active:scale-95 transition-[color,border-color,transform] duration-150"
+            title={t.downloads}
+            aria-label={t.downloads}
+          >
+            <Download
+              size={15}
+              strokeWidth={1.75}
+              className={activeDownloadsCount > 0 ? 'text-[#0C7FF2] dark:text-[#58A6FF]' : ''}
+            />
+            <span className="hidden md:inline">{t.downloads}</span>
+            {activeDownloadsCount > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#0C7FF2] text-white text-[10px] font-semibold tabular-nums inline-flex items-center justify-center">
+                {activeDownloadsCount}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={onDevLogsClick}

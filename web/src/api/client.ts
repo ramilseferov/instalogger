@@ -1,4 +1,12 @@
-import { Target, ChangeLog, ArchivedMedia, SystemSettings, TargetPoolConfig, DevLogEntry } from '../types';
+import {
+  Target,
+  ChangeLog,
+  ArchivedMedia,
+  SystemSettings,
+  TargetPoolConfig,
+  DevLogEntry,
+  DownloadsResponse,
+} from '../types';
 
 const BASE_URL = '/api';
 
@@ -56,6 +64,65 @@ export const api = {
   async checkNow(id: string): Promise<{ target?: Target }> {
     const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/check-now`, { method: 'POST' });
     return await parseJsonOrThrow(res);
+  },
+
+  async syncTargetMedia(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/sync-media`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async getDownloads(): Promise<DownloadsResponse> {
+    const res = await fetch(`${BASE_URL}/downloads`);
+    const data = await parseJsonOrThrow(res);
+    return {
+      items: data.items || [],
+      summary: data.summary || {
+        active: 0,
+        queued: 0,
+        paused: 0,
+        completed: 0,
+        failed: 0,
+        total_speed_bps: 0,
+        paused_all: false,
+        workers: 4,
+      },
+      archiving_targets: data.archiving_targets || [],
+    };
+  },
+
+  async pauseDownload(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/downloads/${encodeURIComponent(id)}/pause`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async resumeDownload(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/downloads/${encodeURIComponent(id)}/resume`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async cancelDownload(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/downloads/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async retryDownload(id: string): Promise<void> {
+    const res = await fetch(`${BASE_URL}/downloads/${encodeURIComponent(id)}/retry`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async pauseAllDownloads(): Promise<void> {
+    const res = await fetch(`${BASE_URL}/downloads/pause-all`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async resumeAllDownloads(): Promise<void> {
+    const res = await fetch(`${BASE_URL}/downloads/resume-all`, { method: 'POST' });
+    await parseJsonOrThrow(res);
+  },
+
+  async clearCompletedDownloads(): Promise<void> {
+    const res = await fetch(`${BASE_URL}/downloads/clear-completed`, { method: 'POST' });
+    await parseJsonOrThrow(res);
   },
 
   async getTargetPool(id: string): Promise<TargetPoolConfig> {

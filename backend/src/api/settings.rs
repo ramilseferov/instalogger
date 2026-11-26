@@ -28,6 +28,12 @@ pub struct SettingsPayload {
     pub pool_apply_following: Option<bool>,
     pub pool_suppress_logs: Option<bool>,
     pub list_completeness_guard: Option<bool>,
+    pub archiver_speed_preset: Option<String>,
+    pub download_workers: Option<i64>,
+    pub max_posts_sync_limit: Option<i64>,
+    pub yt_dlp_enabled: Option<bool>,
+    pub yt_dlp_quality: Option<String>,
+    pub auto_download_media: Option<bool>,
 }
 
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -70,6 +76,23 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> impl IntoRespon
         .unwrap_or(None)
         .unwrap_or_else(|| "OFF".to_string());
 
+    let archiver_speed_preset = state
+        .db
+        .get_setting("archiver_speed_preset")
+        .unwrap_or(None)
+        .unwrap_or_else(|| "BALANCED".to_string());
+    let yt_dlp_quality = state
+        .db
+        .get_setting("yt_dlp_quality")
+        .unwrap_or(None)
+        .unwrap_or_else(|| "BEST".to_string());
+    let yt_dlp_available = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("command -v yt-dlp >/dev/null 2>&1")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
     let session_exists = std::path::Path::new("sessions/instagram_session.json").exists();
 
     (
@@ -92,6 +115,13 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> impl IntoRespon
                 "pool_apply_following": get_bool("pool_apply_following", false),
                 "pool_suppress_logs": get_bool("pool_suppress_logs", true),
                 "list_completeness_guard": get_bool("list_completeness_guard", true),
+                "archiver_speed_preset": archiver_speed_preset,
+                "download_workers": get_i64("download_workers", 4),
+                "max_posts_sync_limit": get_i64("max_posts_sync_limit", 50),
+                "yt_dlp_enabled": get_bool("yt_dlp_enabled", true),
+                "yt_dlp_quality": yt_dlp_quality,
+                "auto_download_media": get_bool("auto_download_media", true),
+                "yt_dlp_available": yt_dlp_available,
             }
         })),
     )
@@ -165,6 +195,33 @@ pub async fn update_settings(
     if let Some(v) = payload.list_completeness_guard {
         let _ = state.db.set_setting("list_completeness_guard", &v.to_string());
     }
+    if let Some(preset) = payload.archiver_speed_preset {
+        let norm = match preset.to_uppercase().as_str() {
+            "ECO" | "FAST" | "TURBO" => preset.to_uppercase(),
+            _ => "BALANCED".to_string(),
+        };
+        let _ = state.db.set_setting("archiver_speed_preset", &norm);
+    }
+    if let Some(w) = payload.download_workers {
+        let _ = state.db.set_setting("download_workers", &w.clamp(1, 10).to_string());
+    }
+    if let Some(lim) = payload.max_posts_sync_limit {
+        let _ = state.db.set_setting("max_posts_sync_limit", &lim.clamp(0, 500).to_string());
+    }
+    if let Some(v) = payload.yt_dlp_enabled {
+        let _ = state.db.set_setting("yt_dlp_enabled", &v.to_string());
+    }
+    if let Some(q) = payload.yt_dlp_quality {
+        let norm = match q.to_uppercase().as_str() {
+            "HD_1080" | "HD_720" | "DATA_SAVER" => q.to_uppercase(),
+            _ => "BEST".to_string(),
+        };
+        let _ = state.db.set_setting("yt_dlp_quality", &norm);
+    }
+    if let Some(v) = payload.auto_download_media {
+        let _ = state.db.set_setting("auto_download_media", &v.to_string());
+    }
+    state.scheduler.downloads.notify_settings_changed();
 
     (StatusCode::OK, Json(json!({ "status": "ok" })))
 }

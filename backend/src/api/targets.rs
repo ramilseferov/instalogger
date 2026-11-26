@@ -239,6 +239,53 @@ pub async fn check_target_now(
     }
 }
 
+pub async fn sync_target_media(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let target = match state.db.get_target(&id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "not_found", "message": "Target not found" })),
+            )
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error", "message": e.to_string() })),
+            )
+        }
+    };
+
+    let session_file = format!("sessions/session_{}.json", target.username);
+    let sess_owned = if std::path::Path::new(&session_file).exists() {
+        Some(session_file)
+    } else if std::path::Path::new("sessions/instagram_session.json").exists() {
+        Some("sessions/instagram_session.json".to_string())
+    } else {
+        None
+    };
+
+    let scheduler_clone = Arc::clone(&state.scheduler);
+    let u_clone = target.username.clone();
+    let id_clone = target.id.clone();
+    tokio::spawn(async move {
+        if let Err(e) = scheduler_clone
+            .trigger_full_archive(&u_clone, &id_clone, sess_owned.as_deref())
+            .await
+        {
+            error!("Manual media sync failed for @{}: {}", u_clone, e);
+        }
+    });
+
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({ "status": "ok", "message": "Media sync started" })),
+    )
+}
+
 #[derive(Deserialize)]
 pub struct TargetPoolPayload {
     pub override_mode: Option<String>, // GLOBAL | OFF | FIXED_COUNT | PERCENTAGE | AUTO_ADAPTIVE

@@ -47,6 +47,8 @@ export interface ArchivedMedia {
 
 export type PoolMode = 'OFF' | 'FIXED_COUNT' | 'PERCENTAGE' | 'AUTO_ADAPTIVE';
 export type TargetPoolOverrideMode = 'GLOBAL' | PoolMode;
+export type ArchiverSpeedPreset = 'ECO' | 'BALANCED' | 'FAST' | 'TURBO';
+export type YtDlpQuality = 'BEST' | 'HD_1080' | 'HD_720' | 'DATA_SAVER';
 
 export interface SystemSettings {
   enable_termux_api: boolean;
@@ -64,6 +66,48 @@ export interface SystemSettings {
   pool_apply_following: boolean;
   pool_suppress_logs: boolean;
   list_completeness_guard: boolean;
+  archiver_speed_preset: ArchiverSpeedPreset;
+  download_workers: number;
+  max_posts_sync_limit: number;
+  yt_dlp_enabled: boolean;
+  yt_dlp_quality: YtDlpQuality;
+  auto_download_media: boolean;
+  yt_dlp_available: boolean;
+}
+
+export interface DownloadItem {
+  id: string;
+  target_id: string;
+  username: string;
+  shortcode: string;
+  media_type: 'post' | 'reel' | 'story' | 'highlight' | string;
+  cdn_url: string;
+  relative_file_path: string;
+  caption: string;
+  status: 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  file_size_bytes: number;
+  speed_bps: number;
+  provider: string | null;
+  error: string | null;
+  updated_at: string;
+}
+
+export interface DownloadSummary {
+  active: number;
+  queued: number;
+  paused: number;
+  completed: number;
+  failed: number;
+  total_speed_bps: number;
+  paused_all: boolean;
+  workers: number;
+}
+
+export interface DownloadsResponse {
+  items: DownloadItem[];
+  summary: DownloadSummary;
+  archiving_targets: string[];
 }
 
 export interface TargetPoolConfig {

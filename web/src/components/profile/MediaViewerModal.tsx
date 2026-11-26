@@ -22,10 +22,11 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
 
   if (!media) return null;
 
-  const isVideo = media.media_type === 'reel' || media.relative_file_path.endsWith('.mp4');
+  const isVideo = /\.mp4$/i.test(media.relative_file_path);
   const mediaUrl = media.relative_file_path.startsWith('/')
     ? media.relative_file_path
     : `/${media.relative_file_path}`;
+  const posterUrl = isVideo ? mediaUrl.replace(/\.mp4$/i, '_thumb.jpg') : undefined;
 
   return (
     <div
@@ -67,6 +68,7 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
           {isVideo ? (
             <video
               src={mediaUrl}
+              poster={posterUrl}
               controls
               autoPlay
               playsInline

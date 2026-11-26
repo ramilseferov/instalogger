@@ -163,6 +163,44 @@ export interface Translations {
   open_session_settings: string;
   files_count: string;
   loading: string;
+  downloads: string;
+  downloads_subtitle: string;
+  downloads_empty_title: string;
+  downloads_empty_desc: string;
+  downloads_active: string;
+  downloads_queued: string;
+  downloads_completed: string;
+  downloads_failed: string;
+  downloads_paused: string;
+  downloads_cancelled: string;
+  downloads_pause_all: string;
+  downloads_resume_all: string;
+  downloads_clear_completed: string;
+  downloads_workers: string;
+  downloads_sync_media: string;
+  downloads_syncing_posts: string;
+  downloads_retry: string;
+  downloads_pause: string;
+  downloads_resume: string;
+  section_downloads: string;
+  dl_engine_title: string;
+  dl_engine_desc: string;
+  dl_engine_ready: string;
+  dl_engine_fallback: string;
+  dl_quality_title: string;
+  dl_quality_best: string;
+  dl_speed_title: string;
+  dl_speed_desc: string;
+  dl_speed_eco: string;
+  dl_speed_balanced: string;
+  dl_speed_fast: string;
+  dl_speed_turbo: string;
+  dl_workers_title: string;
+  dl_workers_desc: string;
+  dl_max_posts_title: string;
+  dl_max_posts_unlimited: string;
+  dl_auto_title: string;
+  dl_auto_desc: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -326,6 +364,44 @@ const translations: Record<Language, Translations> = {
     open_session_settings: 'Sessiya ayarları',
     files_count: 'fayl',
     loading: 'Yüklənir',
+    downloads: 'Endirilənlər',
+    downloads_subtitle: 'Paralel media endirmə növbəsi və canlı sürət',
+    downloads_empty_title: 'Endirmə növbəsi boşdur',
+    downloads_empty_desc: 'Profillər sinxronlaşdırıldıqda postlar, reels və hekayələr burada paralel endiriləcək.',
+    downloads_active: 'Aktiv',
+    downloads_queued: 'Növbədə',
+    downloads_completed: 'Tamamlandı',
+    downloads_failed: 'Xəta',
+    downloads_paused: 'Dayandırılıb',
+    downloads_cancelled: 'Ləğv edilib',
+    downloads_pause_all: 'Hamısını dayandır',
+    downloads_resume_all: 'Hamısını davam et',
+    downloads_clear_completed: 'Bitənləri təmizlə',
+    downloads_workers: 'paralel axın',
+    downloads_sync_media: 'Paylaşımları endir',
+    downloads_syncing_posts: 'Paylaşımlar sinxronlaşdırılır və endirilir',
+    downloads_retry: 'Təkrar cəhd',
+    downloads_pause: 'Dayandır',
+    downloads_resume: 'Davam et',
+    section_downloads: 'Endirmə və media mühərriki',
+    dl_engine_title: 'yt-dlp media mühərriki',
+    dl_engine_desc: 'Reels və videoları tam keyfiyyətdə səs və görüntü ilə endir',
+    dl_engine_ready: 'Hazır',
+    dl_engine_fallback: 'HTTP ehtiyat',
+    dl_quality_title: 'Video keyfiyyəti',
+    dl_quality_best: 'Ən yaxşı',
+    dl_speed_title: 'Arxivləşdirmə sürət profili',
+    dl_speed_desc: 'Eyni anda paralel endirilən fayl sayını tənzimləyin',
+    dl_speed_eco: 'Qənaət',
+    dl_speed_balanced: 'Balanslı',
+    dl_speed_fast: 'Sürətli',
+    dl_speed_turbo: 'Turbo',
+    dl_workers_title: 'Paralel endirmə sayı',
+    dl_workers_desc: 'Eyni anda çalışan media endirmə axınlarının sayı',
+    dl_max_posts_title: 'Profil başına post limiti',
+    dl_max_posts_unlimited: 'Limitsiz',
+    dl_auto_title: 'Avtomatik media endirmə',
+    dl_auto_desc: 'Yeni paylaşım aşkarlandıqda avtomatik endirmə növbəsinə əlavə et',
   },
   en: {
     app_title: 'InstaLogger',
@@ -487,6 +563,44 @@ const translations: Record<Language, Translations> = {
     open_session_settings: 'Session settings',
     files_count: 'files',
     loading: 'Loading',
+    downloads: 'Downloads',
+    downloads_subtitle: 'Parallel media download queue and live throughput',
+    downloads_empty_title: 'Download queue is empty',
+    downloads_empty_desc: 'Posts, reels, and highlights will appear here as they download in parallel.',
+    downloads_active: 'Active',
+    downloads_queued: 'Queued',
+    downloads_completed: 'Completed',
+    downloads_failed: 'Failed',
+    downloads_paused: 'Paused',
+    downloads_cancelled: 'Cancelled',
+    downloads_pause_all: 'Pause all',
+    downloads_resume_all: 'Resume all',
+    downloads_clear_completed: 'Clear completed',
+    downloads_workers: 'parallel workers',
+    downloads_sync_media: 'Download posts',
+    downloads_syncing_posts: 'Syncing and downloading posts',
+    downloads_retry: 'Retry',
+    downloads_pause: 'Pause',
+    downloads_resume: 'Resume',
+    section_downloads: 'Downloads and media engine',
+    dl_engine_title: 'yt-dlp media engine',
+    dl_engine_desc: 'Download reels and video posts with merged audio and thumbnails',
+    dl_engine_ready: 'Ready',
+    dl_engine_fallback: 'HTTP fallback',
+    dl_quality_title: 'Video quality',
+    dl_quality_best: 'Best',
+    dl_speed_title: 'Archiver speed preset',
+    dl_speed_desc: 'Controls parallel download throughput across targets',
+    dl_speed_eco: 'Eco',
+    dl_speed_balanced: 'Balanced',
+    dl_speed_fast: 'Fast',
+    dl_speed_turbo: 'Turbo',
+    dl_workers_title: 'Parallel downloads',
+    dl_workers_desc: 'Number of concurrent media download workers',
+    dl_max_posts_title: 'Posts sync limit per profile',
+    dl_max_posts_unlimited: 'Unlimited',
+    dl_auto_title: 'Auto-download media',
+    dl_auto_desc: 'Automatically enqueue discovered posts and highlights',
   },
   ru: {
     app_title: 'InstaLogger',
@@ -648,6 +762,44 @@ const translations: Record<Language, Translations> = {
     open_session_settings: 'Настройки сессии',
     files_count: 'файлов',
     loading: 'Загрузка',
+    downloads: 'Загрузки',
+    downloads_subtitle: 'Параллельная очередь медиа и скорость загрузки',
+    downloads_empty_title: 'Очередь загрузок пуста',
+    downloads_empty_desc: 'Публикации, reels и истории появятся здесь при синхронизации профилей.',
+    downloads_active: 'Активные',
+    downloads_queued: 'В очереди',
+    downloads_completed: 'Готово',
+    downloads_failed: 'Ошибки',
+    downloads_paused: 'Пауза',
+    downloads_cancelled: 'Отменено',
+    downloads_pause_all: 'Пауза для всех',
+    downloads_resume_all: 'Продолжить все',
+    downloads_clear_completed: 'Очистить готовые',
+    downloads_workers: 'потоков',
+    downloads_sync_media: 'Скачать публикации',
+    downloads_syncing_posts: 'Синхронизация и загрузка публикаций',
+    downloads_retry: 'Повторить',
+    downloads_pause: 'Пауза',
+    downloads_resume: 'Продолжить',
+    section_downloads: 'Загрузки и медиа-движок',
+    dl_engine_title: 'Медиа-движок yt-dlp',
+    dl_engine_desc: 'Загрузка reels и видео в полном качестве со звуком и превью',
+    dl_engine_ready: 'Готов',
+    dl_engine_fallback: 'HTTP резерв',
+    dl_quality_title: 'Качество видео',
+    dl_quality_best: 'Максимум',
+    dl_speed_title: 'Профиль скорости архивации',
+    dl_speed_desc: 'Управляет количеством параллельных загрузок',
+    dl_speed_eco: 'Эко',
+    dl_speed_balanced: 'Баланс',
+    dl_speed_fast: 'Быстрый',
+    dl_speed_turbo: 'Турбо',
+    dl_workers_title: 'Параллельные загрузки',
+    dl_workers_desc: 'Количество одновременно работающих потоков',
+    dl_max_posts_title: 'Лимит постов на профиль',
+    dl_max_posts_unlimited: 'Без лимита',
+    dl_auto_title: 'Автозагрузка медиа',
+    dl_auto_desc: 'Автоматически добавлять найденные посты в очередь загрузок',
   },
 };
 
