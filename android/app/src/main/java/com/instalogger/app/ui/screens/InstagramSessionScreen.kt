@@ -1,6 +1,10 @@
 package com.instalogger.app.ui.screens
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -19,9 +23,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,7 +62,7 @@ fun InstagramSessionScreen() {
     var selectedTab by remember { mutableIntStateOf(0) }
     var hasSession by remember { mutableStateOf(app.sessionManager.hasSession()) }
     var showClearSessionDialog by remember { mutableStateOf(false) }
-    var manualCookieText by remember { mutableStateOf("") }
+    var manualCookieText by remember { mutableStateOf(app.sessionManager.getCookieString().orEmpty()) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var isLoadingWeb by remember { mutableStateOf(true) }
     var webProgress by remember { mutableFloatStateOf(0.1f) }
@@ -64,6 +70,14 @@ fun InstagramSessionScreen() {
     val capturedMsg = stringResource(R.string.msg_session_captured)
     val savedMsg = stringResource(R.string.msg_cookie_saved)
     val clearedMsg = stringResource(R.string.msg_session_cleared)
+    val copiedMsg = stringResource(R.string.msg_session_copied)
+
+    // Keep manual field synced with active session when switching tabs or refreshing
+    LaunchedEffect(selectedTab, hasSession) {
+        if (selectedTab == 1 && hasSession && manualCookieText.isBlank()) {
+            manualCookieText = app.sessionManager.getCookieString().orEmpty()
+        }
+    }
 
     // Periodic automatic cookie detection while in login WebView
     LaunchedEffect(selectedTab, hasSession) {
@@ -74,6 +88,7 @@ fun InstagramSessionScreen() {
                     val cookies = captureMergedInstagramCookies()
                     if (cookies != null && cookies.contains("sessionid=")) {
                         app.sessionManager.saveCookieString(cookies)
+                        manualCookieText = cookies
                         hasSession = true
                         snackbarHostState.showSnackbar(capturedMsg)
                         break
@@ -199,6 +214,7 @@ fun InstagramSessionScreen() {
                                         val cookies = captureMergedInstagramCookies()
                                         if (cookies != null && cookies.contains("sessionid=")) {
                                             app.sessionManager.saveCookieString(cookies)
+                                            manualCookieText = cookies
                                             hasSession = true
                                             scope.launch { snackbarHostState.showSnackbar(capturedMsg) }
                                         } else {
@@ -288,6 +304,7 @@ fun InstagramSessionScreen() {
                                                     val cookies = captureMergedInstagramCookies()
                                                     if (cookies != null && cookies.contains("sessionid=")) {
                                                         app.sessionManager.saveCookieString(cookies)
+                                                        manualCookieText = cookies
                                                         hasSession = true
                                                         scope.launch {
                                                             snackbarHostState.showSnackbar(capturedMsg)
@@ -365,10 +382,11 @@ fun InstagramSessionScreen() {
                                 ) {
                                     Button(
                                         onClick = {
-                                            if (manualCookieText.isNotBlank()) {
-                                                app.sessionManager.saveCookieString(manualCookieText.trim())
+                                            val trimmed = manualCookieText.trim()
+                                            if (trimmed.isNotBlank()) {
+                                                app.sessionManager.saveCookieString(trimmed)
+                                                manualCookieText = trimmed
                                                 hasSession = true
-                                                manualCookieText = ""
                                                 scope.launch {
                                                     snackbarHostState.showSnackbar(savedMsg)
                                                 }
@@ -409,6 +427,66 @@ fun InstagramSessionScreen() {
                                         )
                                     }
                                 }
+
+                                if (hasSession) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        FilledTonalButton(
+                                            onClick = {
+                                                val activeCookie = manualCookieText.trim()
+                                                    .ifBlank { app.sessionManager.getCookieString().orEmpty() }
+                                                if (activeCookie.isNotBlank()) {
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    clipboard.setPrimaryClip(ClipData.newPlainText("instagram_session", activeCookie))
+                                                    scope.launch { snackbarHostState.showSnackbar(copiedMsg) }
+                                                }
+                                            },
+                                            shape = ShapeTokens.MediumShape,
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(46.dp)
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = stringResource(R.string.btn_copy_session),
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        FilledTonalButton(
+                                            onClick = {
+                                                val activeCookie = manualCookieText.trim()
+                                                    .ifBlank { app.sessionManager.getCookieString().orEmpty() }
+                                                if (activeCookie.isNotBlank()) {
+                                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                        type = "text/plain"
+                                                        putExtra(Intent.EXTRA_SUBJECT, "InstaLogger Session")
+                                                        putExtra(Intent.EXTRA_TEXT, activeCookie)
+                                                    }
+                                                    context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.btn_export_session)))
+                                                }
+                                            },
+                                            shape = ShapeTokens.MediumShape,
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(46.dp)
+                                        ) {
+                                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = stringResource(R.string.btn_export_session),
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -437,6 +515,7 @@ fun InstagramSessionScreen() {
                     onClick = {
                         showClearSessionDialog = false
                         app.sessionManager.clearSession()
+                        manualCookieText = ""
                         hasSession = false
                         scope.launch { snackbarHostState.showSnackbar(clearedMsg) }
                     },

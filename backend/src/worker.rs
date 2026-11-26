@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use tokio::process::Command;
 use tracing::info;
 
+use crate::models::RelationshipUser;
 use crate::scheduler::ProfileSnapshot;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +42,19 @@ pub struct HydrateSingleResult {
     pub speed_bps: i64,
     #[serde(default)]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelationshipsResult {
+    pub status: String,
+    #[serde(default)]
+    pub has_session: bool,
+    #[serde(default)]
+    pub followers: Vec<RelationshipUser>,
+    #[serde(default)]
+    pub following: Vec<RelationshipUser>,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 #[derive(Clone)]
@@ -241,5 +255,45 @@ impl WorkerBridge {
 
         info!("Hydrate assets output: {}", stdout);
         Ok(())
+    }
+
+    pub async fn fetch_relationships(
+        &self,
+        target: &str,
+        target_id: Option<&str>,
+        session_path: Option<&str>,
+        limit: usize,
+    ) -> Result<RelationshipsResult> {
+        let mut cmd = Command::new(&self.python_bin);
+        cmd.arg(&self.script_path)
+            .arg("fetch_relationships")
+            .arg("--target")
+            .arg(target)
+            .arg("--limit")
+            .arg(limit.to_string());
+
+        if let Some(uid) = target_id {
+            cmd.arg("--target-id").arg(uid);
+        }
+        if let Some(sess) = session_path {
+            cmd.arg("--session").arg(sess);
+        }
+
+        let output = cmd.output().await?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let last_line = stdout.lines().rev().find(|l| l.trim().starts_with('{')).unwrap_or("");
+
+        if !output.status.success() || last_line.is_empty() {
+            return Err(anyhow!(
+                "Worker fetch_relationships failed (exit {:?}): {}",
+                output.status.code(),
+                stderr.trim()
+            ));
+        }
+
+        let parsed: RelationshipsResult = serde_json::from_str(last_line)
+            .map_err(|e| anyhow!("Invalid fetch_relationships JSON: {}", e))?;
+        Ok(parsed)
     }
 }

@@ -2,6 +2,7 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
+import io
 import json
 import os
 import sys
@@ -64,8 +65,43 @@ def extract_avatar_asset_key(url: str) -> str:
         return url.split("?")[0]
 
 
+AVATAR_DHASH_THRESHOLD = 8
+
+
+def compute_avatar_dhash(img_bytes: bytes) -> Optional[str]:
+    """Compute a 64-bit perceptual difference hash (dHash) over a 9x8 grayscale thumbnail."""
+    if not img_bytes:
+        return None
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(img_bytes)) as img:
+            gray = img.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
+            pixels = list(gray.getdata())
+        bits = 0
+        for row in range(8):
+            offset = row * 9
+            for col in range(8):
+                bits = (bits << 1) | (1 if pixels[offset + col] > pixels[offset + col + 1] else 0)
+        return f"dhash:{bits:016x}"
+    except Exception:
+        return None
+
+
+def dhash_hamming_distance(h1: Optional[str], h2: Optional[str]) -> Optional[int]:
+    if not h1 or not h2:
+        return None
+    if not h1.startswith("dhash:") or not h2.startswith("dhash:"):
+        return None
+    try:
+        v1 = int(h1.split(":", 1)[1], 16)
+        v2 = int(h2.split(":", 1)[1], 16)
+        return (v1 ^ v2).bit_count()
+    except Exception:
+        return None
+
+
 def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Session] = None) -> Optional[str]:
-    """Download avatar and preserve historical copies."""
+    """Download avatar and preserve historical copies only when visually changed (dHash deduplication)."""
     url = profile.get("profile_pic_url")
     target_id = profile.get("id")
     if not url or not target_id:
@@ -75,50 +111,88 @@ def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Sess
     profile_dir = os.path.join("archives", safe_target_id, "profile")
     os.makedirs(profile_dir, exist_ok=True)
     key_file = os.path.join(profile_dir, ".avatar_key")
+    current_path = os.path.join(profile_dir, "avatar_current.jpg")
     asset_key = extract_avatar_asset_key(url)
 
-    # Check existing key and file
+    stored_asset_key = ""
+    stored_hash = ""
+    stored_rel = ""
+    stored_sha = ""
     if os.path.exists(key_file):
         try:
             with open(key_file, "r", encoding="utf-8") as kf:
                 parts = kf.read().strip().split("||")
-                if len(parts) >= 2 and parts[0] == asset_key:
-                    saved_rel = parts[-1]
-                    if os.path.exists(saved_rel):
-                        if len(parts) >= 3:
-                            profile["avatar_hash"] = parts[1]
-                        return saved_rel
+                if len(parts) >= 3:
+                    stored_asset_key = parts[0]
+                    stored_hash = parts[1]
+                    stored_rel = parts[2]
+                    stored_sha = parts[3] if len(parts) >= 4 else ""
+                    if stored_asset_key == asset_key and os.path.exists(stored_rel):
+                        profile["avatar_hash"] = stored_hash
+                        return stored_rel
         except Exception:
             pass
 
-    # Download new avatar
+    # Compute baseline dHash from existing avatar_current.jpg if stored hash is legacy sha256
+    baseline_dhash = stored_hash if stored_hash.startswith("dhash:") else None
+    if baseline_dhash is None and os.path.exists(current_path):
+        try:
+            with open(current_path, "rb") as ef:
+                baseline_dhash = compute_avatar_dhash(ef.read())
+        except Exception:
+            baseline_dhash = None
+
+    # Download candidate avatar bytes
     sess = session or requests.Session()
     try:
         r = sess.get(url, timeout=15)
         if r.status_code == 200 and len(r.content) > 0:
+            raw_sha = hashlib.sha256(r.content).hexdigest()
+            cand_dhash = compute_avatar_dhash(r.content)
+            effective_hash = cand_dhash or raw_sha
+
+            # 1. Exact SHA-256 match against previous avatar
+            same_bytes = bool(stored_sha and raw_sha == stored_sha) or (stored_hash == raw_sha)
+            # 2. Perceptual visual match (CDN URL rotation / JPEG re-encoding immunity)
+            dist = dhash_hamming_distance(baseline_dhash, cand_dhash)
+            same_visual = dist is not None and dist <= AVATAR_DHASH_THRESHOLD
+
+            if (same_bytes or same_visual) and stored_rel and os.path.exists(stored_rel):
+                stable_hash = baseline_dhash or effective_hash
+                profile["avatar_hash"] = stable_hash
+                try:
+                    with open(key_file, "w", encoding="utf-8") as kf:
+                        kf.write(f"{asset_key}||{stable_hash}||{stored_rel}||{raw_sha}")
+                except Exception:
+                    pass
+                return stored_rel
+
+            # Visually distinct new avatar -> persist historical copy
             now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
             history_filename = f"avatar_{now_str}.jpg"
             history_path = os.path.join(profile_dir, history_filename)
-            current_path = os.path.join(profile_dir, "avatar_current.jpg")
 
             with open(history_path, "wb") as f:
                 f.write(r.content)
             with open(current_path, "wb") as f:
                 f.write(r.content)
 
-            avatar_hash = hashlib.sha256(r.content).hexdigest()
-            profile["avatar_hash"] = avatar_hash
-
+            profile["avatar_hash"] = effective_hash
             rel_path = f"archives/{safe_target_id}/profile/{history_filename}"
             with open(key_file, "w", encoding="utf-8") as kf:
-                kf.write(f"{asset_key}||{avatar_hash}||{rel_path}")
+                kf.write(f"{asset_key}||{effective_hash}||{rel_path}||{raw_sha}")
 
             return rel_path
     except Exception as e:
         sys.stderr.write(f"Avatar sync error: {e}\n")
 
-    current_path = os.path.join(profile_dir, "avatar_current.jpg")
+    if stored_rel and os.path.exists(stored_rel):
+        if baseline_dhash or stored_hash:
+            profile["avatar_hash"] = baseline_dhash or stored_hash
+        return stored_rel
     if os.path.exists(current_path):
+        if baseline_dhash:
+            profile["avatar_hash"] = baseline_dhash
         return f"archives/{safe_target_id}/profile/avatar_current.jpg"
     return None
 
@@ -586,6 +660,40 @@ def action_hydrate_assets(
                 pass
 
 
+def action_fetch_relationships(
+    target: str,
+    target_id: Optional[str],
+    session_path: Optional[str],
+    limit: int = 500,
+):
+    """Fetch paginated followers and following lists for a target profile."""
+    client = InstagramClient(session_path)
+    uid = str(target_id or "").strip()
+    if not uid.isdigit():
+        res = client.fetch_web_profile(target)
+        if res.get("status") == "ok":
+            uid = str((res.get("data") or {}).get("user", {}).get("id") or "")
+    if not uid.isdigit():
+        print(json.dumps({
+            "status": "error",
+            "message": "Numeric user ID could not be resolved",
+            "followers": [],
+            "following": [],
+            "has_session": client.has_session,
+        }))
+        return
+
+    followers = client.fetch_followers_list(uid, username=target, limit=limit)
+    following = client.fetch_following_list(uid, username=target, limit=limit)
+    print(json.dumps({
+        "status": "ok",
+        "target_id": uid,
+        "has_session": client.has_session,
+        "followers": followers,
+        "following": following,
+    }))
+
+
 def action_check_highlights(target: str, output_dir: str, session_path: Optional[str]):
     """Traverse and extract highlight collections."""
     client = InstagramClient(session_path)
@@ -662,6 +770,12 @@ def main():
     p_hl.add_argument("--output-dir", default="archives", help="Storage output directory")
     p_hl.add_argument("--session", default=None, help="Session file path")
 
+    p_rel = subparsers.add_parser("fetch_relationships")
+    p_rel.add_argument("--target", required=True, help="Target username")
+    p_rel.add_argument("--target-id", default=None, help="Numeric Instagram user ID")
+    p_rel.add_argument("--session", default=None, help="Session file path")
+    p_rel.add_argument("--limit", type=int, default=500, help="Max users per list")
+
     args = parser.parse_args()
 
     if args.action == "check_profile":
@@ -694,6 +808,8 @@ def main():
         )
     elif args.action == "check_highlights":
         action_check_highlights(args.target, args.output_dir, args.session)
+    elif args.action == "fetch_relationships":
+        action_fetch_relationships(args.target, args.target_id, args.session, args.limit)
 
 
 if __name__ == "__main__":

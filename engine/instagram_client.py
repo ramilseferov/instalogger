@@ -1138,3 +1138,149 @@ class InstagramClient:
             logger.debug(f"Highlight stories GraphQL failed for {clean_id}: {e}")
 
         return []
+
+    def _fetch_friendship_list(
+        self,
+        user_id: str,
+        kind: str,
+        username: Optional[str] = None,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Paginated multi-tier followers/following list fetcher (Mobile v1 -> Web v1 -> GraphQL -> Instaloader)."""
+        uid = str(user_id or "").strip()
+        if not uid.isdigit():
+            return []
+        clean_user = (username or "").strip().lstrip("@").lower()
+        target_limit = max(1, min(limit, 1000))
+        results: List[Dict[str, Any]] = []
+        seen = set()
+
+        def add_user(u: Dict[str, Any]):
+            uname = str(u.get("username") or "").strip()
+            if not uname:
+                return
+            key = uname.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            results.append({
+                "id": str(u.get("pk") or u.get("id") or ""),
+                "username": uname,
+                "full_name": str(u.get("full_name") or ""),
+                "profile_pic_url": str(u.get("profile_pic_url") or ""),
+                "is_private": bool(u.get("is_private", False)),
+            })
+
+        self._ensure_guest_cookies()
+        referer = f"https://www.instagram.com/{clean_user}/{kind}/" if clean_user else "https://www.instagram.com/"
+
+        # Tier 1: Mobile + Web v1 friendships API with next_max_id pagination
+        if self.has_session:
+            next_max_id: Optional[str] = None
+            max_pages = max(1, min((target_limit + 49) // 50, 20))
+            for _ in range(max_pages):
+                if len(results) >= target_limit:
+                    break
+                page_size = min(100, target_limit - len(results))
+                max_q = f"&max_id={requests.utils.quote(next_max_id, safe='')}" if next_max_id else ""
+                search_q = "&search_surface=follow_list_page" if kind == "followers" else ""
+                candidates = [
+                    (f"https://i.instagram.com/api/v1/friendships/{uid}/{kind}/?count={page_size}{max_q}", IG_ANDROID_APP_UA),
+                    (f"https://www.instagram.com/api/v1/friendships/{uid}/{kind}/?count={page_size}{search_q}{max_q}", DESKTOP_UA),
+                ]
+                page_ok = False
+                page_next: Optional[str] = None
+                before_len = len(results)
+                for url, ua in candidates:
+                    try:
+                        headers = dict(self.session.headers)
+                        headers["User-Agent"] = ua
+                        headers["Referer"] = referer
+                        resp = self.session.get(url, headers=headers, timeout=15)
+                        if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
+                            continue
+                        payload = resp.json()
+                        users = payload.get("users")
+                        if not isinstance(users, list):
+                            continue
+                        page_ok = True
+                        for u in users:
+                            if len(results) >= target_limit:
+                                break
+                            if isinstance(u, dict):
+                                add_user(u)
+                        page_next = payload.get("next_max_id")
+                        break
+                    except Exception as e:
+                        logger.debug(f"v1 friendships {kind} failed ({url}): {e}")
+
+                if not page_ok or not page_next or str(page_next) == str(next_max_id) or len(results) == before_len:
+                    break
+                next_max_id = str(page_next)
+                time.sleep(0.25)
+
+        if results:
+            return results
+
+        # Tier 2: GraphQL pagination fallback
+        qhash = "5aedd8a53048e9663c401fa0098046e7" if kind == "followers" else "d04b0a864b4b54837c0d870b0e77e076"
+        edge_key = "edge_followed_by" if kind == "followers" else "edge_follow"
+        cursor: Optional[str] = None
+        for _ in range(12):
+            if len(results) >= target_limit:
+                break
+            vars_obj: Dict[str, Any] = {"id": uid, "first": min(50, target_limit - len(results))}
+            if cursor:
+                vars_obj["after"] = cursor
+            url = f"https://www.instagram.com/graphql/query/?query_hash={qhash}&variables={requests.utils.quote(json.dumps(vars_obj), safe='')}"
+            try:
+                headers = dict(self.session.headers)
+                headers["Referer"] = referer
+                resp = self.session.get(url, headers=headers, timeout=15)
+                if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
+                    break
+                edge = (resp.json().get("data") or {}).get("user", {}).get(edge_key) or {}
+                edges = edge.get("edges") or []
+                if not edges:
+                    break
+                for item in edges:
+                    node = item.get("node") if isinstance(item, dict) else None
+                    if isinstance(node, dict):
+                        add_user(node)
+                pi = edge.get("page_info") or {}
+                if not pi.get("has_next_page") or not pi.get("end_cursor"):
+                    break
+                cursor = str(pi.get("end_cursor"))
+                time.sleep(0.25)
+            except Exception as e:
+                logger.debug(f"GraphQL {kind} query failed: {e}")
+                break
+
+        if results:
+            return results
+
+        # Tier 3: Instaloader fallback (authenticated)
+        if self.has_session:
+            try:
+                profile = instaloader.Profile.from_id(self.il.context, int(uid))
+                iterator = profile.get_followers() if kind == "followers" else profile.get_followees()
+                for p in iterator:
+                    if len(results) >= target_limit:
+                        break
+                    add_user({
+                        "id": str(p.userid),
+                        "username": p.username,
+                        "full_name": p.full_name or "",
+                        "profile_pic_url": p.profile_pic_url or "",
+                        "is_private": bool(p.is_private),
+                    })
+            except Exception as e:
+                logger.debug(f"Instaloader {kind} fallback failed: {e}")
+
+        return results
+
+    def fetch_followers_list(self, user_id: str, username: Optional[str] = None, limit: int = 500) -> List[Dict[str, Any]]:
+        return self._fetch_friendship_list(user_id, "followers", username=username, limit=limit)
+
+    def fetch_following_list(self, user_id: str, username: Optional[str] = None, limit: int = 500) -> List[Dict[str, Any]]:
+        return self._fetch_friendship_list(user_id, "following", username=username, limit=limit)

@@ -111,13 +111,6 @@ fun FollowerAuditBottomSheet(
         }
     }
 
-    LaunchedEffect(targetUsername) {
-        isLoadingLists = true
-        withContext(Dispatchers.IO) {
-            loadListsFromDisk()
-        }
-    }
-
     fun triggerLiveFollowerFetch() {
         if (isAuditingLive) return
         scope.launch {
@@ -126,19 +119,38 @@ fun FollowerAuditBottomSheet(
                 try {
                     val targetEntity = app.database.targetDao().getTarget(targetUsername)
                     val cookie = app.sessionManager.getCookieString()
-                    val targetId = targetEntity?.instagramId ?: targetUsername
-                    val freshFollowers = app.instagramEngine.fetchFollowersList(targetId, cookie, limit = 100)
-                    if (freshFollowers.isNotEmpty()) {
-                        ArchiveDirectoryManager.saveUserArchiveJson(context, targetUsername, "followers.json", gson.toJson(freshFollowers))
+                    var targetId = targetEntity?.instagramId?.takeIf { it.isNotBlank() && it.all(Char::isDigit) }
+                    if (targetId == null) {
+                        val snap = app.instagramEngine.fetchProfile(targetUsername, cookie).getOrNull()
+                        targetId = snap?.instagramId?.takeIf { s -> s.isNotBlank() && s.all { ch -> ch.isDigit() } }
+                        if (targetId != null && targetEntity != null) {
+                            app.database.targetDao().insertTarget(targetEntity.copy(instagramId = targetId))
+                        }
                     }
-                    val freshFollowing = app.instagramEngine.fetchFollowingList(targetId, cookie, limit = 100)
-                    if (freshFollowing.isNotEmpty()) {
-                        ArchiveDirectoryManager.saveUserArchiveJson(context, targetUsername, "following.json", gson.toJson(freshFollowing))
+                    if (!targetId.isNullOrBlank()) {
+                        val freshFollowers = app.instagramEngine.fetchFollowersList(targetId, cookie, limit = 500)
+                        if (freshFollowers.isNotEmpty()) {
+                            ArchiveDirectoryManager.saveUserArchiveJson(context, targetUsername, "followers.json", gson.toJson(freshFollowers))
+                        }
+                        val freshFollowing = app.instagramEngine.fetchFollowingList(targetId, cookie, limit = 500)
+                        if (freshFollowing.isNotEmpty()) {
+                            ArchiveDirectoryManager.saveUserArchiveJson(context, targetUsername, "following.json", gson.toJson(freshFollowing))
+                        }
                     }
                     loadListsFromDisk()
                 } catch (_: Exception) {}
             }
             isAuditingLive = false
+        }
+    }
+
+    LaunchedEffect(targetUsername) {
+        isLoadingLists = true
+        withContext(Dispatchers.IO) {
+            loadListsFromDisk()
+        }
+        if (followersList.isEmpty() && followingList.isEmpty() && app.sessionManager.hasSession()) {
+            triggerLiveFollowerFetch()
         }
     }
 

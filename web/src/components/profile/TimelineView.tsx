@@ -126,13 +126,83 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ logs }) => {
         return renderCountDelta(t.event_followers_changed, log.old_value, log.new_value);
       case 'following_change':
         return renderCountDelta(t.event_following_changed, log.old_value, log.new_value);
-      case 'post_vanished':
+      case 'post_vanished': {
+        const [shortcode, relPath] = (log.old_value || '').split('|');
+        const cleanPath = relPath
+          ? (relPath.startsWith('/') ? relPath : `/${relPath}`).replace(/\.mp4$/i, '_thumb.jpg')
+          : '';
         return (
-          <div className="flex items-center gap-2 text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 px-3 py-2 rounded-xl border border-rose-500/20">
-            <AlertCircle size={14} strokeWidth={1.75} className="shrink-0" />
-            <span className="font-medium">{t.event_post_vanished}</span>
+          <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-3 flex items-start gap-3">
+            {cleanPath ? (
+              <img
+                src={cleanPath}
+                alt={shortcode || ''}
+                className="w-12 h-12 rounded-lg object-cover shrink-0 border border-rose-500/25 bg-[var(--bg-subtle)]"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <AlertCircle size={16} strokeWidth={1.75} className="text-rose-500 shrink-0 mt-0.5" />
+            )}
+            <div className="min-w-0 space-y-1 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-rose-600 dark:text-rose-400">
+                  {t.event_post_vanished}
+                </span>
+                {shortcode && (
+                  <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-700 dark:text-rose-300">
+                    /p/{shortcode}
+                  </span>
+                )}
+              </div>
+              {log.new_value && (
+                <p className="text-[var(--text-secondary)] leading-relaxed break-words">
+                  {log.new_value}
+                </p>
+              )}
+            </div>
           </div>
         );
+      }
+      case 'follower_gained':
+      case 'follower_lost':
+      case 'following_gained':
+      case 'following_lost': {
+        const isGain = log.event_type.endsWith('gained');
+        const label =
+          log.event_type === 'follower_gained'
+            ? t.audit_new_followers
+            : log.event_type === 'follower_lost'
+            ? t.audit_unfollowers
+            : log.event_type === 'following_gained'
+            ? t.audit_new_following
+            : t.audit_unfollowed;
+        const userRef = (log.new_value || log.old_value || '').replace(/^@/, '');
+        return (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span
+              className={`px-2 py-0.5 rounded-md font-medium ${
+                isGain
+                  ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400'
+                  : 'bg-rose-500/12 text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              {label}
+            </span>
+            {userRef && (
+              <a
+                href={`https://www.instagram.com/${userRef}/`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono font-semibold text-[#0C7FF2] dark:text-[#58A6FF] hover:underline"
+              >
+                @{userRef}
+              </a>
+            )}
+          </div>
+        );
+      }
       default:
         return (
           <div className="text-xs text-[var(--text-secondary)]">

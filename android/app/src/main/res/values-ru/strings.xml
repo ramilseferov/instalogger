@@ -100,6 +100,12 @@
     <string name="cookie_input_label">Строка Cookie</string>
     <string name="btn_save_cookie">Сохранить Cookie</string>
     <string name="btn_clear_session">Сбросить сессию</string>
+    <string name="btn_copy_session">Копировать сессию</string>
+    <string name="btn_export_session">Экспорт сессии</string>
+    <string name="msg_session_copied">Активная сессия скопирована</string>
+    <string name="badge_vanished">Удалено</string>
+    <string name="notif_post_vanished_title">@%1$s удалил публикацию</string>
+    <string name="notif_post_vanished_desc">Удаленная публикация: /p/%1$s %2$s</string>
     <string name="msg_session_captured">Сессия Instagram успешно перехвачена и сохранена!</string>
     <string name="msg_cookie_saved">Cookie успешно сохранены</string>
     <string name="msg_session_cleared">Сессия очищена</string>

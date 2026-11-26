@@ -926,128 +926,144 @@ class InstagramEngine(context: Context? = null) {
         return 0L
     }
 
-    fun fetchFollowersList(userId: String, cookieString: String?, limit: Int = 50): List<InstagramUserSummary> {
-        if (userId.isBlank()) return emptyList()
-        val list = mutableListOf<InstagramUserSummary>()
+    private fun fetchFriendshipListPaginated(
+        userId: String,
+        kind: String, // "followers" or "following"
+        cookieString: String?,
+        limit: Int = 500
+    ): List<InstagramUserSummary> {
+        val cleanId = userId.trim()
+        if (cleanId.isBlank() || !cleanId.all { it.isDigit() }) {
+            AppLogger.w(TAG, "fetchFriendshipListPaginated($kind) skipped: non-numeric userId='$cleanId'")
+            return emptyList()
+        }
+        val targetLimit = limit.coerceIn(1, 1000)
+        val hasSession = !cookieString.isNullOrBlank()
+        val seen = LinkedHashMap<String, InstagramUserSummary>()
 
-        // 1. Try Mobile/Web friendship API
-        val url = "https://www.instagram.com/api/v1/friendships/$userId/followers/?count=$limit&search_surface=follow_list_page"
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .header("X-IG-App-ID", APP_ID)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", "https://www.instagram.com/")
-            .header("Accept", "*/*")
+        // Tier 1: Authenticated Mobile (i.instagram.com) + Web (www.instagram.com) v1 REST with next_max_id pagination
+        if (hasSession) {
+            var nextMaxId: String? = null
+            val maxPages = ((targetLimit + 49) / 50).coerceIn(1, 20)
+            for (page in 1..maxPages) {
+                if (seen.size >= targetLimit) break
+                val pageSize = (targetLimit - seen.size).coerceAtMost(100)
+                val maxQ = if (!nextMaxId.isNullOrBlank()) "&max_id=${URLEncoder.encode(nextMaxId, "UTF-8")}" else ""
+                val searchQ = if (kind == "followers") "&search_surface=follow_list_page" else ""
+                val referer = "https://www.instagram.com/"
+                val candidates = listOf(
+                    "https://i.instagram.com/api/v1/friendships/$cleanId/$kind/?count=$pageSize$maxQ" to IG_ANDROID_APP_UA,
+                    "https://www.instagram.com/api/v1/friendships/$cleanId/$kind/?count=$pageSize$searchQ$maxQ" to DESKTOP_CHROME_UA
+                )
 
-        if (!cookieString.isNullOrBlank()) {
-            requestBuilder.header("Cookie", cookieString)
+                var pageOk = false
+                var pageNextCursor: String? = null
+                val beforeSize = seen.size
+
+                for ((url, ua) in candidates) {
+                    try {
+                        val reqBuilder = applyAuthenticatedApiHeaders(
+                            builder = Request.Builder().url(url),
+                            cookieString = cookieString!!,
+                            referer = referer,
+                            userAgent = ua
+                        )
+                        clientWithRedirects.newCall(reqBuilder.build()).execute().use { response ->
+                            val body = response.body?.string()?.trimStart().orEmpty()
+                            if (response.isSuccessful && body.startsWith("{")) {
+                                val parsed = parseUsersList(body)
+                                if (parsed.isNotEmpty() || body.contains("\"users\"")) {
+                                    pageOk = true
+                                    for (u in parsed) {
+                                        if (seen.size >= targetLimit) break
+                                        seen.putIfAbsent(u.username.lowercase(), u)
+                                    }
+                                    val root = try { gson.fromJson(body, JsonObject::class.java) } catch (_: Exception) { null }
+                                    pageNextCursor = root?.get("next_max_id")?.takeIf { !it.isJsonNull }?.asString
+                                }
+                            } else {
+                                AppLogger.d(TAG, "friendships/$kind page#$page HTTP ${response.code} (${url.substringBefore("?")})")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "friendships/$kind page#$page error: ${e.message}")
+                    }
+                    if (pageOk) break
+                }
+
+                if (!pageOk || pageNextCursor.isNullOrBlank() || pageNextCursor == nextMaxId || seen.size == beforeSize) {
+                    break
+                }
+                nextMaxId = pageNextCursor
+                try { Thread.sleep(220L) } catch (_: InterruptedException) { break }
+            }
         }
 
-        try {
-            clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        list.addAll(parseUsersList(body))
+        if (seen.isNotEmpty()) {
+            AppLogger.i(TAG, "fetchFriendshipListPaginated($kind, uid=$cleanId) Tier1 OK: ${seen.size} users")
+            return seen.values.toList()
+        }
+
+        // Tier 2: GraphQL cursor pagination fallback
+        val qHash = if (kind == "followers") "5aedd8a53048e9663c401fa0098046e7" else "d04b0a864b4b54837c0d870b0e77e076"
+        val edgeKey = if (kind == "followers") "edge_followed_by" else "edge_follow"
+        var cursor: String? = null
+        for (page in 1..10) {
+            if (seen.size >= targetLimit) break
+            val vars = if (cursor.isNullOrBlank()) {
+                """{"id":"$cleanId","first":${(targetLimit - seen.size).coerceAtMost(50)}}"""
+            } else {
+                """{"id":"$cleanId","first":${(targetLimit - seen.size).coerceAtMost(50)},"after":"$cursor"}"""
+            }
+            val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=$qHash&variables=${URLEncoder.encode(vars, "UTF-8")}"
+            val gqlReq = Request.Builder().url(gqlUrl)
+            if (hasSession) {
+                applyAuthenticatedApiHeaders(gqlReq, cookieString!!, "https://www.instagram.com/", DESKTOP_CHROME_UA)
+            } else {
+                gqlReq
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("X-IG-App-ID", APP_ID)
+                    .header("Referer", "https://www.instagram.com/")
+                    .header("Accept", "*/*")
+            }
+
+            var hasNext = false
+            var nextCursor: String? = null
+            val beforeSize = seen.size
+            try {
+                clientWithRedirects.newCall(gqlReq.build()).execute().use { response ->
+                    val body = response.body?.string()?.trimStart().orEmpty()
+                    if (response.isSuccessful && body.startsWith("{")) {
+                        val parsed = parseGraphQLUsersList(body, edgeKey)
+                        for (u in parsed) {
+                            if (seen.size >= targetLimit) break
+                            seen.putIfAbsent(u.username.lowercase(), u)
+                        }
+                        val root = try { gson.fromJson(body, JsonObject::class.java) } catch (_: Exception) { null }
+                        val pageInfo = root?.getAsJsonObject("data")?.getAsJsonObject("user")
+                            ?.getAsJsonObject(edgeKey)?.getAsJsonObject("page_info")
+                        hasNext = pageInfo?.get("has_next_page")?.takeIf { !it.isJsonNull }?.asBoolean == true
+                        nextCursor = pageInfo?.get("end_cursor")?.takeIf { !it.isJsonNull }?.asString
                     }
                 }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "GraphQL $kind page#$page failed: ${e.message}")
+                break
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Friendship followers query failed: ${e.message}")
+            if (!hasNext || nextCursor.isNullOrBlank() || seen.size == beforeSize) break
+            cursor = nextCursor
+            try { Thread.sleep(250L) } catch (_: InterruptedException) { break }
         }
 
-        if (list.isNotEmpty()) return list
-
-        // 2. Fallback to GraphQL query hash
-        val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=5aedd8a53048e9663c401fa0098046e7&variables=%7B%22id%22%3A%22$userId%22%2C%22first%22%3A$limit%7D"
-        val gqlReq = Request.Builder()
-            .url(gqlUrl)
-            .header("User-Agent", USER_AGENT)
-            .header("X-IG-App-ID", APP_ID)
-            .header("Referer", "https://www.instagram.com/")
-            .header("Accept", "*/*")
-
-        if (!cookieString.isNullOrBlank()) {
-            gqlReq.header("Cookie", cookieString)
-        }
-
-        try {
-            clientWithRedirects.newCall(gqlReq.build()).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        list.addAll(parseGraphQLUsersList(body, "edge_followed_by"))
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "GraphQL followers query failed: ${e.message}")
-        }
-
-        return list
+        return seen.values.toList()
     }
 
-    fun fetchFollowingList(userId: String, cookieString: String?, limit: Int = 50): List<InstagramUserSummary> {
-        if (userId.isBlank()) return emptyList()
-        val list = mutableListOf<InstagramUserSummary>()
+    fun fetchFollowersList(userId: String, cookieString: String?, limit: Int = 500): List<InstagramUserSummary> {
+        return fetchFriendshipListPaginated(userId, "followers", cookieString, limit)
+    }
 
-        // 1. Try Mobile/Web friendship API
-        val url = "https://www.instagram.com/api/v1/friendships/$userId/following/?count=$limit"
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .header("X-IG-App-ID", APP_ID)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", "https://www.instagram.com/")
-            .header("Accept", "*/*")
-
-        if (!cookieString.isNullOrBlank()) {
-            requestBuilder.header("Cookie", cookieString)
-        }
-
-        try {
-            clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        list.addAll(parseUsersList(body))
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Friendship following query failed: ${e.message}")
-        }
-
-        if (list.isNotEmpty()) return list
-
-        // 2. Fallback to GraphQL query hash
-        val gqlUrl = "https://www.instagram.com/graphql/query/?query_hash=d04b0a864b4b54837c0d870b0e77e076&variables=%7B%22id%22%3A%22$userId%22%2C%22first%22%3A$limit%7D"
-        val gqlReq = Request.Builder()
-            .url(gqlUrl)
-            .header("User-Agent", USER_AGENT)
-            .header("X-IG-App-ID", APP_ID)
-            .header("Referer", "https://www.instagram.com/")
-            .header("Accept", "*/*")
-
-        if (!cookieString.isNullOrBlank()) {
-            gqlReq.header("Cookie", cookieString)
-        }
-
-        try {
-            clientWithRedirects.newCall(gqlReq.build()).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        list.addAll(parseGraphQLUsersList(body, "edge_follow"))
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "GraphQL following query failed: ${e.message}")
-        }
-
-        return list
+    fun fetchFollowingList(userId: String, cookieString: String?, limit: Int = 500): List<InstagramUserSummary> {
+        return fetchFriendshipListPaginated(userId, "following", cookieString, limit)
     }
 
     private fun parseGraphQLUsersList(jsonBody: String, edgeKey: String): List<InstagramUserSummary> {

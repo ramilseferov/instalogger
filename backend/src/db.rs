@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::{Arc, Mutex};
 
-use crate::models::{ArchivedMedia, ChangeLog, Target};
+use crate::models::{ArchivedMedia, ChangeLog, FollowerAudit, RelationshipUser, Target};
 
 #[derive(Clone)]
 pub struct Database {
@@ -99,10 +99,36 @@ impl Database {
                 value TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS target_relationships (
+                target_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                user_id TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL,
+                full_name TEXT NOT NULL DEFAULT '',
+                profile_pic_url TEXT NOT NULL DEFAULT '',
+                is_private BOOLEAN NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (target_id, relation_type, username),
+                FOREIGN KEY (target_id) REFERENCES targets(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS follower_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                username TEXT NOT NULL,
+                full_name TEXT NOT NULL DEFAULT '',
+                profile_pic_url TEXT NOT NULL DEFAULT '',
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (target_id) REFERENCES targets(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_change_logs_target ON change_logs(target_id, timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_archived_media_target ON archived_media(target_id, posted_at DESC);
             CREATE INDEX IF NOT EXISTS idx_archived_media_type ON archived_media(target_id, media_type);
-            CREATE INDEX IF NOT EXISTS idx_archived_media_vanished ON archived_media(target_id, is_vanished);",
+            CREATE INDEX IF NOT EXISTS idx_archived_media_vanished ON archived_media(target_id, is_vanished);
+            CREATE INDEX IF NOT EXISTS idx_relationships_target ON target_relationships(target_id, relation_type);
+            CREATE INDEX IF NOT EXISTS idx_follower_audits_target ON follower_audits(target_id, id DESC);",
         )?;
         let _ = conn.execute("ALTER TABLE targets ADD COLUMN avatar_hash TEXT", []);
         let _ = conn.execute("ALTER TABLE targets ADD COLUMN profile_hash TEXT", []);
@@ -567,5 +593,120 @@ impl Database {
             params![key, value],
         )?;
         Ok(())
+    }
+
+    // --- Relationships & Follower Audits ---
+
+    pub fn replace_relationships(
+        &self,
+        target_id: &str,
+        relation_type: &str,
+        users: &[RelationshipUser],
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM target_relationships WHERE target_id = ?1 AND relation_type = ?2",
+            params![target_id, relation_type],
+        )?;
+        let now = Utc::now().to_rfc3339();
+        {
+            let mut stmt = tx.prepare(
+                "INSERT OR REPLACE INTO target_relationships (
+                    target_id, relation_type, user_id, username, full_name, profile_pic_url, is_private, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?;
+            for u in users {
+                stmt.execute(params![
+                    target_id,
+                    relation_type,
+                    u.id,
+                    u.username,
+                    u.full_name,
+                    u.profile_pic_url,
+                    u.is_private,
+                    now,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn list_relationships(
+        &self,
+        target_id: &str,
+        relation_type: &str,
+    ) -> Result<Vec<RelationshipUser>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT user_id, username, full_name, profile_pic_url, is_private
+             FROM target_relationships
+             WHERE target_id = ?1 AND relation_type = ?2
+             ORDER BY username COLLATE NOCASE ASC",
+        )?;
+        let rows = stmt.query_map(params![target_id, relation_type], |row| {
+            Ok(RelationshipUser {
+                id: row.get(0)?,
+                username: row.get(1)?,
+                full_name: row.get(2)?,
+                profile_pic_url: row.get(3)?,
+                is_private: row.get(4)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn insert_follower_audit(
+        &self,
+        target_id: &str,
+        event_type: &str,
+        user: &RelationshipUser,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO follower_audits (target_id, event_type, username, full_name, profile_pic_url, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                target_id,
+                event_type,
+                user.username,
+                user.full_name,
+                user.profile_pic_url,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_follower_audits(&self, target_id: &str) -> Result<Vec<FollowerAudit>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, target_id, event_type, username, full_name, profile_pic_url, timestamp
+             FROM follower_audits WHERE target_id = ?1 ORDER BY id DESC LIMIT 300",
+        )?;
+        let rows = stmt.query_map(params![target_id], |row| {
+            Ok(FollowerAudit {
+                id: row.get(0)?,
+                target_id: row.get(1)?,
+                event_type: row.get(2)?,
+                username: row.get(3)?,
+                full_name: row.get(4)?,
+                profile_pic_url: row.get(5)?,
+                timestamp: DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 }

@@ -17,6 +17,7 @@ import { SkeletonTimeline } from '../common/Skeleton';
 import { TimelineView } from './TimelineView';
 import { MediaGallery } from './MediaGallery';
 import { AvatarHistoryModal } from './AvatarHistoryModal';
+import { FollowersModal } from './FollowersModal';
 import { HighlightCirclesRow } from './HighlightCirclesRow';
 import { InstagramStoryViewerModal } from './InstagramStoryViewerModal';
 import { useI18n } from '../../i18n';
@@ -66,6 +67,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [followersModalTab, setFollowersModalTab] = useState<'followers' | 'following' | 'changes' | null>(null);
   const [activeStoryGroup, setActiveStoryGroup] = useState<{ title: string; items: ArchivedMedia[] } | null>(null);
 
   const showToast = useCallback((kind: 'ok' | 'err', text: string) => {
@@ -446,22 +448,30 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
 
           {/* 4 Balanced Tabular Stat Tiles: Followers, Following, Posts, Archived */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t border-[var(--border-subtle)]">
-            <div className="bg-[var(--bg-subtle)] px-3 py-3 rounded-xl border border-[var(--border-subtle)] text-center">
+            <button
+              type="button"
+              onClick={() => setFollowersModalTab('followers')}
+              className="bg-[var(--bg-subtle)] hover:border-[#0C7FF2] px-3 py-3 rounded-xl border border-[var(--border-subtle)] text-center transition-colors duration-150 active:scale-[0.98]"
+            >
               <div className="text-lg font-semibold text-[var(--text-primary)] tabular-nums">
                 {(target.followers_count || 0).toLocaleString()}
               </div>
-              <div className="text-[11px] font-medium text-[var(--text-muted)] mt-0.5">
+              <div className="text-[11px] font-medium text-[#0C7FF2] dark:text-[#58A6FF] mt-0.5">
                 {t.followers}
               </div>
-            </div>
-            <div className="bg-[var(--bg-subtle)] px-3 py-3 rounded-xl border border-[var(--border-subtle)] text-center">
+            </button>
+            <button
+              type="button"
+              onClick={() => setFollowersModalTab('following')}
+              className="bg-[var(--bg-subtle)] hover:border-[#0C7FF2] px-3 py-3 rounded-xl border border-[var(--border-subtle)] text-center transition-colors duration-150 active:scale-[0.98]"
+            >
               <div className="text-lg font-semibold text-[var(--text-primary)] tabular-nums">
                 {(target.following_count || 0).toLocaleString()}
               </div>
-              <div className="text-[11px] font-medium text-[var(--text-muted)] mt-0.5">
+              <div className="text-[11px] font-medium text-[#0C7FF2] dark:text-[#58A6FF] mt-0.5">
                 {t.following}
               </div>
-            </div>
+            </button>
             <div className="bg-[var(--bg-subtle)] px-3 py-3 rounded-xl border border-[var(--border-subtle)] text-center">
               <div className="text-lg font-semibold text-[var(--text-primary)] tabular-nums">
                 {Math.max(target.media_count, media.length).toLocaleString()}
@@ -645,6 +655,19 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
           onClose={() => setIsAvatarModalOpen(false)}
           targetId={target.id}
           username={target.username}
+        />
+
+        <FollowersModal
+          isOpen={followersModalTab !== null}
+          targetId={target.id}
+          username={target.username}
+          initialTab={followersModalTab || 'followers'}
+          hasSession={hasSession}
+          onOpenSettings={() => {
+            setFollowersModalTab(null);
+            onOpenSettings();
+          }}
+          onClose={() => setFollowersModalTab(null)}
         />
 
         {activeStoryGroup && (

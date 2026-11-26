@@ -424,3 +424,113 @@ pub async fn get_target_avatars(
     )
 }
 
+pub async fn get_target_relationships(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let target = match state.db.get_target(&id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "not_found", "message": "Target not found" })),
+            )
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error", "message": e.to_string() })),
+            )
+        }
+    };
+
+    let followers = state
+        .db
+        .list_relationships(&target.id, "followers")
+        .unwrap_or_default();
+    let following = state
+        .db
+        .list_relationships(&target.id, "following")
+        .unwrap_or_default();
+    let audits = state
+        .db
+        .list_follower_audits(&target.id)
+        .unwrap_or_default();
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "ok",
+            "followers": followers,
+            "following": following,
+            "audits": audits
+        })),
+    )
+}
+
+pub async fn sync_target_relationships(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let target = match state.db.get_target(&id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "not_found", "message": "Target not found" })),
+            )
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "status": "error", "message": e.to_string() })),
+            )
+        }
+    };
+
+    let session_file = format!("sessions/session_{}.json", target.username);
+    let sess_owned = if std::path::Path::new(&session_file).exists() {
+        Some(session_file)
+    } else if std::path::Path::new("sessions/instagram_session.json").exists() {
+        Some("sessions/instagram_session.json".to_string())
+    } else {
+        None
+    };
+
+    match state
+        .scheduler
+        .sync_relationships(&target.id, &target.username, sess_owned.as_deref())
+        .await
+    {
+        Ok((fl_count, fg_count)) => {
+            let followers = state
+                .db
+                .list_relationships(&target.id, "followers")
+                .unwrap_or_default();
+            let following = state
+                .db
+                .list_relationships(&target.id, "following")
+                .unwrap_or_default();
+            let audits = state
+                .db
+                .list_follower_audits(&target.id)
+                .unwrap_or_default();
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "status": "ok",
+                    "fetched_followers": fl_count,
+                    "fetched_following": fg_count,
+                    "followers": followers,
+                    "following": following,
+                    "audits": audits
+                })),
+            )
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "status": "error", "message": e.to_string() })),
+        ),
+    }
+}
+

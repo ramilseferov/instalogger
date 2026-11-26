@@ -24,6 +24,8 @@ import {
   ChevronRight,
   Download,
   Gauge,
+  Copy,
+  Share2,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -71,6 +73,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [listGuard, setListGuard] = useState(true);
 
   const [saved, setSaved] = useState(false);
+  const [copiedSession, setCopiedSession] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingSession, setSavingSession] = useState(false);
   const [confirmClearSession, setConfirmClearSession] = useState(false);
@@ -100,6 +103,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setPoolFollowing(s.pool_apply_following ?? false);
       setPoolSuppressLogs(s.pool_suppress_logs ?? true);
       setListGuard(s.list_completeness_guard ?? true);
+      if (s.has_session_cookie) {
+        const exported = await api.exportSessionCookie().catch(() => '');
+        if (exported) setSessionCookie(exported);
+      } else {
+        setSessionCookie('');
+      }
     } catch (e: any) {
       setErrorMsg(e?.message || t.toast_check_failed);
     }
@@ -158,7 +167,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setErrorMsg(null);
     try {
       await api.updateSettings({ session_cookie: sessionCookie.trim() });
-      setSessionCookie('');
       await loadSettings();
       flashSaved();
     } catch (e: any) {
@@ -430,6 +438,46 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {t.session_clear}
               </Button>
             </div>
+
+            {settings?.has_session_cookie && (
+              <div className="grid grid-cols-2 gap-2.5">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  icon={<Copy size={14} strokeWidth={1.75} />}
+                  onClick={async () => {
+                    const val = sessionCookie.trim() || (await api.exportSessionCookie().catch(() => ''));
+                    if (val) {
+                      await navigator.clipboard?.writeText(val).catch(() => {});
+                      setCopiedSession(true);
+                      window.setTimeout(() => setCopiedSession(false), 2000);
+                    }
+                  }}
+                >
+                  {copiedSession ? t.session_copied : t.session_copy}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  icon={<Share2 size={14} strokeWidth={1.75} />}
+                  onClick={async () => {
+                    const val = sessionCookie.trim() || (await api.exportSessionCookie().catch(() => ''));
+                    if (!val) return;
+                    const blob = new Blob([val], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'instalogger_session_cookie.txt';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  {t.session_export}
+                </Button>
+              </div>
+            )}
           </Card>
         </section>
 

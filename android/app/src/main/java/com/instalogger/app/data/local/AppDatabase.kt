@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProviderHealthEntity::class,
         PostCommentEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -166,6 +166,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE posts ADD COLUMN isVanished INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE posts ADD COLUMN vanishedAt INTEGER DEFAULT NULL")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -173,7 +180,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "instalogger_standalone.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

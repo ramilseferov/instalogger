@@ -126,3 +126,27 @@ export interface DevLogEntry {
   tag: string;
   message: string;
 }
+
+export interface RelationshipUser {
+  id: string;
+  username: string;
+  full_name: string;
+  profile_pic_url: string;
+  is_private: boolean;
+}
+
+export interface FollowerAudit {
+  id: number;
+  target_id: string;
+  event_type: 'follower_gained' | 'follower_lost' | 'following_gained' | 'following_lost' | string;
+  username: string;
+  full_name: string;
+  profile_pic_url: string;
+  timestamp: string;
+}
+
+export interface RelationshipsResponse {
+  followers: RelationshipUser[];
+  following: RelationshipUser[];
+  audits: FollowerAudit[];
+}

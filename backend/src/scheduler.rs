@@ -87,6 +87,66 @@ pub fn format_notification(lang: &str, event: &str, username: &str, detail: &str
             format!("@{} izləyici sayı dəyişdi ({})", username, detail),
             "İzləyici dəyişikliyi qeydə alındı.".to_string(),
         ),
+        ("en", "post_vanished") => (
+            format!("@{} deleted a post", username),
+            detail.to_string(),
+        ),
+        ("ru", "post_vanished") => (
+            format!("@{} удалил публикацию", username),
+            detail.to_string(),
+        ),
+        (_, "post_vanished") => (
+            format!("@{} paylaşım sildi", username),
+            detail.to_string(),
+        ),
+        ("en", "follower_gained") => (
+            format!("@{} gained follower @{}", username, detail),
+            "New follower detected.".to_string(),
+        ),
+        ("ru", "follower_gained") => (
+            format!("Новый подписчик @{}: @{}", username, detail),
+            "Зафиксирован новый подписчик.".to_string(),
+        ),
+        (_, "follower_gained") => (
+            format!("@{} yeni izləyici: @{}", username, detail),
+            "Yeni izləyici qeydə alındı.".to_string(),
+        ),
+        ("en", "follower_lost") => (
+            format!("@{} lost follower @{}", username, detail),
+            "User unfollowed this profile.".to_string(),
+        ),
+        ("ru", "follower_lost") => (
+            format!("Отписка от @{}: @{}", username, detail),
+            "Пользователь отписался от профиля.".to_string(),
+        ),
+        (_, "follower_lost") => (
+            format!("@{} izləyici itirdi: @{}", username, detail),
+            "İstifadəçi izləmədən çıxdı.".to_string(),
+        ),
+        ("en", "following_gained") => (
+            format!("@{} followed @{}", username, detail),
+            "Profile started following a new account.".to_string(),
+        ),
+        ("ru", "following_gained") => (
+            format!("@{} подписался на @{}", username, detail),
+            "Добавлена новая подписка.".to_string(),
+        ),
+        (_, "following_gained") => (
+            format!("@{} izləməyə başladı: @{}", username, detail),
+            "Yeni izlənilən hesab qeydə alındı.".to_string(),
+        ),
+        ("en", "following_lost") => (
+            format!("@{} unfollowed @{}", username, detail),
+            "Profile stopped following an account.".to_string(),
+        ),
+        ("ru", "following_lost") => (
+            format!("@{} отписался от @{}", username, detail),
+            "Подписка удалена.".to_string(),
+        ),
+        (_, "following_lost") => (
+            format!("@{} izləmədən çıxardı: @{}", username, detail),
+            "İzlənilən hesab çıxarıldı.".to_string(),
+        ),
         ("en", "post_count_change") => (
             format!("@{} posts changed ({})", username, detail),
             "Timeline post count updated.".to_string(),
@@ -100,6 +160,14 @@ pub fn format_notification(lang: &str, event: &str, username: &str, detail: &str
             "Profil paylaşım sayı yeniləndi.".to_string(),
         ),
     }
+}
+
+fn dhash_hamming(a: &str, b: &str) -> Option<u32> {
+    let ha = a.strip_prefix("dhash:")?;
+    let hb = b.strip_prefix("dhash:")?;
+    let va = u64::from_str_radix(ha, 16).ok()?;
+    let vb = u64::from_str_radix(hb, 16).ok()?;
+    Some((va ^ vb).count_ones())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,16 +236,22 @@ pub fn detect_changes(old: &Target, new: &ProfileSnapshot) -> Vec<DetectedChange
         });
     }
 
-    // Second-layer hash-based validation for avatar
-    let hash_changed = match (&old.avatar_hash, &new.avatar_hash) {
-        (Some(oh), Some(nh)) => oh != nh,
+    // Visual perceptual hash check for avatar (immune to CDN URL rotation / JPEG re-encoding)
+    let avatar_truly_changed = match (&old.avatar_hash, &new.avatar_hash) {
+        (Some(oh), Some(nh)) if oh != nh => {
+            if let Some(dist) = dhash_hamming(oh, nh) {
+                dist > 8
+            } else if oh.starts_with("dhash:") != nh.starts_with("dhash:") {
+                // One-time migration from legacy SHA-256 to dHash: do not fire a false positive
+                false
+            } else {
+                true
+            }
+        }
         _ => false,
     };
-    let path_changed = old.profile_pic_path.is_some()
-        && new.profile_pic_path.is_some()
-        && old.profile_pic_path != new.profile_pic_path;
 
-    if hash_changed || path_changed {
+    if avatar_truly_changed {
         changes.push(DetectedChange {
             event_type: "avatar_change".to_string(),
             old_value: old.profile_pic_path.clone().or_else(|| old.avatar_hash.clone()).unwrap_or_default(),
@@ -307,7 +381,10 @@ impl Scheduler {
         }
 
         let post_count_grew = snapshot.media_count > target.media_count;
+        let post_count_dropped = snapshot.media_count > 0 && snapshot.media_count < target.media_count;
         let story_grew = snapshot.latest_story_at > target.latest_story_at && snapshot.latest_story_at > 0;
+        let followers_changed = target.followers_count > 0 && snapshot.followers_count > 0 && target.followers_count != snapshot.followers_count;
+        let following_changed = target.following_count > 0 && snapshot.following_count > 0 && target.following_count != snapshot.following_count;
         if let Some(pc) = changes.iter().find(|c| c.event_type == "post_count_change") {
             let old_n = pc.old_value.parse::<i64>().unwrap_or(0);
             let new_n = pc.new_value.parse::<i64>().unwrap_or(0);
@@ -360,6 +437,7 @@ impl Scheduler {
             };
             let needs_backfill = (expected_target_posts > 0 && local_post_count == 0)
                 || post_count_grew
+                || post_count_dropped
                 || story_grew;
             if needs_backfill {
                 let _ = self
@@ -367,7 +445,125 @@ impl Scheduler {
                     .await;
             }
         }
+
+        // Sync followers & following lists when session is present and either counts shifted or archive is empty
+        if session_path.is_some() && (!target_updated.is_private || target_updated.followed_by_viewer) {
+            let local_followers = self
+                .db
+                .list_relationships(&target_updated.id, "followers")
+                .map(|v| v.len())
+                .unwrap_or(0);
+            let local_following = self
+                .db
+                .list_relationships(&target_updated.id, "following")
+                .map(|v| v.len())
+                .unwrap_or(0);
+            if followers_changed
+                || following_changed
+                || (target_updated.followers_count > 0 && local_followers == 0)
+                || (target_updated.following_count > 0 && local_following == 0)
+            {
+                let _ = self
+                    .sync_relationships(&target_updated.id, &target_updated.username, session_path)
+                    .await;
+            }
+        }
         Ok(())
+    }
+
+    pub async fn sync_relationships(
+        &self,
+        target_id: &str,
+        username: &str,
+        session_path: Option<&str>,
+    ) -> Result<(usize, usize)> {
+        let res = self
+            .worker
+            .fetch_relationships(username, Some(target_id), session_path, 500)
+            .await?;
+
+        let guard_enabled = self
+            .db
+            .get_setting("list_completeness_guard")
+            .ok()
+            .flatten()
+            .map(|v| v != "false")
+            .unwrap_or(true);
+        let notif_lang = self
+            .db
+            .get_setting("notification_language")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "az".to_string());
+        let target_opt = self.db.get_target(target_id).ok().flatten();
+
+        let mut process_kind = |kind: &str,
+                                fresh: &[crate::models::RelationshipUser],
+                                reported_total: i64|
+         -> Vec<(String, crate::models::RelationshipUser)> {
+            if fresh.is_empty() {
+                return Vec::new();
+            }
+            let old_users = self
+                .db
+                .list_relationships(target_id, kind)
+                .unwrap_or_default();
+            let _ = self.db.replace_relationships(target_id, kind, fresh);
+
+            if old_users.is_empty() {
+                return Vec::new();
+            }
+            let min_complete = ((reported_total as f64) * 0.85).ceil() as usize;
+            let complete = !guard_enabled || reported_total <= 50 || fresh.len() >= min_complete;
+            if !complete {
+                return Vec::new();
+            }
+
+            let old_set: std::collections::HashSet<String> =
+                old_users.iter().map(|u| u.username.to_lowercase()).collect();
+            let new_set: std::collections::HashSet<String> =
+                fresh.iter().map(|u| u.username.to_lowercase()).collect();
+
+            let gain_event = if kind == "followers" { "follower_gained" } else { "following_gained" };
+            let loss_event = if kind == "followers" { "follower_lost" } else { "following_lost" };
+            let mut events = Vec::new();
+            for u in fresh {
+                if !old_set.contains(&u.username.to_lowercase()) {
+                    let _ = self.db.insert_follower_audit(target_id, gain_event, u);
+                    let _ = self.db.log_change(target_id, gain_event, "", &format!("@{}", u.username));
+                    events.push((gain_event.to_string(), u.clone()));
+                }
+            }
+            for u in &old_users {
+                if !new_set.contains(&u.username.to_lowercase()) {
+                    let _ = self.db.insert_follower_audit(target_id, loss_event, u);
+                    let _ = self.db.log_change(target_id, loss_event, &format!("@{}", u.username), "");
+                    events.push((loss_event.to_string(), u.clone()));
+                }
+            }
+            events
+        };
+
+        let reported_followers = target_opt.as_ref().map(|t| t.followers_count).unwrap_or(0);
+        let reported_following = target_opt.as_ref().map(|t| t.following_count).unwrap_or(0);
+        let mut emitted = process_kind("followers", &res.followers, reported_followers);
+        emitted.extend(process_kind("following", &res.following, reported_following));
+
+        for (ev, u) in emitted {
+            let (title, body) = format_notification(&notif_lang, &ev, username, &u.username);
+            let _ = self.notify.send(&title, &body, false).await;
+            let msg = serde_json::json!({
+                "type": "change_detected",
+                "target_id": target_id,
+                "username": username,
+                "event": ev,
+                "old": "",
+                "new": format!("@{}", u.username)
+            });
+            let _ = self.events_tx.send(msg.to_string());
+        }
+
+        Ok((res.followers.len(), res.following.len()))
     }
 
     pub async fn trigger_full_archive(
@@ -405,6 +601,12 @@ impl Scheduler {
             }
         };
 
+        // Snapshot previously archived active posts/reels before upserting so we can identify exact vanished posts
+        let existing_media = self
+            .db
+            .list_media_by_target(target_id, None)
+            .unwrap_or_default();
+
         // Upsert items into SQLite immediately so Gallery shows them right away
         for item in &blitz.items {
             let media = ArchivedMedia {
@@ -426,6 +628,77 @@ impl Scheduler {
                 vanished_at: None,
             };
             let _ = self.db.upsert_media(&media);
+        }
+
+        // Exact Vanished Post Detection (when blitz fetched full active post/reel list)
+        let discovered_post_ids: std::collections::HashSet<String> = blitz
+            .items
+            .iter()
+            .filter(|x| x.media_type == "post" || x.media_type == "reel")
+            .map(|x| x.id.clone())
+            .collect();
+        let reported_media_count = blitz
+            .profile
+            .as_ref()
+            .map(|p| p.media_count)
+            .unwrap_or_else(|| {
+                self.db
+                    .get_target(target_id)
+                    .ok()
+                    .flatten()
+                    .map(|t| t.media_count)
+                    .unwrap_or(0)
+            });
+        let has_complete_post_snapshot = !discovered_post_ids.is_empty()
+            && (max_posts_limit == 0
+                || reported_media_count == 0
+                || (discovered_post_ids.len() as i64) >= reported_media_count);
+        if has_complete_post_snapshot {
+            let notif_lang = self
+                .db
+                .get_setting("notification_language")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "az".to_string());
+            for old_item in &existing_media {
+                if (old_item.media_type == "post" || old_item.media_type == "reel")
+                    && !old_item.is_vanished
+                    && !discovered_post_ids.contains(&old_item.id)
+                {
+                    let _ = self.db.mark_media_vanished(&old_item.id);
+                    let shortcode = old_item
+                        .id
+                        .strip_prefix("post_")
+                        .or_else(|| old_item.id.strip_prefix("reel_"))
+                        .unwrap_or(&old_item.id);
+                    let caption_snippet: String = old_item
+                        .caption
+                        .as_deref()
+                        .unwrap_or("")
+                        .replace('\n', " ")
+                        .chars()
+                        .take(90)
+                        .collect();
+                    let detail = if caption_snippet.trim().is_empty() {
+                        format!("/p/{}", shortcode)
+                    } else {
+                        format!("/p/{} — {}", shortcode, caption_snippet.trim())
+                    };
+                    let old_meta = format!("{}|{}", shortcode, old_item.relative_file_path);
+                    let _ = self.db.log_change(target_id, "post_vanished", &old_meta, &detail);
+                    let (title, body) = format_notification(&notif_lang, "post_vanished", username, &detail);
+                    let _ = self.notify.send(&title, &body, true).await;
+                    let msg = serde_json::json!({
+                        "type": "change_detected",
+                        "target_id": target_id,
+                        "username": username,
+                        "event": "post_vanished",
+                        "old": old_meta,
+                        "new": detail
+                    });
+                    let _ = self.events_tx.send(msg.to_string());
+                }
+            }
         }
 
         if !blitz.items.is_empty() {

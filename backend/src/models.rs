@@ -61,3 +61,27 @@ pub struct SystemSetting {
     pub key: String,
     pub value: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelationshipUser {
+    #[serde(default)]
+    pub id: String,
+    pub username: String,
+    #[serde(default)]
+    pub full_name: String,
+    #[serde(default)]
+    pub profile_pic_url: String,
+    #[serde(default)]
+    pub is_private: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowerAudit {
+    pub id: i64,
+    pub target_id: String,
+    pub event_type: String, // follower_gained | follower_lost | following_gained | following_lost
+    pub username: String,
+    pub full_name: String,
+    pub profile_pic_url: String,
+    pub timestamp: DateTime<Utc>,
+}

@@ -24,5 +24,7 @@ data class PostEntity(
     val localThumbPath: String? = null,
     val durationSeconds: Int? = null,
     val downloadEngine: String? = null, // "yt-dlp", "native-graph", "daemon", etc.
-    val downloadStatus: String = "pending" // "pending", "complete", "partial", "failed"
+    val downloadStatus: String = "pending", // "pending", "complete", "partial", "failed"
+    val isVanished: Boolean = false,
+    val vanishedAt: Long? = null
 )

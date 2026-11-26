@@ -6,7 +6,7 @@ import os
 # Ensure engine is on python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from engine.worker import parse_profile_metadata, parse_posts_blitz
+from engine.worker import parse_profile_metadata, parse_posts_blitz, compute_avatar_dhash, dhash_hamming_distance
 from engine.instagram_client import (
     parse_cookie_text,
     parse_profile_and_posts_from_ssr_html,
@@ -107,6 +107,23 @@ class TestWorker(unittest.TestCase):
         self.assertIsNotNone(u)
         self.assertEqual(u["edge_owner_to_timeline_media"]["count"], 4512)
         self.assertEqual(u["edge_owner_to_timeline_media"]["page_info"]["end_cursor"], "CUR_NEXT_2")
+
+    def test_avatar_dhash_deduplicates_reencoded_images(self):
+        import io
+        from PIL import Image, ImageDraw
+        img = Image.new("RGB", (128, 128), (30, 60, 120))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((24, 24, 104, 104), fill=(240, 210, 180))
+        b1, b2 = io.BytesIO(), io.BytesIO()
+        img.save(b1, format="JPEG", quality=95)
+        img.resize((64, 64)).save(b2, format="JPEG", quality=60)
+        h1 = compute_avatar_dhash(b1.getvalue())
+        h2 = compute_avatar_dhash(b2.getvalue())
+        self.assertIsNotNone(h1)
+        self.assertIsNotNone(h2)
+        dist = dhash_hamming_distance(h1, h2)
+        self.assertIsNotNone(dist)
+        self.assertLessEqual(dist, 8)
 
 if __name__ == "__main__":
     unittest.main()

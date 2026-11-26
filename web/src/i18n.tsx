@@ -204,6 +204,19 @@ export interface Translations {
   stories: string;
   active_stories: string;
   story_highlight_session_notice: string;
+  relationships_title: string;
+  relationships_changes: string;
+  relationships_search: string;
+  relationships_empty: string;
+  relationships_sync_now: string;
+  relationships_session_required: string;
+  audit_unfollowers: string;
+  audit_unfollowed: string;
+  audit_new_followers: string;
+  audit_new_following: string;
+  session_copy: string;
+  session_export: string;
+  session_copied: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -408,6 +421,19 @@ const translations: Record<Language, Translations> = {
     stories: 'Hekayələr',
     active_stories: 'Aktiv hekayələr',
     story_highlight_session_notice: 'Aktiv hekayələr, önə çıxarılanlar və 12-dən çox paylaşımın yüklənməsi üçün Instagram sessiya kukisi tələb edir.',
+    relationships_title: 'İzləyicilər və izlənilənlər',
+    relationships_changes: 'Dəyişikliklər',
+    relationships_search: 'İstifadəçi adı və ya ad axtar',
+    relationships_empty: 'Siyahı hələ endirilməyib',
+    relationships_sync_now: 'Siyahını endir',
+    relationships_session_required: 'İzləyici və izlənilən siyahılarını endirmək üçün aktiv sessiya kukisi tələb olunur.',
+    audit_unfollowers: 'İzləmədən çıxanlar',
+    audit_unfollowed: 'İzləmədən çıxarılanlar',
+    audit_new_followers: 'Yeni izləyicilər',
+    audit_new_following: 'Yeni izlənilənlər',
+    session_copy: 'Kopyala',
+    session_export: 'İxrac et',
+    session_copied: 'Sessiya kopyalandı',
   },
   en: {
     app_title: 'InstaLogger',
@@ -610,6 +636,19 @@ const translations: Record<Language, Translations> = {
     stories: 'Stories',
     active_stories: 'Active stories',
     story_highlight_session_notice: 'Instagram requires an active session cookie to load active stories, highlights, and more than 12 posts.',
+    relationships_title: 'Followers and following',
+    relationships_changes: 'Changes',
+    relationships_search: 'Search by username or name',
+    relationships_empty: 'List has not been synced yet',
+    relationships_sync_now: 'Download list',
+    relationships_session_required: 'An active session cookie is required to fetch followers and following lists.',
+    audit_unfollowers: 'Unfollowers',
+    audit_unfollowed: 'Unfollowed',
+    audit_new_followers: 'New followers',
+    audit_new_following: 'New following',
+    session_copy: 'Copy',
+    session_export: 'Export',
+    session_copied: 'Session copied',
   },
   ru: {
     app_title: 'InstaLogger',
@@ -812,6 +851,19 @@ const translations: Record<Language, Translations> = {
     stories: 'Истории',
     active_stories: 'Активные истории',
     story_highlight_session_notice: 'Instagram требует cookie сессии для загрузки активных историй, актуального и более 12 публикаций.',
+    relationships_title: 'Подписчики и подписки',
+    relationships_changes: 'Изменения',
+    relationships_search: 'Поиск по логину или имени',
+    relationships_empty: 'Список еще не загружен',
+    relationships_sync_now: 'Загрузить список',
+    relationships_session_required: 'Для загрузки списков подписчиков и подписок требуется активный cookie сессии.',
+    audit_unfollowers: 'Отписались',
+    audit_unfollowed: 'Отписки профиля',
+    audit_new_followers: 'Новые подписчики',
+    audit_new_following: 'Новые подписки',
+    session_copy: 'Копировать',
+    session_export: 'Экспорт',
+    session_copied: 'Сессия скопирована',
   },
 };
 

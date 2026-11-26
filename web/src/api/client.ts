@@ -6,6 +6,7 @@ import {
   TargetPoolConfig,
   DevLogEntry,
   DownloadsResponse,
+  RelationshipsResponse,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -164,6 +165,34 @@ export const api = {
     const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/media${query}`);
     const data = await parseJsonOrThrow(res);
     return data.items || [];
+  },
+
+  async getRelationships(id: string): Promise<RelationshipsResponse> {
+    const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/relationships`);
+    const data = await parseJsonOrThrow(res);
+    return {
+      followers: data.followers || [],
+      following: data.following || [],
+      audits: data.audits || [],
+    };
+  },
+
+  async syncRelationships(id: string): Promise<RelationshipsResponse> {
+    const res = await fetch(`${BASE_URL}/targets/${encodeURIComponent(id)}/sync-relationships`, {
+      method: 'POST',
+    });
+    const data = await parseJsonOrThrow(res);
+    return {
+      followers: data.followers || [],
+      following: data.following || [],
+      audits: data.audits || [],
+    };
+  },
+
+  async exportSessionCookie(): Promise<string> {
+    const res = await fetch(`${BASE_URL}/settings/session-export`);
+    const data = await parseJsonOrThrow(res);
+    return data.cookie || '';
   },
 
   async getSettings(): Promise<SystemSettings> {

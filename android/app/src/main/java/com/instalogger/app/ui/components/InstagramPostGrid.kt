@@ -127,6 +127,24 @@ fun PostGridItem(
             modifier = Modifier.fillMaxSize()
         )
 
+        if (post.isVanished) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(5.dp)
+                    .clip(ShapeTokens.PillShape)
+                    .background(Color(0xFFE11D48).copy(alpha = 0.90f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.badge_vanished),
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
         // Top-right indicator: Live Download Progress OR Carousel Slide Count OR Video Badge
         if (downloadState.isActive) {
             Box(

@@ -353,6 +353,7 @@ class ProfileInspector(
         }
 
         // 3. Check post count change
+        val postCountDropped = existing != null && snapshot.mediaCount > 0 && snapshot.mediaCount < existing.mediaCount
         if (existing != null && existing.mediaCount != snapshot.mediaCount && snapshot.mediaCount > 0) {
             val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "post_count_change")
             if (latestLog?.newValue != snapshot.mediaCount.toString()) {
@@ -764,7 +765,8 @@ class ProfileInspector(
                 targetId = targetId,
                 cookie = cookie,
                 wasPrivateToPublic = wasPrivateToPublic,
-                isPrivate = snapshot.isPrivate
+                isPrivate = snapshot.isPrivate,
+                forceFullPagination = postCountDropped
             )
         } else {
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
@@ -1493,19 +1495,17 @@ class ProfileInspector(
         completenessGuardEnabled: Boolean = true
     ) {
         try {
-            val freshUsers = instagramEngine.fetchFollowersList(targetId, cookie, limit = 50)
+            val fetchLimit = if (reportedTotalCount in 1..500) reportedTotalCount.toInt().coerceAtLeast(100) else 500
+            val freshUsers = instagramEngine.fetchFollowersList(targetId, cookie, limit = fetchLimit)
+            if (freshUsers.isEmpty()) return
             val decision = ListCompletenessGuard.evaluate(
                 fetchedCount = freshUsers.size,
                 reportedTotalCount = reportedTotalCount,
                 guardEnabled = completenessGuardEnabled
             )
-            if (!decision.allowArchiveOverwrite) {
-                Log.d("ProfileInspector", "Followers list completeness=${decision.status} for @$username (fetched=${freshUsers.size}, total=$reportedTotalCount); skipping diff")
-                return
-            }
 
             val oldJson = ArchiveDirectoryManager.getUserArchiveJson(context, username, "followers.json")
-            if (!oldJson.isNullOrBlank() && (decision.allowGainAlerts || decision.allowLossAlerts)) {
+            if (decision.allowArchiveOverwrite && !oldJson.isNullOrBlank() && (decision.allowGainAlerts || decision.allowLossAlerts)) {
                 val oldType = object : com.google.gson.reflect.TypeToken<List<InstagramUserSummary>>() {}.type
                 val oldUsers: List<InstagramUserSummary> = try {
                     gson.fromJson(oldJson, oldType) ?: emptyList()
@@ -1588,19 +1588,17 @@ class ProfileInspector(
         completenessGuardEnabled: Boolean = true
     ) {
         try {
-            val freshUsers = instagramEngine.fetchFollowingList(targetId, cookie, limit = 50)
+            val fetchLimit = if (reportedTotalCount in 1..500) reportedTotalCount.toInt().coerceAtLeast(100) else 500
+            val freshUsers = instagramEngine.fetchFollowingList(targetId, cookie, limit = fetchLimit)
+            if (freshUsers.isEmpty()) return
             val decision = ListCompletenessGuard.evaluate(
                 fetchedCount = freshUsers.size,
                 reportedTotalCount = reportedTotalCount,
                 guardEnabled = completenessGuardEnabled
             )
-            if (!decision.allowArchiveOverwrite) {
-                Log.d("ProfileInspector", "Following list completeness=${decision.status} for @$username (fetched=${freshUsers.size}, total=$reportedTotalCount); skipping diff")
-                return
-            }
 
             val oldJson = ArchiveDirectoryManager.getUserArchiveJson(context, username, "following.json")
-            if (!oldJson.isNullOrBlank() && (decision.allowGainAlerts || decision.allowLossAlerts)) {
+            if (decision.allowArchiveOverwrite && !oldJson.isNullOrBlank() && (decision.allowGainAlerts || decision.allowLossAlerts)) {
                 val oldType = object : com.google.gson.reflect.TypeToken<List<InstagramUserSummary>>() {}.type
                 val oldUsers: List<InstagramUserSummary> = try {
                     gson.fromJson(oldJson, oldType) ?: emptyList()
@@ -1994,6 +1992,54 @@ class ProfileInspector(
                             if (!needsFullPagination && rawPosts.isNotEmpty()) {
                                 persistAndEnqueuePostPage(cleanUser, rawPosts)
                             }
+
+                            // Identify exact vanished/deleted posts when we obtained a complete post snapshot
+                            val hasCompleteCoverage = rawPosts.isNotEmpty() && (
+                                maxPostsLimit == 0 ||
+                                    expectedTotal == 0L ||
+                                    rawPosts.size.toLong() >= expectedTotal
+                            )
+                            if (hasCompleteCoverage) {
+                                val nowMs = System.currentTimeMillis()
+                                val liveCodes = rawPosts.map { it.shortcode }.toHashSet()
+                                val activeArchived = database.postDao().getActivePostsListForUser(cleanUser)
+                                for (oldPost in activeArchived) {
+                                    if (oldPost.id !in liveCodes) {
+                                        database.postDao().markPostVanished(oldPost.id, nowMs)
+                                        val snippet = oldPost.caption?.replace("\n", " ")?.trim()?.take(80).orEmpty()
+                                        val captionPart = if (snippet.isNotBlank()) "— $snippet" else ""
+                                        val title = LanguageManager.getString(
+                                            context,
+                                            R.string.notif_post_vanished_title,
+                                            cleanUser
+                                        )
+                                        val desc = LanguageManager.getString(
+                                            context,
+                                            R.string.notif_post_vanished_desc,
+                                            oldPost.id,
+                                            captionPart
+                                        ).trim()
+                                        database.changeLogDao().insertLog(
+                                            ChangeLogEntity(
+                                                targetUsername = cleanUser,
+                                                eventType = "post_vanished",
+                                                title = "$title (/p/${oldPost.id})",
+                                                oldValue = oldPost.id,
+                                                newValue = desc,
+                                                timestamp = nowMs
+                                            )
+                                        )
+                                        dispatchAlert(
+                                            targetUsername = cleanUser,
+                                            eventType = "post_vanished",
+                                            title = title,
+                                            message = desc,
+                                            timestamp = nowMs
+                                        )
+                                    }
+                                }
+                            }
+
                             // Also resume any previously pending/failed posts in DB
                             mediaDownloadOrchestrator?.enqueuePendingForUser(cleanUser)
 

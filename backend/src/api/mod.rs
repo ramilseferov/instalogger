@@ -55,6 +55,8 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         .route("/targets/{id}/pool/flush", post(targets::flush_target_pool))
         .route("/targets/{id}/logs", get(targets::get_target_logs))
         .route("/targets/{id}/avatars", get(targets::get_target_avatars))
+        .route("/targets/{id}/relationships", get(targets::get_target_relationships))
+        .route("/targets/{id}/sync-relationships", post(targets::sync_target_relationships))
         .route("/targets/{id}/media", get(media::list_media))
         .route("/downloads", get(downloads::list_downloads))
         .route("/downloads/pause-all", post(downloads::pause_all_downloads))
@@ -68,6 +70,7 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
             "/settings",
             get(settings::get_settings).post(settings::update_settings),
         )
+        .route("/settings/session-export", get(settings::export_session_cookie))
         .route(
             "/dev-logs",
             get(dev_logs::get_dev_logs).delete(dev_logs::clear_dev_logs),

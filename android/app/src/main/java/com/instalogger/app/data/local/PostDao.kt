@@ -26,6 +26,12 @@ interface PostDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPosts(posts: List<PostEntity>)
 
+    @Query("SELECT * FROM posts WHERE username = :username AND isVanished = 0 ORDER BY postedAt DESC")
+    suspend fun getActivePostsListForUser(username: String): List<PostEntity>
+
+    @Query("UPDATE posts SET isVanished = 1, vanishedAt = :vanishedAt WHERE id = :postId")
+    suspend fun markPostVanished(postId: String, vanishedAt: Long)
+
     @Query("DELETE FROM posts WHERE id = :postId")
     suspend fun deletePostById(postId: String)
 

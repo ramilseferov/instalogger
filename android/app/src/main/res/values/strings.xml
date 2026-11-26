@@ -114,6 +114,12 @@
     <string name="cookie_input_label">Cookie String</string>
     <string name="btn_save_cookie">Save Cookie</string>
     <string name="btn_clear_session">Reset Session</string>
+    <string name="btn_copy_session">Copy Session</string>
+    <string name="btn_export_session">Export Session</string>
+    <string name="msg_session_copied">Active session copied</string>
+    <string name="badge_vanished">Deleted</string>
+    <string name="notif_post_vanished_title">@%1$s deleted a post</string>
+    <string name="notif_post_vanished_desc">Deleted post: /p/%1$s %2$s</string>
     <string name="msg_session_captured">Instagram session captured and saved successfully!</string>
     <string name="msg_cookie_saved">Cookie saved successfully</string>
     <string name="msg_session_cleared">Session cleared</string>

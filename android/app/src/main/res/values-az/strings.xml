@@ -114,6 +114,12 @@
     <string name="cookie_input_label">Cookie Sətri</string>
     <string name="btn_save_cookie">Cookie Yadda Saxla</string>
     <string name="btn_clear_session">Sessiyanı Sıfırla</string>
+    <string name="btn_copy_session">Sessiyanı Kopyala</string>
+    <string name="btn_export_session">Sessiyanı İxrac Et</string>
+    <string name="msg_session_copied">Aktiv sessiya kopyalandı</string>
+    <string name="badge_vanished">Silinib</string>
+    <string name="notif_post_vanished_title">@%1$s paylaşım sildi</string>
+    <string name="notif_post_vanished_desc">Silinən paylaşım: /p/%1$s %2$s</string>
     <string name="msg_session_captured">Instagram sessiyası avtomatik tutuldu və saxlanıldı!</string>
     <string name="msg_cookie_saved">Cookie uğurla yadda saxlanıldı</string>
     <string name="msg_session_cleared">Sessiya təmizləndi</string>

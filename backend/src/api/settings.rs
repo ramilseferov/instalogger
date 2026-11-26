@@ -225,3 +225,22 @@ pub async fn update_settings(
 
     (StatusCode::OK, Json(json!({ "status": "ok" })))
 }
+
+pub async fn export_session_cookie() -> impl IntoResponse {
+    match std::fs::read_to_string("sessions/instagram_session.json") {
+        Ok(content) if !content.trim().is_empty() => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "ok",
+                "cookie": content.trim()
+            })),
+        ),
+        _ => (
+            StatusCode::OK,
+            Json(json!({
+                "status": "ok",
+                "cookie": ""
+            })),
+        ),
+    }
+}
