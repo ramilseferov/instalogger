@@ -66,6 +66,7 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         .route("/targets/{id}/relationships", get(targets::get_target_relationships))
         .route("/targets/{id}/sync-relationships", post(targets::sync_target_relationships))
         .route("/targets/{id}/media", get(media::list_media))
+        .route("/targets/{id}/media/{media_id}", axum::routing::delete(targets::delete_target_media_item))
         .route("/targets/{id}/media/{media_id}/assets", get(targets::get_media_assets))
         .route("/targets/{id}/posts/{shortcode}/comments", get(comments::list_post_comments))
         .route("/targets/{id}/posts/{shortcode}/comments/sync", post(comments::sync_post_comments))

@@ -97,6 +97,7 @@ enum class NotificationCategory(
                 "avatar_change", "bio_change", "name_change" -> PROFILE_CHANGES
                 "privacy_change" -> PRIVACY_ALERTS
                 "post_count_change",
+                "post_vanished",
                 "follower_count_change",
                 "following_count_change",
                 "followers_change",
@@ -108,7 +109,13 @@ enum class NotificationCategory(
                 "follower_lost",
                 "following_gained",
                 "following_lost",
-                "story_posted" -> ACTIVITY_UPDATES
+                "story_posted",
+                "story_added",
+                "story_vanished",
+                "highlight_added",
+                "highlight_updated",
+                "highlight_vanished",
+                "highlight_item_vanished" -> ACTIVITY_UPDATES
                 else -> SYSTEM_ALERTS
             }
         }
@@ -226,8 +233,8 @@ enum class NotificationEventKey(
                 "follower_lost" -> FOLLOWERS_LOST
                 "following_gained", "following_lost", "following_count_change", "following_change", "following_pool_flush" -> FOLLOWING_CHANGED
                 "follower_spike" -> FOLLOWER_SPIKE
-                "post_count_change", "new_post", "post_deleted" -> NEW_POSTS
-                "story_posted", "highlight_archived" -> STORIES_ARCHIVED
+                "post_count_change", "new_post", "post_deleted", "post_vanished" -> NEW_POSTS
+                "story_posted", "story_added", "story_vanished", "highlight_archived", "highlight_added", "highlight_updated", "highlight_vanished", "highlight_item_vanished" -> STORIES_ARCHIVED
                 "avatar_change" -> AVATAR_CHANGED
                 "bio_change" -> BIO_CHANGED
                 "name_change" -> NAME_CHANGED

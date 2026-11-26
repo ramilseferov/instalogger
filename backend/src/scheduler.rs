@@ -147,6 +147,54 @@ pub fn format_notification(lang: &str, event: &str, username: &str, detail: &str
             format!("@{} izləmədən çıxardı: @{}", username, detail),
             "İzlənilən hesab çıxarıldı.".to_string(),
         ),
+        ("en", "story_added") => (
+            format!("@{} posted a new story", username),
+            if detail.is_empty() { "New story archived locally.".to_string() } else { detail.to_string() },
+        ),
+        ("ru", "story_added") => (
+            format!("@{} опубликовал историю", username),
+            if detail.is_empty() { "Новая история сохранена в архив.".to_string() } else { detail.to_string() },
+        ),
+        (_, "story_added") => (
+            format!("@{} yeni hekayə paylaşdı", username),
+            if detail.is_empty() { "Yeni hekayə avtomatik arxivləşdirildi.".to_string() } else { detail.to_string() },
+        ),
+        ("en", "story_vanished") => (
+            format!("@{} deleted a story", username),
+            if detail.is_empty() { "Story was deleted before 24h expiry. Archive preserved.".to_string() } else { detail.to_string() },
+        ),
+        ("ru", "story_vanished") => (
+            format!("@{} удалил историю", username),
+            if detail.is_empty() { "История удалена до истечения 24ч. Архив сохранен.".to_string() } else { detail.to_string() },
+        ),
+        (_, "story_vanished") => (
+            format!("@{} hekayəni sildi", username),
+            if detail.is_empty() { "Hekayə 24 saat dolmadan silindi. Arxiv qorunur.".to_string() } else { detail.to_string() },
+        ),
+        ("en", "highlight_added") => (
+            format!("@{} added highlight {}", username, detail),
+            "Highlight cover and media archived locally.".to_string(),
+        ),
+        ("ru", "highlight_added") => (
+            format!("@{} добавил актуальное {}", username, detail),
+            "Актуальное сохранено в локальный архив.".to_string(),
+        ),
+        (_, "highlight_added") => (
+            format!("@{} yeni highlight əlavə etdi: {}", username, detail),
+            "Highlight və daxilindəki hekayələr arxivləşdirildi.".to_string(),
+        ),
+        ("en", "highlight_vanished") => (
+            format!("@{} removed highlight {}", username, detail),
+            "Archived highlight copy remains preserved locally.".to_string(),
+        ),
+        ("ru", "highlight_vanished") => (
+            format!("@{} удалил актуальное {}", username, detail),
+            "Архивная копия актуального сохранена.".to_string(),
+        ),
+        (_, "highlight_vanished") => (
+            format!("@{} highlight sildi: {}", username, detail),
+            "Silinmiş highlight nüsxəsi arxivdə qorunur.".to_string(),
+        ),
         ("en", "post_count_change") => (
             format!("@{} posts changed ({})", username, detail),
             "Timeline post count updated.".to_string(),
@@ -465,11 +513,23 @@ impl Scheduler {
             } else {
                 target_updated.media_count
             };
+            let story_sync_key = format!("last_story_hl_sync:{}", target_updated.id);
+            let last_story_sync_ts = self
+                .db
+                .get_setting(&story_sync_key)
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            let now_ts = Utc::now().timestamp();
+            let story_sync_due = now_ts - last_story_sync_ts >= 300;
             let needs_backfill = (expected_target_posts > 0 && local_post_count == 0)
                 || post_count_grew
                 || post_count_dropped
-                || story_grew;
+                || story_grew
+                || story_sync_due;
             if needs_backfill {
+                let _ = self.db.set_setting(&story_sync_key, &now_ts.to_string());
                 let _ = self
                     .trigger_full_archive(&target_updated.username, &target_updated.id, session_path)
                     .await;
@@ -808,6 +868,146 @@ impl Scheduler {
                         "username": username,
                         "event": "post_vanished",
                         "old": old_meta,
+                        "new": detail
+                    });
+                    let _ = self.events_tx.send(msg.to_string());
+                }
+            }
+        }
+
+        // Story & Highlight Addition + Deletion Detection (Archive Preserved!)
+        {
+            let notif_lang = self
+                .db
+                .get_setting("notification_language")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "az".to_string());
+            let existing_ids: std::collections::HashSet<String> =
+                existing_media.iter().map(|m| m.id.clone()).collect();
+            let had_baseline = !existing_media.is_empty();
+
+            // 1. Newly added active stories
+            let new_stories: Vec<&crate::worker::BlitzItem> = blitz
+                .items
+                .iter()
+                .filter(|x| x.media_type == "story" && !existing_ids.contains(&x.id))
+                .collect();
+            if had_baseline && !new_stories.is_empty() {
+                let detail = if new_stories.len() == 1 {
+                    format!("+1 story ({})", new_stories[0].shortcode)
+                } else {
+                    format!("+{} stories", new_stories.len())
+                };
+                let _ = self.db.log_change(target_id, "story_added", "", &detail);
+                let (title, body) = format_notification(&notif_lang, "story_added", username, &detail);
+                let _ = self
+                    .notify
+                    .send_event(target_id, username, "story_added", &title, &body, false)
+                    .await;
+                let msg = serde_json::json!({
+                    "type": "change_detected",
+                    "target_id": target_id,
+                    "username": username,
+                    "event": "story_added",
+                    "old": "",
+                    "new": detail
+                });
+                let _ = self.events_tx.send(msg.to_string());
+            }
+
+            // 2. Early-deleted stories (disappeared before 23.5h expiry while authoritative)
+            if blitz.stories_authoritative {
+                let live_story_ids: std::collections::HashSet<String> = blitz
+                    .items
+                    .iter()
+                    .filter(|x| x.media_type == "story")
+                    .map(|x| x.id.clone())
+                    .collect();
+                let now_utc = Utc::now();
+                let expiry_window_secs = 23 * 3600 + 1800; // 23.5h so normal 24h expiry is NOT misclassified as deleted
+                for old_story in existing_media.iter().filter(|m| m.media_type == "story" && !m.is_vanished) {
+                    let age_secs = now_utc.signed_duration_since(old_story.posted_at).num_seconds();
+                    if age_secs >= 0 && age_secs < expiry_window_secs && !live_story_ids.contains(&old_story.id) {
+                        let _ = self.db.mark_media_vanished(&old_story.id);
+                        let detail = format!("Story {} ({})", old_story.id.trim_start_matches("story_"), old_story.posted_at.format("%d.%m %H:%M"));
+                        let _ = self.db.log_change(target_id, "story_vanished", &old_story.id, &detail);
+                        let (title, body) = format_notification(&notif_lang, "story_vanished", username, &detail);
+                        let _ = self
+                            .notify
+                            .send_event(target_id, username, "story_vanished", &title, &body, true)
+                            .await;
+                        let msg = serde_json::json!({
+                            "type": "change_detected",
+                            "target_id": target_id,
+                            "username": username,
+                            "event": "story_vanished",
+                            "old": old_story.id,
+                            "new": detail
+                        });
+                        let _ = self.events_tx.send(msg.to_string());
+                    }
+                }
+            }
+
+            // 3. Newly added highlight items (grouped by highlight title)
+            let existing_hl_count = existing_media.iter().filter(|m| m.media_type == "highlight").count();
+            if had_baseline && existing_hl_count > 0 {
+                let mut added_hl_titles: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+                for item in blitz.items.iter().filter(|x| x.media_type == "highlight" && !existing_ids.contains(&x.id)) {
+                    let t = item.highlight_title.clone().unwrap_or_else(|| "Highlight".to_string());
+                    *added_hl_titles.entry(t).or_insert(0) += 1;
+                }
+                for (hl_title, cnt) in added_hl_titles {
+                    let detail = format!("{} (+{})", hl_title, cnt);
+                    let _ = self.db.log_change(target_id, "highlight_added", "", &detail);
+                    let (title, body) = format_notification(&notif_lang, "highlight_added", username, &detail);
+                    let _ = self
+                        .notify
+                        .send_event(target_id, username, "highlight_added", &title, &body, false)
+                        .await;
+                    let msg = serde_json::json!({
+                        "type": "change_detected",
+                        "target_id": target_id,
+                        "username": username,
+                        "event": "highlight_added",
+                        "old": "",
+                        "new": detail
+                    });
+                    let _ = self.events_tx.send(msg.to_string());
+                }
+            }
+
+            // 4. Deleted highlight items / trays (when authoritative)
+            if blitz.highlights_authoritative {
+                let live_hl_ids: std::collections::HashSet<String> = blitz
+                    .items
+                    .iter()
+                    .filter(|x| x.media_type == "highlight")
+                    .map(|x| x.id.clone())
+                    .collect();
+                let mut vanished_hl_titles: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+                for old_hl in existing_media.iter().filter(|m| m.media_type == "highlight" && !m.is_vanished) {
+                    if !live_hl_ids.contains(&old_hl.id) {
+                        let _ = self.db.mark_media_vanished(&old_hl.id);
+                        let t = old_hl.highlight_title.clone().unwrap_or_else(|| "Highlight".to_string());
+                        *vanished_hl_titles.entry(t).or_insert(0) += 1;
+                    }
+                }
+                for (hl_title, cnt) in vanished_hl_titles {
+                    let detail = format!("{} (-{})", hl_title, cnt);
+                    let _ = self.db.log_change(target_id, "highlight_vanished", &hl_title, &detail);
+                    let (title, body) = format_notification(&notif_lang, "highlight_vanished", username, &detail);
+                    let _ = self
+                        .notify
+                        .send_event(target_id, username, "highlight_vanished", &title, &body, true)
+                        .await;
+                    let msg = serde_json::json!({
+                        "type": "change_detected",
+                        "target_id": target_id,
+                        "username": username,
+                        "event": "highlight_vanished",
+                        "old": hl_title,
                         "new": detail
                     });
                     let _ = self.events_tx.send(msg.to_string());

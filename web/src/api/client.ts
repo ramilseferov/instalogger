@@ -272,6 +272,15 @@ export const api = {
     return data.assets || [];
   },
 
+  async deleteMediaItem(targetId: string, mediaId: string): Promise<number> {
+    const res = await fetch(
+      `${BASE_URL}/targets/${encodeURIComponent(targetId)}/media/${encodeURIComponent(mediaId)}`,
+      { method: 'DELETE' }
+    );
+    const data = await parseJsonOrThrow(res);
+    return Number(data.freed_bytes || 0);
+  },
+
   async deleteTargetAvatar(targetId: string, filename: string): Promise<void> {
     const res = await fetch(
       `${BASE_URL}/targets/${encodeURIComponent(targetId)}/avatars/${encodeURIComponent(filename)}`,

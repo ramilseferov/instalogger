@@ -1,18 +1,27 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArchivedMedia } from '../../types';
-import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Trash2, EyeOff } from 'lucide-react';
 import { useI18n } from '../../i18n';
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
 
 interface InstagramStoryViewerModalProps {
   title: string;
   items: ArchivedMedia[];
   onClose: () => void;
+  onDeleteItem?: (item: ArchivedMedia) => Promise<void> | void;
 }
 
 export const InstagramStoryViewerModal: React.FC<InstagramStoryViewerModalProps> = ({
   title,
   items,
   onClose,
+  onDeleteItem,
 }) => {
   const { t } = useI18n();
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -96,21 +105,50 @@ export const InstagramStoryViewerModal: React.FC<InstagramStoryViewerModalProps>
         </div>
 
         {/* Header Bar */}
-        <div className="absolute top-7 inset-x-4 z-30 flex items-center justify-between text-white drop-shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold bg-[#0C7FF2] px-2.5 py-1 rounded-full">
+        <div className="absolute top-7 inset-x-4 z-30 flex items-center justify-between text-white drop-shadow-md gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <span className="text-xs font-bold bg-[#0C7FF2] px-2.5 py-1 rounded-full truncate max-w-[160px]">
               {title}
             </span>
-            <span className="text-xs text-white/80 font-medium">
+            <span className="text-xs text-white/80 font-medium tabular-nums">
               {currentIndex + 1} / {items.length}
             </span>
+            {currentItem.file_size_bytes > 0 && (
+              <span className="text-[11px] font-mono text-white/80 bg-black/45 px-2 py-0.5 rounded-full tabular-nums">
+                {formatBytes(currentItem.file_size_bytes)}
+              </span>
+            )}
+            {currentItem.is_vanished && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-rose-600/90 text-white px-2 py-0.5 rounded-full">
+                <EyeOff size={11} /> {t.story_status_deleted}
+              </span>
+            )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white/90 transition-colors"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onDeleteItem && (
+              <button
+                type="button"
+                onClick={async () => {
+                  await onDeleteItem(currentItem);
+                  if (items.length <= 1) {
+                    onClose();
+                  } else if (currentIndex >= items.length - 1) {
+                    setCurrentIndex((prev) => Math.max(0, prev - 1));
+                  }
+                }}
+                className="p-1.5 rounded-full bg-rose-600/80 hover:bg-rose-600 text-white transition-colors"
+                title={t.delete_from_storage}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-full bg-black/40 hover:bg-black/60 text-white/90 transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Media Content */}

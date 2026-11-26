@@ -16,5 +16,7 @@ data class HighlightEntity(
     val coverUrl: String,
     val localCoverPath: String? = null,
     val mediaCount: Int = 0,
-    val archivedAt: Long = System.currentTimeMillis()
+    val archivedAt: Long = System.currentTimeMillis(),
+    val isVanished: Boolean = false,
+    val vanishedAt: Long? = null
 )

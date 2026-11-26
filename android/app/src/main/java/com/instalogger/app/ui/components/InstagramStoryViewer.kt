@@ -45,10 +45,12 @@ import java.util.*
 fun InstagramStoryViewer(
     highlight: HighlightEntity,
     mediaList: List<HighlightMediaEntity>,
+    initialIndex: Int = 0,
     isLoading: Boolean = false,
     hasSession: Boolean = false,
     onRetry: (() -> Unit)? = null,
     onNavigateToSession: (() -> Unit)? = null,
+    onDeleteItem: ((HighlightMediaEntity) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -72,7 +74,9 @@ fun InstagramStoryViewer(
             return@Dialog
         }
 
-        var currentIndex by remember(highlight.id) { mutableIntStateOf(0) }
+        var currentIndex by remember(highlight.id, initialIndex) {
+            mutableIntStateOf(initialIndex.coerceIn(0, (mediaList.size - 1).coerceAtLeast(0)))
+        }
         var isPaused by remember { mutableStateOf(false) }
         var currentProgress by remember { mutableFloatStateOf(0f) }
         var activeDurationMs by remember { mutableLongStateOf(5000L) }
@@ -264,20 +268,65 @@ fun InstagramStoryViewer(
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = highlight.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = highlight.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (currentMedia.isVanished || highlight.isVanished) {
+                                Surface(
+                                    color = Color(0xFFE11D48),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.story_status_deleted),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
                         val timeFormat = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
+                        val itemBytes = remember(currentMedia.localPath, currentMedia.fileSize) {
+                            val diskLen = if (localFile.exists()) localFile.length() else 0L
+                            if (diskLen > 0L) diskLen else currentMedia.fileSize
+                        }
+                        val sizePart = remember(itemBytes) {
+                            when {
+                                itemBytes >= 1024L * 1024L -> String.format(Locale.US, " · %.2f MB", itemBytes / (1024.0 * 1024.0))
+                                itemBytes >= 1024L -> String.format(Locale.US, " · %.1f KB", itemBytes / 1024.0)
+                                itemBytes > 0L -> " · $itemBytes B"
+                                else -> ""
+                            }
+                        }
                         Text(
-                            text = "${safeIndex + 1}/${mediaList.size} · ${timeFormat.format(Date(currentMedia.takenAt))}",
+                            text = "${safeIndex + 1}/${mediaList.size} · ${timeFormat.format(Date(currentMedia.takenAt))}$sizePart",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.75f)
+                            color = Color.White.copy(alpha = 0.78f)
                         )
+                    }
+
+                    if (onDeleteItem != null) {
+                        IconButton(
+                            onClick = { onDeleteItem(currentMedia) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = stringResource(R.string.story_archive_delete_item_title),
+                                tint = Color(0xFFFF6B81),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
                     if (localFile.exists() && localFile.length() > 0L) {

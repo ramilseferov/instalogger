@@ -872,6 +872,7 @@ class InstagramClient:
         username: str,
     ) -> List[Dict[str, Any]]:
         """Multi-tier active 24h story extraction: Mobile/Web v1 REST -> Desktop SSR -> GraphQL -> Instaloader."""
+        self.last_stories_authoritative = False
         clean_user = username.strip().lstrip("@").lower()
         uid = str(user_id).strip() if user_id and str(user_id).isdigit() else None
 
@@ -891,8 +892,12 @@ class InstagramClient:
                     headers["Referer"] = referer
                     resp = self.session.get(url, headers=headers, timeout=15)
                     if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
-                        items = parse_reels_media_json(resp.json(), reel_key=uid)
+                        payload = resp.json()
+                        if isinstance(payload, dict) and payload.get("status") == "ok":
+                            self.last_stories_authoritative = True
+                        items = parse_reels_media_json(payload, reel_key=uid)
                         if items:
+                            self.last_stories_authoritative = True
                             return items
                 except Exception as e:
                     logger.debug(f"v1 active stories failed ({url}): {e}")
@@ -965,6 +970,7 @@ class InstagramClient:
         is_private: bool = False,
     ) -> List[Dict[str, Any]]:
         """Multi-tier highlight trays: Public SSR -> Mobile/Web v1 REST -> Auth SSR -> GraphQL -> Instaloader."""
+        self.last_highlights_authoritative = False
         clean_user = (username or "").strip().lstrip("@").lower()
         uid = str(user_id).strip() if user_id and str(user_id).isdigit() else None
 
@@ -984,6 +990,7 @@ class InstagramClient:
                 if resp.status_code == 200 and resp.text:
                     ssr_trays = parse_highlights_from_ssr_html(resp.text)
                     if ssr_trays:
+                        self.last_highlights_authoritative = True
                         return ssr_trays
             except Exception as e:
                 logger.debug(f"Zero-login SSR highlights failed for @{clean_user}: {e}")
@@ -1003,6 +1010,7 @@ class InstagramClient:
                     if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
                         tray = resp.json().get("tray")
                         if isinstance(tray, list):
+                            self.last_highlights_authoritative = True
                             results = []
                             for obj in tray:
                                 cover_media = obj.get("cover_media") or {}

@@ -63,6 +63,10 @@ pub struct BlitzResult {
     pub profile: Option<ProfileSnapshot>,
     pub items: Vec<BlitzItem>,
     pub count: usize,
+    #[serde(default)]
+    pub stories_authoritative: bool,
+    #[serde(default)]
+    pub highlights_authoritative: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

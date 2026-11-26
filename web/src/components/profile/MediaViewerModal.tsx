@@ -2,15 +2,24 @@ import React, { useEffect, useState } from 'react';
 import { ArchivedMedia, MediaAsset } from '../../types';
 import { api } from '../../api/client';
 import { PostCommentsModal } from './PostCommentsModal';
-import { X, Download, Calendar, EyeOff, Film, Image as ImageIcon, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
+import { X, Download, Calendar, EyeOff, Film, Image as ImageIcon, ChevronLeft, ChevronRight, MessageSquare, Trash2, HardDrive } from 'lucide-react';
 import { useI18n } from '../../i18n';
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 interface MediaViewerModalProps {
   media: ArchivedMedia | null;
   onClose: () => void;
+  onDeleteMedia?: (media: ArchivedMedia) => Promise<void> | void;
 }
 
-export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClose }) => {
+export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClose, onDeleteMedia }) => {
   const { t } = useI18n();
   const [slides, setSlides] = useState<MediaAsset[]>([]);
   const [slideIdx, setSlideIdx] = useState(0);
@@ -156,11 +165,19 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
             </p>
           )}
 
-          <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)]">
-            <span className="flex items-center gap-1.5 tabular-nums">
-              <Calendar size={13} strokeWidth={1.75} />
-              {media.posted_at ? new Date(media.posted_at).toLocaleString() : '—'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-subtle)]">
+            <div className="flex flex-wrap items-center gap-3 tabular-nums">
+              <span className="flex items-center gap-1.5">
+                <Calendar size={13} strokeWidth={1.75} />
+                {media.posted_at ? new Date(media.posted_at).toLocaleString() : '—'}
+              </span>
+              {media.file_size_bytes > 0 && (
+                <span className="flex items-center gap-1 font-mono text-[var(--text-secondary)]">
+                  <HardDrive size={12} strokeWidth={1.75} />
+                  {formatBytes(media.file_size_bytes)}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               {canHaveComments && (
                 <button
@@ -178,6 +195,18 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({ media, onClo
               >
                 <Download size={13} strokeWidth={1.75} /> {t.download_file}
               </a>
+              {onDeleteMedia && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onDeleteMedia(media);
+                    onClose();
+                  }}
+                  className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:underline font-medium"
+                >
+                  <Trash2 size={13} strokeWidth={1.75} /> {t.delete_from_storage}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -242,6 +242,19 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
     }
   };
 
+  const handleDeleteMediaItem = async (item: ArchivedMedia) => {
+    try {
+      await api.deleteMediaItem(target.id, item.id);
+      setMedia((prev) => prev.filter((m) => m.id !== item.id));
+      setActiveStoryGroup((prev) =>
+        prev ? { ...prev, items: prev.items.filter((m) => m.id !== item.id) } : null
+      );
+      showToast('ok', t.delete_from_storage);
+    } catch (e: any) {
+      showToast('err', e?.message || t.toast_check_failed);
+    }
+  };
+
   const handleDeleteConfirmed = async () => {
     setConfirmDelete(false);
     await api.deleteTarget(target.id);
@@ -693,6 +706,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
               expectedCount={target.media_count}
               downloadMap={downloadMap}
               onSyncMedia={!target.is_private ? handleSyncMedia : undefined}
+              onDeleteMedia={handleDeleteMediaItem}
             />
           ) : loadingData ? (
             <SkeletonTimeline count={3} />
@@ -726,6 +740,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
             title={activeStoryGroup.title}
             items={activeStoryGroup.items}
             onClose={() => setActiveStoryGroup(null)}
+            onDeleteItem={handleDeleteMediaItem}
           />
         )}
 

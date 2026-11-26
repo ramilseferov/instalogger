@@ -165,6 +165,38 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ logs }) => {
           </div>
         );
       }
+      case 'story_added':
+      case 'story_vanished':
+      case 'highlight_added':
+      case 'highlight_vanished': {
+        const isVanished = log.event_type.endsWith('vanished');
+        const label =
+          log.event_type === 'story_added'
+            ? t.event_story_added
+            : log.event_type === 'story_vanished'
+            ? t.event_story_vanished
+            : log.event_type === 'highlight_added'
+            ? t.event_highlight_added
+            : t.event_highlight_vanished;
+        return (
+          <div
+            className={`rounded-xl border p-3 text-xs space-y-1 ${
+              isVanished
+                ? 'bg-rose-500/10 border-rose-500/20'
+                : 'bg-[var(--accent-soft)] border-[#0C7FF2]/25'
+            }`}
+          >
+            <div
+              className={`font-semibold ${
+                isVanished ? 'text-rose-600 dark:text-rose-400' : 'text-[#0C7FF2] dark:text-[#58A6FF]'
+              }`}
+            >
+              {label}
+            </div>
+            {log.new_value && <p className="text-[var(--text-secondary)]">{log.new_value}</p>}
+          </div>
+        );
+      }
       case 'follower_gained':
       case 'follower_lost':
       case 'following_gained':

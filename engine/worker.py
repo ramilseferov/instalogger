@@ -384,9 +384,12 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
         items.append(item)
 
     # Extract active 24h stories and highlights when profile is public or followed by viewer
+    stories_authoritative = False
+    highlights_authoritative = False
     if not profile.get("is_private") or profile.get("followed_by_viewer"):
         try:
             active_stories = client.fetch_active_user_stories(profile["id"], profile["username"])
+            stories_authoritative = bool(getattr(client, "last_stories_authoritative", False)) or bool(active_stories)
             for story in active_stories:
                 story_id = sanitize_identifier(story.get("id") or str(int(time.time())))
                 ext = "mp4" if story.get("media_type") == "video" else "jpg"
@@ -411,6 +414,7 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
                 username=profile["username"],
                 is_private=bool(profile.get("is_private", False)),
             )
+            highlights_authoritative = bool(getattr(client, "last_highlights_authoritative", False))
             for tray in hl_trays:
                 tray_title_raw = str(tray.get("title") or "Highlight").strip() or "Highlight"
                 tray_title = sanitize_identifier(tray_title_raw)
@@ -438,6 +442,8 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
         "profile": profile,
         "items": items,
         "count": len(items),
+        "stories_authoritative": stories_authoritative,
+        "highlights_authoritative": highlights_authoritative,
     }))
 
 

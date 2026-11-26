@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ProviderHealthEntity::class,
         PostCommentEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -173,6 +173,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE highlights ADD COLUMN isVanished INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE highlights ADD COLUMN vanishedAt INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE highlight_media ADD COLUMN fileSize INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE highlight_media ADD COLUMN isVanished INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE highlight_media ADD COLUMN vanishedAt INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE highlight_media ADD COLUMN archivedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -180,7 +191,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "instalogger_standalone.db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

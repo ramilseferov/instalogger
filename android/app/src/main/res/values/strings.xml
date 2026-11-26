@@ -680,4 +680,36 @@
     <string name="dev_logs_filter_debug">Sazlama</string>
     <string name="session_clear_confirm_title">Sessiyanı sıfırla?</string>
     <string name="session_clear_confirm_desc">Saxlanılmış Instagram giriş sessiyası silinəcək. Gizli profillər üçün yenidən giriş tələb olunacaq.</string>
+    <!-- Story & Highlight Archive System -->
+    <string name="tab_stories_short">Hekayə (%1$d)</string>
+    <string name="story_archive_title">Hekayə və Highlight Arxivi</string>
+    <string name="story_archive_summary_stories">Hekayələr: %1$d</string>
+    <string name="story_archive_summary_active">Aktiv: %1$d</string>
+    <string name="story_archive_summary_deleted">Silinib: %1$d</string>
+    <string name="story_archive_storage_used">Yaddaş: %1$s</string>
+    <string name="story_status_active">Aktiv</string>
+    <string name="story_status_archived">Arxivlənib</string>
+    <string name="story_status_deleted">Silinib</string>
+    <string name="story_archive_empty">Hələ arxivlənmiş hekayə və ya highlight yoxdur.</string>
+    <string name="story_archive_sync_now">Hekayələri yenilə</string>
+    <string name="story_archive_clear_all">Hekayələri təmizlə</string>
+    <string name="story_archive_delete_item_title">Arxivdən silinsin?</string>
+    <string name="story_archive_delete_item_desc">Bu fayl lokal yaddaşdan və arxiv tarixçəsindən həmişəlik silinəcək (%1$s).</string>
+    <string name="story_archive_delete_hl_title">Highlight silinsin?</string>
+    <string name="story_archive_delete_hl_desc">&quot;%1$s&quot; highlight-ı və bütün arxiv faylları (%2$s) yaddaşdan həmişəlik silinəcək.</string>
+    <string name="story_archive_clear_all_desc">Bu profil üçün arxivlənmiş bütün hekayə faylları (%1$s) yaddaşdan silinəcək.</string>
+    <string name="story_archive_highlights_section">Highlight Arxivi (%1$d)</string>
+    <string name="story_archive_history_section">Hekayə Tarixçəsi (%1$d)</string>
+    <string name="notif_story_added_title">@%1$s yeni hekayə paylaşdı</string>
+    <string name="notif_story_added_desc">%1$d yeni hekayə avtomatik endirildi və arxivləşdirildi.</string>
+    <string name="notif_story_vanished_title">@%1$s hekayəni sildi</string>
+    <string name="notif_story_vanished_desc">Hekayə 24 saat dolmadan silindi (%1$s). Arxiv nüsxəsi qorunur.</string>
+    <string name="notif_highlight_added_title">@%1$s yeni highlight əlavə etdi</string>
+    <string name="notif_highlight_added_desc">&quot;%1$s&quot; highlight-ı (%2$d fayl) avtomatik arxivləşdirildi.</string>
+    <string name="notif_highlight_updated_title">@%1$s highlight-ı yenilədi</string>
+    <string name="notif_highlight_updated_desc">&quot;%1$s&quot; highlight-ına +%2$d yeni hekayə əlavə edildi.</string>
+    <string name="notif_highlight_vanished_title">@%1$s highlight sildi</string>
+    <string name="notif_highlight_vanished_desc">&quot;%1$s&quot; highlight-ı profildən silindi. Arxiv nüsxəsi qorunur.</string>
+    <string name="notif_highlight_item_vanished_title">@%1$s highlight-dan hekayə sildi</string>
+    <string name="notif_highlight_item_vanished_desc">&quot;%1$s&quot; highlight-ından %2$d hekayə silindi. Arxiv nüsxəsi qorunur.</string>
 </resources>

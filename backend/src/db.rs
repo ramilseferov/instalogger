@@ -501,9 +501,9 @@ impl Database {
             ON CONFLICT(id) DO UPDATE SET
                 caption = excluded.caption,
                 cdn_url = excluded.cdn_url,
-                relative_file_path = excluded.relative_file_path,
+                relative_file_path = CASE WHEN archived_media.download_status = 'completed' AND archived_media.file_size_bytes > 0 THEN archived_media.relative_file_path ELSE excluded.relative_file_path END,
                 file_size_bytes = CASE WHEN excluded.file_size_bytes > 0 THEN excluded.file_size_bytes ELSE archived_media.file_size_bytes END,
-                download_status = excluded.download_status,
+                download_status = CASE WHEN archived_media.download_status = 'completed' AND archived_media.file_size_bytes > 0 THEN 'completed' ELSE excluded.download_status END,
                 downloaded_at = COALESCE(excluded.downloaded_at, archived_media.downloaded_at)",
             params![
                 media.id,
@@ -1236,6 +1236,14 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn delete_media_item(&self, id: &str) -> Result<Option<ArchivedMedia>> {
+        let existing = self.get_media(id)?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM media_assets WHERE media_id = ?1", params![id])?;
+        conn.execute("DELETE FROM archived_media WHERE id = ?1", params![id])?;
+        Ok(existing)
     }
 
     pub fn delete_media_by_target(&self, target_id: &str) -> Result<()> {

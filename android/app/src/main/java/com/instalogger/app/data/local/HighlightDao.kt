@@ -8,10 +8,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface HighlightDao {
-    @Query("SELECT * FROM highlights WHERE username = :username ORDER BY archivedAt DESC")
+    @Query("SELECT * FROM highlights WHERE username = :username ORDER BY isVanished ASC, archivedAt DESC")
     fun getHighlightsForUser(username: String): Flow<List<HighlightEntity>>
 
-    @Query("SELECT * FROM highlights WHERE username = :username ORDER BY archivedAt DESC")
+    @Query("SELECT * FROM highlights WHERE username = :username ORDER BY isVanished ASC, archivedAt DESC")
     suspend fun getHighlightsListForUser(username: String): List<HighlightEntity>
 
     @Query("SELECT * FROM highlight_media WHERE highlightId = :highlightId ORDER BY takenAt ASC")
@@ -20,11 +20,44 @@ interface HighlightDao {
     @Query("SELECT * FROM highlight_media WHERE highlightId = :highlightId ORDER BY takenAt ASC")
     suspend fun getMediaListForHighlight(highlightId: String): List<HighlightMediaEntity>
 
+    @Query("SELECT * FROM highlight_media WHERE highlightId = 'active_story:' || :username ORDER BY takenAt DESC")
+    fun getArchivedStoriesForUser(username: String): Flow<List<HighlightMediaEntity>>
+
+    @Query("SELECT * FROM highlight_media WHERE highlightId = 'active_story:' || :username ORDER BY takenAt DESC")
+    suspend fun getArchivedStoriesListForUser(username: String): List<HighlightMediaEntity>
+
+    @Query("SELECT * FROM highlight_media WHERE username = :username AND highlightId NOT LIKE 'active_story:%' ORDER BY takenAt DESC")
+    fun getAllHighlightMediaForUser(username: String): Flow<List<HighlightMediaEntity>>
+
+    @Query("SELECT * FROM highlight_media WHERE username = :username AND highlightId NOT LIKE 'active_story:%' ORDER BY takenAt DESC")
+    suspend fun getAllHighlightMediaListForUser(username: String): List<HighlightMediaEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHighlights(highlights: List<HighlightEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHighlightMedia(media: List<HighlightMediaEntity>)
+
+    @Query("UPDATE highlights SET isVanished = 1, vanishedAt = :vanishedAt WHERE id = :id")
+    suspend fun markHighlightVanished(id: String, vanishedAt: Long)
+
+    @Query("UPDATE highlights SET isVanished = 0, vanishedAt = NULL WHERE id = :id")
+    suspend fun markHighlightActive(id: String)
+
+    @Query("UPDATE highlight_media SET isVanished = 1, vanishedAt = :vanishedAt WHERE id = :id")
+    suspend fun markHighlightMediaVanished(id: String, vanishedAt: Long)
+
+    @Query("DELETE FROM highlights WHERE id = :id")
+    suspend fun deleteHighlightById(id: String)
+
+    @Query("DELETE FROM highlight_media WHERE highlightId = :highlightId")
+    suspend fun deleteMediaForHighlight(highlightId: String)
+
+    @Query("DELETE FROM highlight_media WHERE id = :id")
+    suspend fun deleteHighlightMediaById(id: String)
+
+    @Query("DELETE FROM highlight_media WHERE highlightId = 'active_story:' || :username")
+    suspend fun deleteArchivedStoriesForUser(username: String)
 
     @Query("DELETE FROM highlights WHERE username = :username")
     suspend fun deleteHighlightsForUser(username: String)

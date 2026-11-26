@@ -255,6 +255,18 @@ export interface Translations {
   avatar_after: string;
   export_csv: string;
   export_json: string;
+  story_archive_title: string;
+  story_status_active: string;
+  story_status_archived: string;
+  story_status_deleted: string;
+  story_storage_used: string;
+  delete_from_storage: string;
+  confirm_delete_media_title: string;
+  confirm_delete_media_desc: string;
+  event_story_added: string;
+  event_story_vanished: string;
+  event_highlight_added: string;
+  event_highlight_vanished: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -510,6 +522,18 @@ const translations: Record<Language, Translations> = {
     avatar_after: 'Sonra',
     export_csv: 'CSV',
     export_json: 'JSON',
+    story_archive_title: 'Hekayə arxivi',
+    story_status_active: 'Aktiv',
+    story_status_archived: 'Arxivlənib',
+    story_status_deleted: 'Silinib',
+    story_storage_used: 'Yaddaşda tutulan yer',
+    delete_from_storage: 'Yaddaşdan sil',
+    confirm_delete_media_title: 'Arxiv faylını sil',
+    confirm_delete_media_desc: 'Bu media faylı lokal yaddaşdan və arxiv tarixçəsindən həmişəlik silinəcək.',
+    event_story_added: 'Yeni hekayə paylaşdı',
+    event_story_vanished: 'Hekayə silindi (arxiv qorunur)',
+    event_highlight_added: 'Yeni highlight əlavə edildi',
+    event_highlight_vanished: 'Highlight silindi (arxiv qorunur)',
   },
   en: {
     app_title: 'InstaLogger',
@@ -763,6 +787,18 @@ const translations: Record<Language, Translations> = {
     avatar_after: 'After',
     export_csv: 'CSV',
     export_json: 'JSON',
+    story_archive_title: 'Story archive',
+    story_status_active: 'Active',
+    story_status_archived: 'Archived',
+    story_status_deleted: 'Deleted',
+    story_storage_used: 'Storage used',
+    delete_from_storage: 'Delete from storage',
+    confirm_delete_media_title: 'Delete archived file',
+    confirm_delete_media_desc: 'This media file will be permanently deleted from local storage and archive history.',
+    event_story_added: 'Posted a new story',
+    event_story_vanished: 'Story deleted (archive preserved)',
+    event_highlight_added: 'Added highlight',
+    event_highlight_vanished: 'Highlight removed (archive preserved)',
   },
   ru: {
     app_title: 'InstaLogger',
@@ -1016,6 +1052,18 @@ const translations: Record<Language, Translations> = {
     avatar_after: 'После',
     export_csv: 'CSV',
     export_json: 'JSON',
+    story_archive_title: 'Архив историй',
+    story_status_active: 'Активна',
+    story_status_archived: 'В архиве',
+    story_status_deleted: 'Удалена',
+    story_storage_used: 'Занято на диске',
+    delete_from_storage: 'Удалить с диска',
+    confirm_delete_media_title: 'Удалить файл архива',
+    confirm_delete_media_desc: 'Этот медиафайл будет навсегда удален из локального хранилища и истории.',
+    event_story_added: 'Опубликована новая история',
+    event_story_vanished: 'История удалена (архив сохранен)',
+    event_highlight_added: 'Добавлено актуальное',
+    event_highlight_vanished: 'Актуальное удалено (архив сохранен)',
   },
 };
 

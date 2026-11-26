@@ -604,4 +604,36 @@
     <string name="dev_logs_filter_debug">Debug</string>
     <string name="session_clear_confirm_title">Reset session?</string>
     <string name="session_clear_confirm_desc">Saved Instagram session cookies will be removed. Re-login will be required for private profiles.</string>
+    <!-- Story & Highlight Archive System -->
+    <string name="tab_stories_short">Stories (%1$d)</string>
+    <string name="story_archive_title">Story &amp; Highlight Archive</string>
+    <string name="story_archive_summary_stories">Stories: %1$d</string>
+    <string name="story_archive_summary_active">Active: %1$d</string>
+    <string name="story_archive_summary_deleted">Deleted: %1$d</string>
+    <string name="story_archive_storage_used">Storage: %1$s</string>
+    <string name="story_status_active">Active</string>
+    <string name="story_status_archived">Archived</string>
+    <string name="story_status_deleted">Deleted</string>
+    <string name="story_archive_empty">No archived stories or highlights yet.</string>
+    <string name="story_archive_sync_now">Sync stories</string>
+    <string name="story_archive_clear_all">Clear stories</string>
+    <string name="story_archive_delete_item_title">Delete from storage?</string>
+    <string name="story_archive_delete_item_desc">This archived file (%1$s) will be permanently deleted from local storage.</string>
+    <string name="story_archive_delete_hl_title">Delete highlight archive?</string>
+    <string name="story_archive_delete_hl_desc">Highlight &quot;%1$s&quot; and all archived files (%2$s) will be permanently removed from storage.</string>
+    <string name="story_archive_clear_all_desc">All archived story files (%1$s) for this profile will be permanently deleted.</string>
+    <string name="story_archive_highlights_section">Highlight Archive (%1$d)</string>
+    <string name="story_archive_history_section">Story History (%1$d)</string>
+    <string name="notif_story_added_title">@%1$s posted a new story</string>
+    <string name="notif_story_added_desc">%1$d new story archived automatically in Vault.</string>
+    <string name="notif_story_vanished_title">@%1$s deleted a story</string>
+    <string name="notif_story_vanished_desc">Story removed before 24h expiry (%1$s). Archive copy preserved.</string>
+    <string name="notif_highlight_added_title">@%1$s added a new highlight</string>
+    <string name="notif_highlight_added_desc">Highlight &quot;%1$s&quot; (%2$d items) archived automatically.</string>
+    <string name="notif_highlight_updated_title">@%1$s updated a highlight</string>
+    <string name="notif_highlight_updated_desc">Added +%2$d new item(s) to highlight &quot;%1$s&quot;.</string>
+    <string name="notif_highlight_vanished_title">@%1$s removed a highlight</string>
+    <string name="notif_highlight_vanished_desc">Highlight &quot;%1$s&quot; was deleted from profile. Archive copy preserved.</string>
+    <string name="notif_highlight_item_vanished_title">@%1$s removed item from highlight</string>
+    <string name="notif_highlight_item_vanished_desc">%2$d item(s) removed from &quot;%1$s&quot;. Archive copy preserved.</string>
 </resources>

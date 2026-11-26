@@ -83,7 +83,15 @@ private fun HighlightCircleItem(
             modifier = Modifier
                 .size(66.dp)
                 .clip(CircleShape)
-                .border(2.dp, InstagramStoryGradient, CircleShape)
+                .border(
+                    width = 2.dp,
+                    brush = if (highlight.isVanished) {
+                        Brush.linearGradient(listOf(Color(0xFFE11D48), Color(0xFFFB7185)))
+                    } else {
+                        InstagramStoryGradient
+                    },
+                    shape = CircleShape
+                )
                 .padding(3.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -107,7 +115,7 @@ private fun HighlightCircleItem(
                     Icon(
                         imageVector = Icons.Default.AutoAwesome,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = if (highlight.isVanished) Color(0xFFE11D48) else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -117,13 +125,13 @@ private fun HighlightCircleItem(
         Spacer(modifier = Modifier.height(4.dp))
 
         Text(
-            text = highlight.title,
+            text = if (highlight.isVanished) "${highlight.title} •" else highlight.title,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
+            color = if (highlight.isVanished) Color(0xFFE11D48) else MaterialTheme.colorScheme.onSurface
         )
     }
 }

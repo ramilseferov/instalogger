@@ -666,4 +666,36 @@
     <string name="dev_logs_filter_debug">Отладка</string>
     <string name="session_clear_confirm_title">Сбросить сессию?</string>
     <string name="session_clear_confirm_desc">Сохранённые куки входа Instagram будут удалены. Для закрытых профилей потребуется повторный вход.</string>
+    <!-- Story & Highlight Archive System -->
+    <string name="tab_stories_short">Истории (%1$d)</string>
+    <string name="story_archive_title">Архив историй и актуального</string>
+    <string name="story_archive_summary_stories">Истории: %1$d</string>
+    <string name="story_archive_summary_active">Активные: %1$d</string>
+    <string name="story_archive_summary_deleted">Удалены: %1$d</string>
+    <string name="story_archive_storage_used">Память: %1$s</string>
+    <string name="story_status_active">Активна</string>
+    <string name="story_status_archived">В архиве</string>
+    <string name="story_status_deleted">Удалена</string>
+    <string name="story_archive_empty">Пока нет архивных историй или актуального.</string>
+    <string name="story_archive_sync_now">Обновить истории</string>
+    <string name="story_archive_clear_all">Очистить истории</string>
+    <string name="story_archive_delete_item_title">Удалить с устройства?</string>
+    <string name="story_archive_delete_item_desc">Этот архивный файл (%1$s) будет навсегда удален из локального хранилища.</string>
+    <string name="story_archive_delete_hl_title">Удалить актуальное?</string>
+    <string name="story_archive_delete_hl_desc">Актуальное &quot;%1$s&quot; и все файлы (%2$s) будут навсегда удалены из памяти.</string>
+    <string name="story_archive_clear_all_desc">Все архивные файлы историй (%1$s) этого профиля будут удалены из памяти.</string>
+    <string name="story_archive_highlights_section">Архив актуального (%1$d)</string>
+    <string name="story_archive_history_section">История публикаций (%1$d)</string>
+    <string name="notif_story_added_title">@%1$s опубликовал новую историю</string>
+    <string name="notif_story_added_desc">%1$d новая история автоматически загружена в архив.</string>
+    <string name="notif_story_vanished_title">@%1$s удалил историю</string>
+    <string name="notif_story_vanished_desc">История удалена до истечения 24ч (%1$s). Копия сохранена.</string>
+    <string name="notif_highlight_added_title">@%1$s добавил актуальное</string>
+    <string name="notif_highlight_added_desc">Актуальное &quot;%1$s&quot; (%2$d файлов) автоматически архивировано.</string>
+    <string name="notif_highlight_updated_title">@%1$s обновил актуальное</string>
+    <string name="notif_highlight_updated_desc">В актуальное &quot;%1$s&quot; добавлено +%2$d новых историй.</string>
+    <string name="notif_highlight_vanished_title">@%1$s удалил актуальное</string>
+    <string name="notif_highlight_vanished_desc">Актуальное &quot;%1$s&quot; удалено из профиля. Архив сохранен.</string>
+    <string name="notif_highlight_item_vanished_title">@%1$s удалил историю из актуального</string>
+    <string name="notif_highlight_item_vanished_desc">Из &quot;%1$s&quot; удалено %2$d историй. Архивная копия сохранена.</string>
 </resources>

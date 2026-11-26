@@ -49,7 +49,13 @@ fn rule_allows_event(rule: &NotificationRule, event_type: &str) -> bool {
         "avatar_change" => rule.avatar_change,
         "post_count_change" => rule.post_count_change,
         "post_vanished" => rule.post_vanished,
-        "story_added" => rule.story_added,
+        "story_added"
+        | "story_posted"
+        | "story_vanished"
+        | "highlight_added"
+        | "highlight_updated"
+        | "highlight_vanished"
+        | "highlight_item_vanished" => rule.story_added,
         "followers_change" | "follower_gained" | "follower_lost" | "follower_pool_flush" | "follower_spike" => {
             rule.followers_change
         }

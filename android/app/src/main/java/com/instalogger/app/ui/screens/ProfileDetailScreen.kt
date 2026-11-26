@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
@@ -18,7 +19,9 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VpnKey
@@ -84,6 +87,8 @@ fun ProfileDetailScreen(
     val logs by app.database.changeLogDao().getLogsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val avatars by app.database.avatarHistoryDao().getAvatarsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val highlights by app.database.highlightDao().getHighlightsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val archivedStories by app.database.highlightDao().getArchivedStoriesForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val allHighlightMedia by app.database.highlightDao().getAllHighlightMediaForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val posts by app.database.postDao().getPostsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val history by app.database.followerHistoryDao().getHistoryForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
     val audits by app.database.followerAuditDao().getAuditsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -102,12 +107,17 @@ fun ProfileDetailScreen(
     var selectedPostForViewer by remember { mutableStateOf<PostEntity?>(null) }
     var activeHighlight by remember { mutableStateOf<HighlightEntity?>(null) }
     var activeHighlightMedia by remember { mutableStateOf<List<HighlightMediaEntity>>(emptyList()) }
+    var activeHighlightStartIndex by remember { mutableIntStateOf(0) }
     var isLoadingHighlightMedia by remember { mutableStateOf(false) }
     var showAuditSheet by remember { mutableStateOf(false) }
     var auditInitialTab by remember { mutableIntStateOf(0) }
     var showPoolSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var avatarToDelete by remember { mutableStateOf<AvatarHistoryEntity?>(null) }
+    var storyItemToDelete by remember { mutableStateOf<HighlightMediaEntity?>(null) }
+    var highlightToDelete by remember { mutableStateOf<HighlightEntity?>(null) }
+    var showClearStoriesDialog by remember { mutableStateOf(false) }
+    var isSyncingStories by remember { mutableStateOf(false) }
     val globalPoolMode by app.settingsManager.poolMode.collectAsStateWithLifecycle()
 
     // Auto-fetch posts & highlights immediately upon opening screen and clean duplicate avatars
@@ -314,6 +324,7 @@ fun ProfileDetailScreen(
 
                 // 4. Sliding Pill Tab Selector
                 val totalPostsCount = target?.let { maxOf(it.mediaCount, posts.size.toLong()).toInt() } ?: posts.size
+                val totalStoryArchiveCount = archivedStories.size + allHighlightMedia.size
                 item(key = "tab_selector") {
                     SlidingPillTabRow(
                         tabs = listOf(
@@ -324,6 +335,10 @@ fun ProfileDetailScreen(
                             TabItem(
                                 title = stringResource(R.string.tab_posts_short, totalPostsCount),
                                 icon = Icons.Default.GridOn
+                            ),
+                            TabItem(
+                                title = stringResource(R.string.tab_stories_short, totalStoryArchiveCount),
+                                icon = Icons.Default.AutoAwesome
                             ),
                             TabItem(
                                 title = stringResource(R.string.tab_avatars_short, avatars.size),
@@ -734,6 +749,466 @@ fun ProfileDetailScreen(
                         }
                     }
                     2 -> {
+                        // Story & Highlight Archive Tab (History + Deleted Badges + Exact Storage + Delete)
+                        val nowMs = System.currentTimeMillis()
+                        val activeStoryCutoff = nowMs - (24L * 60L * 60L * 1000L)
+                        val activeStoriesCount = archivedStories.count { !it.isVanished && it.takenAt >= activeStoryCutoff }
+                        val vanishedStoriesCount = archivedStories.count { it.isVanished }
+
+                        item(key = "story_archive_summary") {
+                            val totalStoryBytes = remember(archivedStories, allHighlightMedia, highlights) {
+                                var sum = 0L
+                                for (it in archivedStories) {
+                                    val f = File(it.localPath)
+                                    sum += if (!it.localPath.startsWith("http") && f.exists()) f.length() else it.fileSize
+                                }
+                                for (it in allHighlightMedia) {
+                                    val f = File(it.localPath)
+                                    sum += if (!it.localPath.startsWith("http") && f.exists()) f.length() else it.fileSize
+                                }
+                                for (hl in highlights) {
+                                    val cf = hl.localCoverPath?.let { File(it) }
+                                    if (cf != null && cf.exists()) sum += cf.length()
+                                }
+                                sum
+                            }
+                            val formattedTotalStorage = remember(totalStoryBytes) {
+                                when {
+                                    totalStoryBytes >= 1024L * 1024L * 1024L -> String.format(Locale.US, "%.2f GB", totalStoryBytes / (1024.0 * 1024.0 * 1024.0))
+                                    totalStoryBytes >= 1024L * 1024L -> String.format(Locale.US, "%.2f MB", totalStoryBytes / (1024.0 * 1024.0))
+                                    totalStoryBytes >= 1024L -> String.format(Locale.US, "%.1f KB", totalStoryBytes / 1024.0)
+                                    else -> "$totalStoryBytes B"
+                                }
+                            }
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                shape = ShapeTokens.LargeShape,
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.story_archive_title),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            color = AccentBlue.copy(alpha = 0.12f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Storage,
+                                                    contentDescription = null,
+                                                    tint = AccentBlue,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.story_archive_storage_used, formattedTotalStorage),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = AccentBlue
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.story_archive_summary_stories, archivedStories.size),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                        Surface(
+                                            color = Color(0xFF10B981).copy(alpha = 0.14f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                text = stringResource(R.string.story_archive_summary_active, activeStoriesCount),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF10B981),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                        if (vanishedStoriesCount > 0) {
+                                            Surface(
+                                                color = Color(0xFFE11D48).copy(alpha = 0.14f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.story_archive_summary_deleted, vanishedStoriesCount),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color(0xFFE11D48),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (!isSyncingStories) {
+                                                    isSyncingStories = true
+                                                    scope.launch {
+                                                        try {
+                                                            app.profileInspector.syncStoriesAndHighlightsNow(username)
+                                                        } finally {
+                                                            isSyncingStories = false
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            shape = ShapeTokens.SmallShape,
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                        ) {
+                                            if (isSyncingStories) {
+                                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                            } else {
+                                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            }
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = stringResource(R.string.story_archive_sync_now),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        if (archivedStories.isNotEmpty()) {
+                                            OutlinedButton(
+                                                onClick = { showClearStoriesDialog = true },
+                                                shape = ShapeTokens.SmallShape,
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(
+                                                    text = stringResource(R.string.story_archive_clear_all),
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (highlights.isNotEmpty()) {
+                            item(key = "story_archive_hl_header") {
+                                Text(
+                                    text = stringResource(R.string.story_archive_highlights_section, highlights.size),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
+                                )
+                            }
+                            items(highlights, key = { "hl_archive_${it.id}" }) { hl ->
+                                val hlMedia = allHighlightMedia.filter { it.highlightId == hl.id }
+                                val hlBytes = remember(hlMedia, hl.localCoverPath) {
+                                    var b = hl.localCoverPath?.let { File(it) }?.takeIf { it.exists() }?.length() ?: 0L
+                                    for (m in hlMedia) {
+                                        val f = File(m.localPath)
+                                        b += if (!m.localPath.startsWith("http") && f.exists()) f.length() else m.fileSize
+                                    }
+                                    b
+                                }
+                                val hlSizeLabel = remember(hlBytes) {
+                                    when {
+                                        hlBytes >= 1024L * 1024L -> String.format(Locale.US, "%.2f MB", hlBytes / (1024.0 * 1024.0))
+                                        hlBytes >= 1024L -> String.format(Locale.US, "%.1f KB", hlBytes / 1024.0)
+                                        else -> "$hlBytes B"
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                                        .bouncyClickable(pressScale = 0.98f) {
+                                            activeHighlight = hl
+                                            activeHighlightStartIndex = 0
+                                            activeHighlightMedia = hlMedia
+                                            isLoadingHighlightMedia = hlMedia.isEmpty()
+                                            scope.launch {
+                                                activeHighlightMedia = app.profileInspector.fetchHighlightMediaOnDemand(hl)
+                                                isLoadingHighlightMedia = false
+                                            }
+                                        },
+                                    shape = ShapeTokens.MediumShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (hl.isVanished) Color(0xFFE11D48).copy(alpha = 0.45f)
+                                        else MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        val coverModel: Any? = hl.localCoverPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0L }
+                                            ?: hl.coverUrl.takeIf { it.isNotBlank() }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (coverModel != null) {
+                                                AsyncImage(
+                                                    model = coverModel,
+                                                    contentDescription = hl.title,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AccentBlue)
+                                            }
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = hl.title,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
+                                                )
+                                                if (hl.isVanished) {
+                                                    Surface(
+                                                        color = Color(0xFFE11D48).copy(alpha = 0.14f),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = stringResource(R.string.story_status_deleted),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = Color(0xFFE11D48),
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                text = "${maxOf(hl.mediaCount, hlMedia.size)} · $hlSizeLabel",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        IconButton(onClick = { highlightToDelete = hl }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = stringResource(R.string.action_delete),
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(19.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (archivedStories.isNotEmpty()) {
+                            item(key = "story_archive_history_header") {
+                                Text(
+                                    text = stringResource(R.string.story_archive_history_section, archivedStories.size),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)
+                                )
+                            }
+                            items(archivedStories.size, key = { "story_hist_${archivedStories[it].id}" }) { idx ->
+                                val story = archivedStories[idx]
+                                val isVideo = story.mediaType == "video" || story.localPath.contains(".mp4", ignoreCase = true)
+                                val isActiveNow = !story.isVanished && story.takenAt >= activeStoryCutoff
+                                val itemBytes = remember(story.localPath, story.fileSize) {
+                                    val f = File(story.localPath)
+                                    if (!story.localPath.startsWith("http") && f.exists()) f.length() else story.fileSize
+                                }
+                                val sizeStr = remember(itemBytes) {
+                                    when {
+                                        itemBytes >= 1024L * 1024L -> String.format(Locale.US, "%.2f MB", itemBytes / (1024.0 * 1024.0))
+                                        itemBytes >= 1024L -> String.format(Locale.US, "%.1f KB", itemBytes / 1024.0)
+                                        else -> "$itemBytes B"
+                                    }
+                                }
+                                val dateFmt = remember { java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
+                                val thumbFile = remember(story.localPath) { File(story.localPath) }
+                                val thumbModel: Any = if (!story.localPath.startsWith("http") && thumbFile.exists() && thumbFile.length() > 0L) thumbFile else story.mediaUrl
+
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                                        .bouncyClickable(pressScale = 0.98f) {
+                                            val curTarget = target
+                                            activeHighlight = HighlightEntity(
+                                                id = "active_story:$cleanUserLower",
+                                                username = cleanUserLower,
+                                                title = context.getString(R.string.story_archive_title),
+                                                coverUrl = curTarget?.avatarUrl.orEmpty(),
+                                                localCoverPath = curTarget?.localAvatarPath,
+                                                mediaCount = archivedStories.size,
+                                                archivedAt = story.takenAt
+                                            )
+                                            activeHighlightMedia = archivedStories
+                                            activeHighlightStartIndex = idx
+                                            isLoadingHighlightMedia = false
+                                        },
+                                    shape = ShapeTokens.MediumShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (story.isVanished) Color(0xFFE11D48).copy(alpha = 0.45f)
+                                        else MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(54.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (!isVideo) {
+                                                AsyncImage(
+                                                    model = thumbModel,
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.PlayArrow,
+                                                    contentDescription = null,
+                                                    tint = AccentBlue,
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+                                        }
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                val (statusText, statusColor) = when {
+                                                    story.isVanished -> stringResource(R.string.story_status_deleted) to Color(0xFFE11D48)
+                                                    isActiveNow -> stringResource(R.string.story_status_active) to Color(0xFF10B981)
+                                                    else -> stringResource(R.string.story_status_archived) to MaterialTheme.colorScheme.onSurfaceVariant
+                                                }
+                                                Surface(
+                                                    color = statusColor.copy(alpha = 0.14f),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = statusText,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = statusColor,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = if (isVideo) "MP4" else "JPG",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Text(
+                                                text = dateFmt.format(java.util.Date(story.takenAt)),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = sizeStr,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        IconButton(onClick = { storyItemToDelete = story }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = stringResource(R.string.action_delete),
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(19.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (highlights.isEmpty()) {
+                            item(key = "empty_story_archive") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.story_archive_empty),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    3 -> {
                         if (avatars.isEmpty()) {
                             item(key = "empty_avatars") {
                                 Box(
@@ -783,11 +1258,12 @@ fun ProfileDetailScreen(
         )
     }
 
-    // Instagram Fullscreen Story Viewer (with on-demand fetch + Vault video decryption)
+    // Instagram Fullscreen Story Viewer (with on-demand fetch + Vault video decryption + delete)
     activeHighlight?.let { hl ->
         InstagramStoryViewer(
             highlight = hl,
             mediaList = activeHighlightMedia,
+            initialIndex = activeHighlightStartIndex,
             isLoading = isLoadingHighlightMedia,
             hasSession = app.sessionManager.hasSession(),
             onRetry = {
@@ -803,8 +1279,12 @@ fun ProfileDetailScreen(
                 }
             },
             onNavigateToSession = onNavigateToSession,
+            onDeleteItem = { itemToDelete ->
+                storyItemToDelete = itemToDelete
+            },
             onDismiss = {
                 activeHighlight = null
+                activeHighlightStartIndex = 0
                 isLoadingHighlightMedia = false
             }
         )
@@ -880,6 +1360,131 @@ fun ProfileDetailScreen(
             },
             shape = ShapeTokens.LargeShape,
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    }
+
+    storyItemToDelete?.let { item ->
+        val itemSizeStr = remember(item.localPath, item.fileSize) {
+            val f = File(item.localPath)
+            val b = if (!item.localPath.startsWith("http") && f.exists()) f.length() else item.fileSize
+            when {
+                b >= 1024L * 1024L -> String.format(Locale.US, "%.2f MB", b / (1024.0 * 1024.0))
+                b >= 1024L -> String.format(Locale.US, "%.1f KB", b / 1024.0)
+                else -> "$b B"
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { storyItemToDelete = null },
+            title = { Text(stringResource(R.string.story_archive_delete_item_title), fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.story_archive_delete_item_desc, itemSizeStr)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toDel = item
+                        storyItemToDelete = null
+                        scope.launch {
+                            app.profileInspector.deleteArchivedStoryOrHighlightItem(toDel)
+                            activeHighlightMedia = activeHighlightMedia.filterNot { it.id == toDel.id }
+                            if (activeHighlightMedia.isEmpty()) {
+                                activeHighlight = null
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = ShapeTokens.SmallShape
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { storyItemToDelete = null }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
+    highlightToDelete?.let { hl ->
+        val hlMedia = allHighlightMedia.filter { it.highlightId == hl.id }
+        val hlSizeStr = remember(hlMedia, hl.localCoverPath) {
+            var b = hl.localCoverPath?.let { File(it) }?.takeIf { it.exists() }?.length() ?: 0L
+            for (m in hlMedia) {
+                val f = File(m.localPath)
+                b += if (!m.localPath.startsWith("http") && f.exists()) f.length() else m.fileSize
+            }
+            when {
+                b >= 1024L * 1024L -> String.format(Locale.US, "%.2f MB", b / (1024.0 * 1024.0))
+                b >= 1024L -> String.format(Locale.US, "%.1f KB", b / 1024.0)
+                else -> "$b B"
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { highlightToDelete = null },
+            title = { Text(stringResource(R.string.story_archive_delete_hl_title), fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.story_archive_delete_hl_desc, hl.title, hlSizeStr)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toDel = hl
+                        highlightToDelete = null
+                        scope.launch {
+                            app.profileInspector.deleteArchivedHighlightTray(toDel)
+                            if (activeHighlight?.id == toDel.id) {
+                                activeHighlight = null
+                                activeHighlightMedia = emptyList()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = ShapeTokens.SmallShape
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { highlightToDelete = null }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
+        )
+    }
+
+    if (showClearStoriesDialog) {
+        val storiesBytesStr = remember(archivedStories) {
+            var b = 0L
+            for (m in archivedStories) {
+                val f = File(m.localPath)
+                b += if (!m.localPath.startsWith("http") && f.exists()) f.length() else m.fileSize
+            }
+            when {
+                b >= 1024L * 1024L -> String.format(Locale.US, "%.2f MB", b / (1024.0 * 1024.0))
+                b >= 1024L -> String.format(Locale.US, "%.1f KB", b / 1024.0)
+                else -> "$b B"
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { showClearStoriesDialog = false },
+            title = { Text(stringResource(R.string.story_archive_clear_all), fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.story_archive_clear_all_desc, storiesBytesStr)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearStoriesDialog = false
+                        scope.launch {
+                            app.profileInspector.deleteAllArchivedStoriesForUser(username)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = ShapeTokens.SmallShape
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearStoriesDialog = false }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
         )
     }
 

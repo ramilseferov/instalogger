@@ -19,5 +19,9 @@ data class HighlightMediaEntity(
     val mediaType: String, // "image" or "video"
     val mediaUrl: String,
     val localPath: String,
-    val takenAt: Long = System.currentTimeMillis()
+    val takenAt: Long = System.currentTimeMillis(),
+    val fileSize: Long = 0L,
+    val isVanished: Boolean = false,
+    val vanishedAt: Long? = null,
+    val archivedAt: Long = System.currentTimeMillis()
 )

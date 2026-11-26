@@ -1190,18 +1190,34 @@ class InstagramEngine(context: Context? = null) {
         }
     }
 
+    data class HighlightTrayResult(
+        val highlights: List<InstagramHighlight>,
+        val authoritative: Boolean
+    )
+
+    data class StoryFeedResult(
+        val stories: List<InstagramHighlightItem>,
+        val authoritative: Boolean
+    )
+
     fun fetchUserHighlights(
         userId: String?,
         cookieString: String?,
         username: String? = null,
         isPrivate: Boolean = false
-    ): List<InstagramHighlight> {
+    ): List<InstagramHighlight> = fetchUserHighlightsDetailed(userId, cookieString, username, isPrivate).highlights
+
+    fun fetchUserHighlightsDetailed(
+        userId: String?,
+        cookieString: String?,
+        username: String? = null,
+        isPrivate: Boolean = false
+    ): HighlightTrayResult {
         val cleanUser = username?.trim()?.trimStart('@')?.lowercase().orEmpty()
         val hasSession = !cookieString.isNullOrBlank()
+        val nowMs = System.currentTimeMillis()
 
         // Tier 1 (Public Zero-Login First): Desktop SSR Polaris lox_highlights_connection
-        // Strictly WITHOUT session cookie so Instagram returns SSR highlight trays reliably
-        val nowMs = System.currentTimeMillis()
         if (!isPrivate && cleanUser.isNotBlank() && !(hasSession && nowMs < anonymousSsrRleUntilMs)) {
             try {
                 val profileUrl = "https://www.instagram.com/$cleanUser/"
@@ -1219,66 +1235,105 @@ class InstagramEngine(context: Context? = null) {
                 }
                 if (html.isNotBlank()) {
                     val ssrHighlights = parseHighlightsFromSsrHtml(html)
-                    if (ssrHighlights.isNotEmpty()) return ssrHighlights
+                    if (ssrHighlights.isNotEmpty()) {
+                        return HighlightTrayResult(ssrHighlights, authoritative = true)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Zero-login Desktop SSR highlights extraction failed for @$cleanUser: ${e.message}")
             }
         }
 
-        // Tier 2: Authenticated Instagram v1 REST Highlights Tray API
+        // Tier 2: Authenticated Mobile (i.instagram.com) + Web (www.instagram.com) v1 REST Highlights Tray API
         if (!userId.isNullOrBlank() && hasSession) {
-            val trayUrl = "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/"
             val referer = if (cleanUser.isNotBlank()) "https://www.instagram.com/$cleanUser/" else "https://www.instagram.com/"
-            try {
-                val reqBuilder = applyAuthenticatedApiHeaders(
-                    builder = Request.Builder().url(trayUrl),
-                    cookieString = cookieString!!,
-                    referer = referer,
-                    userAgent = DESKTOP_CHROME_UA
-                )
-                clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string().orEmpty()
-                        if (body.startsWith("{")) {
-                            val root = gson.fromJson(body, JsonObject::class.java)
-                            val tray = root?.getAsJsonArray("tray")
-                            if (tray != null) {
-                                if (tray.size() == 0) {
-                                    AppLogger.d(TAG, "v1 highlights_tray confirmed 0 highlights for user $userId")
-                                    return emptyList()
-                                }
-                                val results = mutableListOf<InstagramHighlight>()
-                                for (el in tray) {
-                                    val obj = el.asJsonObject ?: continue
-                                    val id = obj.get("id")?.takeIf { !it.isJsonNull }?.asString ?: continue
-                                    val title = obj.get("title")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText()?.ifBlank { "Highlight" } ?: "Highlight"
-                                    val coverMedia = obj.getAsJsonObject("cover_media")
-                                    val coverUrl = coverMedia?.getAsJsonObject("cropped_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
-                                        ?: coverMedia?.getAsJsonObject("full_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
-                                    val count = obj.get("media_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
-                                    results.add(
-                                        InstagramHighlight(
-                                            id = id,
-                                            title = title,
-                                            coverUrl = coverUrl,
-                                            mediaCount = count
+            val trayEndpoints = listOf(
+                "https://i.instagram.com/api/v1/highlights/$userId/highlights_tray/" to IG_ANDROID_APP_UA,
+                "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/" to DESKTOP_CHROME_UA
+            )
+            for ((trayUrl, ua) in trayEndpoints) {
+                try {
+                    val reqBuilder = applyAuthenticatedApiHeaders(
+                        builder = Request.Builder().url(trayUrl),
+                        cookieString = cookieString!!,
+                        referer = referer,
+                        userAgent = ua
+                    )
+                    clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string().orEmpty()
+                            if (body.trimStart().startsWith("{")) {
+                                val root = gson.fromJson(body, JsonObject::class.java)
+                                val tray = root?.getAsJsonArray("tray")
+                                if (tray != null) {
+                                    if (tray.size() == 0) {
+                                        AppLogger.d(TAG, "v1 highlights_tray confirmed 0 highlights for user $userId")
+                                        return HighlightTrayResult(emptyList(), authoritative = true)
+                                    }
+                                    val results = mutableListOf<InstagramHighlight>()
+                                    for (el in tray) {
+                                        val obj = el.asJsonObject ?: continue
+                                        val id = obj.get("id")?.takeIf { !it.isJsonNull }?.asString ?: continue
+                                        val title = obj.get("title")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText()?.ifBlank { "Highlight" } ?: "Highlight"
+                                        val coverMedia = obj.getAsJsonObject("cover_media")
+                                        val coverUrl = coverMedia?.getAsJsonObject("cropped_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
+                                            ?: coverMedia?.getAsJsonObject("full_image_version")?.get("url")?.takeIf { !it.isJsonNull }?.asString
+                                        val count = obj.get("media_count")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+                                        results.add(
+                                            InstagramHighlight(
+                                                id = id,
+                                                title = title,
+                                                coverUrl = coverUrl,
+                                                mediaCount = count
+                                            )
                                         )
-                                    )
+                                    }
+                                    if (results.isNotEmpty()) {
+                                        return HighlightTrayResult(results, authoritative = true)
+                                    }
                                 }
-                                if (results.isNotEmpty()) return results
                             }
+                        } else {
+                            AppLogger.d(TAG, "v1 highlights_tray HTTP ${resp.code} ($trayUrl) for user $userId")
                         }
-                    } else {
-                        AppLogger.d(TAG, "v1 highlights_tray HTTP ${resp.code} for user $userId")
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "v1 highlights tray failed ($trayUrl) for user $userId: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "v1 highlights tray failed for user $userId: ${e.message}")
             }
         }
 
-        if (userId.isNullOrBlank() || System.currentTimeMillis() < highlightsGraphqlDeadUntilMs) return emptyList()
+        // Tier 3: Authenticated Desktop SSR HTML
+        if (hasSession && cleanUser.isNotBlank()) {
+            try {
+                val reqBuilder = Request.Builder()
+                    .url("https://www.instagram.com/$cleanUser/")
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("Cookie", cookieString!!)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Sec-Fetch-Dest", "document")
+                    .header("Sec-Fetch-Mode", "navigate")
+                    .header("Sec-Fetch-Site", "none")
+
+                val html = clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.string().orEmpty() else ""
+                }
+                if (html.isNotBlank()) {
+                    val ssrHighlights = parseHighlightsFromSsrHtml(html)
+                    if (ssrHighlights.isNotEmpty()) {
+                        return HighlightTrayResult(ssrHighlights, authoritative = true)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Auth Desktop SSR highlights failed for @$cleanUser: ${e.message}")
+            }
+        }
+
+        // Tier 4: Legacy GraphQL fallback
+        if (userId.isNullOrBlank() || System.currentTimeMillis() < highlightsGraphqlDeadUntilMs) {
+            return HighlightTrayResult(emptyList(), authoritative = false)
+        }
         val url = "https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables=%7B%22user_id%22%3A%22$userId%22%2C%22include_highlight_reels%22%3Atrue%7D"
         val requestBuilder = Request.Builder().url(url)
         if (hasSession) {
@@ -1295,17 +1350,17 @@ class InstagramEngine(context: Context? = null) {
         try {
             clientWithRedirects.newCall(requestBuilder.build()).execute().use { response ->
                 if (response.isSuccessful) {
-                    val body = response.body?.string()?.trimStart() ?: return emptyList()
+                    val body = response.body?.string()?.trimStart() ?: return HighlightTrayResult(emptyList(), false)
                     if (!body.startsWith("{")) {
                         highlightsGraphqlDeadUntilMs = System.currentTimeMillis() + 60L * 60L * 1000L
                         AppLogger.w(TAG, "Highlights GraphQL non-JSON response for user $userId (len=${body.length}); cooling down legacy GraphQL for 60m")
-                        return emptyList()
+                        return HighlightTrayResult(emptyList(), false)
                     }
-                    val root = gson.fromJson(body, JsonObject::class.java) ?: return emptyList()
+                    val root = gson.fromJson(body, JsonObject::class.java) ?: return HighlightTrayResult(emptyList(), false)
                     val edges = root.getAsJsonObject("data")
                         ?.getAsJsonObject("user")
                         ?.getAsJsonObject("edge_highlight_reels")
-                        ?.getAsJsonArray("edges") ?: return emptyList()
+                        ?.getAsJsonArray("edges") ?: return HighlightTrayResult(emptyList(), false)
 
                     for (edge in edges) {
                         val node = edge.asJsonObject?.getAsJsonObject("node") ?: continue
@@ -1323,12 +1378,13 @@ class InstagramEngine(context: Context? = null) {
                             )
                         )
                     }
+                    return HighlightTrayResult(list, authoritative = true)
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Highlights GraphQL query failed for user $userId: ${e.message}")
         }
-        return list
+        return HighlightTrayResult(list, authoritative = list.isNotEmpty())
     }
 
     internal fun parseHighlightsFromSsrHtml(html: String): List<InstagramHighlight> {
@@ -1656,11 +1712,18 @@ class InstagramEngine(context: Context? = null) {
         userId: String?,
         username: String,
         cookieString: String?
-    ): List<InstagramHighlightItem> {
+    ): List<InstagramHighlightItem> = fetchActiveUserStoriesDetailed(userId, username, cookieString).stories
+
+    fun fetchActiveUserStoriesDetailed(
+        userId: String?,
+        username: String,
+        cookieString: String?
+    ): StoryFeedResult {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val virtualHighlightId = "active_story:$cleanUser"
         val hasSession = !cookieString.isNullOrBlank()
         val viewerDsUserId = extractDsUserId(cookieString)
+        var authoritativeEmpty = false
 
         // Ensure userId is valid and NOT poisoned by the logged-in viewer's own ds_user_id
         var resolvedUserId = userId?.trim()?.takeIf { it.isNotBlank() }
@@ -1696,10 +1759,14 @@ class InstagramEngine(context: Context? = null) {
                     clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
                         val body = resp.body?.string().orEmpty()
                         if (resp.isSuccessful && body.trimStart().startsWith("{")) {
+                            val root = try { gson.fromJson(body, JsonObject::class.java) } catch (_: Exception) { null }
+                            if (root?.get("status")?.takeIf { !it.isJsonNull }?.asString == "ok") {
+                                authoritativeEmpty = true
+                            }
                             val parsed = parseReelsMediaJson(body, virtualHighlightId, resolvedUserId)
                             if (parsed.isNotEmpty()) {
                                 AppLogger.i(TAG, "fetchActiveUserStories(@$cleanUser) Tier1 OK (${parsed.size} items)")
-                                return parsed
+                                return StoryFeedResult(parsed, authoritative = true)
                             }
                             AppLogger.w(TAG, "fetchActiveUserStories(@$cleanUser) HTTP 200 but 0 items: ${body.take(140)}")
                         } else {
@@ -1724,14 +1791,14 @@ class InstagramEngine(context: Context? = null) {
                 }
                 if (wvItems.isNotEmpty()) {
                     AppLogger.i(TAG, "fetchActiveUserStories(@$cleanUser) Tier2-WebView OK (${wvItems.size} items)")
-                    return wvItems
+                    return StoryFeedResult(wvItems, authoritative = true)
                 }
             } catch (e: Exception) {
                 AppLogger.w(TAG, "fetchActiveUserStories(@$cleanUser) Tier2-WebView error: ${e.message}")
             }
         }
 
-        // Tier 2: Desktop SSR on /stories/<username>/
+        // Tier 3: Desktop SSR on /stories/<username>/
         try {
             val ssrUrl = "https://www.instagram.com/stories/$cleanUser/"
             val reqBuilder = Request.Builder()
@@ -1752,13 +1819,13 @@ class InstagramEngine(context: Context? = null) {
             }
             if (html.isNotBlank()) {
                 val parsed = parseHighlightStoriesFromSsrHtml(html, virtualHighlightId)
-                if (parsed.isNotEmpty()) return parsed
+                if (parsed.isNotEmpty()) return StoryFeedResult(parsed, authoritative = true)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Desktop SSR active stories failed for @$cleanUser: ${e.message}")
         }
 
-        // Tier 3: Legacy GraphQL query_hash fallback
+        // Tier 4: Legacy GraphQL query_hash fallback
         if (!resolvedUserId.isNullOrBlank() && hasSession) {
             try {
                 val encodedIds = URLEncoder.encode("[\"$resolvedUserId\"]", "UTF-8")
@@ -1780,7 +1847,7 @@ class InstagramEngine(context: Context? = null) {
                                 el.asJsonObject?.let { parseSingleStoryNode(it, virtualHighlightId)?.let(items::add) }
                             }
                         }
-                        if (items.isNotEmpty()) return items
+                        if (items.isNotEmpty()) return StoryFeedResult(items, authoritative = true)
                     }
                 }
             } catch (e: Exception) {
@@ -1788,7 +1855,7 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        return emptyList()
+        return StoryFeedResult(emptyList(), authoritative = authoritativeEmpty)
     }
 
     suspend fun fetchRecentPostsDetailed(

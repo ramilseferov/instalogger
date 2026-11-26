@@ -1814,11 +1814,27 @@ class ProfileInspector(
                 (expectedTotal > 0L && existingPostsCount.toLong() < expectedTotal && (maxPostsLimit == 0 || existingPostsCount < maxPostsLimit))
 
             val (hlCount, fetchedCount) = coroutineScope {
+                val activeStoriesJob = async {
+                    try {
+                        if (targetRecord != null) {
+                            syncAndArchiveActiveStoriesInternal(
+                                target = targetRecord.copy(instagramId = effectiveTargetId ?: targetRecord.instagramId),
+                                cookie = effectiveCookie,
+                                notifyChanges = !wasPrivateToPublic
+                            )
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w("ProfileInspector", "Active stories parallel job failed for @$cleanUser: ${e.message}")
+                    }
+                }
+
                 val highlightsJob = async {
                     var count = 0
                     try {
                         val highlightDao = database.highlightDao()
                         val existingHighlights = highlightDao.getHighlightsListForUser(cleanUser)
+                        val existingById = existingHighlights.associateBy { it.id }
+                        val hadHighlightBaseline = existingHighlights.isNotEmpty()
                         val nowMs = System.currentTimeMillis()
                         val lastTrayAt = lastHighlightTrayCheckMs[cleanUser] ?: 0L
                         val neverCheckedTray = lastTrayAt == 0L
@@ -1829,12 +1845,48 @@ class ProfileInspector(
 
                         val highlightEntities = if (shouldQueryTray) {
                             lastHighlightTrayCheckMs[cleanUser] = nowMs
-                            val highlights = instagramEngine.fetchUserHighlights(
+                            val trayResult = instagramEngine.fetchUserHighlightsDetailed(
                                 userId = effectiveTargetId,
                                 cookieString = effectiveCookie,
                                 username = cleanUser,
                                 isPrivate = resolvedPrivate
                             )
+                            val highlights = trayResult.highlights
+                            if (trayResult.authoritative && hadHighlightBaseline) {
+                                val liveHlIds = highlights.map { it.id }.toHashSet()
+                                for (oldHl in existingHighlights) {
+                                    if (!oldHl.isVanished && oldHl.id !in liveHlIds) {
+                                        highlightDao.markHighlightVanished(oldHl.id, nowMs)
+                                        val title = LanguageManager.getString(
+                                            context,
+                                            R.string.notif_highlight_vanished_title,
+                                            cleanUser
+                                        )
+                                        val desc = LanguageManager.getString(
+                                            context,
+                                            R.string.notif_highlight_vanished_desc,
+                                            oldHl.title
+                                        )
+                                        database.changeLogDao().insertLog(
+                                            ChangeLogEntity(
+                                                targetUsername = cleanUser,
+                                                eventType = "highlight_vanished",
+                                                title = title,
+                                                oldValue = oldHl.title,
+                                                newValue = desc,
+                                                timestamp = nowMs
+                                            )
+                                        )
+                                        dispatchAlert(
+                                            targetUsername = cleanUser,
+                                            eventType = "highlight_vanished",
+                                            title = title,
+                                            message = desc,
+                                            timestamp = nowMs
+                                        )
+                                    }
+                                }
+                            }
                             if (highlights.isNotEmpty()) {
                                 count = highlights.size
                                 val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
@@ -1875,7 +1927,9 @@ class ProfileInspector(
                                                 coverUrl = hl.coverUrl ?: "",
                                                 localCoverPath = localCover,
                                                 mediaCount = hl.mediaCount,
-                                                archivedAt = System.currentTimeMillis()
+                                                archivedAt = existingById[hl.id]?.archivedAt ?: nowMs,
+                                                isVanished = false,
+                                                vanishedAt = null
                                             )
                                         }
                                     }
@@ -1883,36 +1937,65 @@ class ProfileInspector(
 
                                 if (mapped.isNotEmpty()) {
                                     highlightDao.insertHighlights(mapped)
+                                    // Notify for newly added highlights when baseline already existed
+                                    if (hadHighlightBaseline && !wasPrivateToPublic) {
+                                        for (hlEnt in mapped) {
+                                            if (hlEnt.id !in existingById) {
+                                                val title = LanguageManager.getString(
+                                                    context,
+                                                    R.string.notif_highlight_added_title,
+                                                    cleanUser
+                                                )
+                                                val desc = LanguageManager.getString(
+                                                    context,
+                                                    R.string.notif_highlight_added_desc,
+                                                    hlEnt.title,
+                                                    hlEnt.mediaCount
+                                                )
+                                                database.changeLogDao().insertLog(
+                                                    ChangeLogEntity(
+                                                        targetUsername = cleanUser,
+                                                        eventType = "highlight_added",
+                                                        title = title,
+                                                        oldValue = null,
+                                                        newValue = hlEnt.title,
+                                                        timestamp = nowMs
+                                                    )
+                                                )
+                                                dispatchAlert(
+                                                    targetUsername = cleanUser,
+                                                    eventType = "highlight_added",
+                                                    title = title,
+                                                    message = desc,
+                                                    timestamp = nowMs
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                                 mapped
                             } else {
-                                existingHighlights
+                                existingHighlights.filter { !it.isVanished }
                             }
                         } else {
                             count = existingHighlights.size
-                            existingHighlights
+                            existingHighlights.filter { !it.isVanished }
                         }
 
                         if (highlightEntities.isNotEmpty()) {
-                            // Phase B
+                            // Phase B: Download & diff stories inside each highlight tray
                             val highlightsNeedingArchive = highlightEntities.filter { hlEntity ->
                                 val cachedMedia = highlightDao.getMediaListForHighlight(hlEntity.id)
                                 if (cachedMedia.isEmpty()) return@filter true
-                                val countGrew = hlEntity.mediaCount > 0 && hlEntity.mediaCount > cachedMedia.size
+                                val countChanged = hlEntity.mediaCount > 0 && hlEntity.mediaCount != cachedMedia.count { !it.isVanished }
                                 val anyMissingVault = cachedMedia.any { item ->
-                                    item.localPath.startsWith("http") ||
-                                        !File(item.localPath).exists() ||
-                                        File(item.localPath).length() == 0L
+                                    !item.isVanished && (
+                                        item.localPath.startsWith("http") ||
+                                            !File(item.localPath).exists() ||
+                                            File(item.localPath).length() == 0L
+                                        )
                                 }
-                                countGrew || anyMissingVault
-                            }
-
-                            val skippedCount = highlightEntities.size - highlightsNeedingArchive.size
-                            if (skippedCount > 0) {
-                                AppLogger.d(
-                                    "ProfileInspector",
-                                    "Highlights @$cleanUser: skipped $skippedCount already-archived, fetching ${highlightsNeedingArchive.size}"
-                                )
+                                shouldQueryTray || countChanged || anyMissingVault
                             }
 
                             if (highlightsNeedingArchive.isNotEmpty()) {
@@ -1921,7 +2004,11 @@ class ProfileInspector(
                                     async {
                                         storySem.withPermit {
                                             try {
-                                                archiveHighlightStoriesForEntity(hlEntity, effectiveCookie)
+                                                archiveHighlightStoriesForEntity(
+                                                    highlight = hlEntity,
+                                                    cookie = effectiveCookie,
+                                                    notifyChanges = hadHighlightBaseline && !wasPrivateToPublic
+                                                )
                                             } catch (e: Exception) {
                                                 AppLogger.w("ProfileInspector", "Highlight stories error (${hlEntity.id}): ${e.message}")
                                             }
@@ -2054,6 +2141,7 @@ class ProfileInspector(
                     count
                 }
 
+                activeStoriesJob.await()
                 highlightsJob.await() to postsJob.await()
             }
 
@@ -2106,9 +2194,9 @@ class ProfileInspector(
         val lastTrayCheckAt = lastHighlightTrayCheckMs[cleanUser] ?: 0L
         val trayCheckDue = lastTrayCheckAt == 0L ||
             (System.currentTimeMillis() - lastTrayCheckAt >= HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS)
-        val missingHighlights = highlights.isEmpty() && trayCheckDue
+        val missingHighlights = trayCheckDue
         val hasEmptyHighlightStories = highlights.any { hl ->
-            database.highlightDao().getMediaListForHighlight(hl.id).isEmpty()
+            !hl.isVanished && database.highlightDao().getMediaListForHighlight(hl.id).isEmpty()
         }
 
         if (pendingDownloads > 0 && mediaDownloadOrchestrator?.isAutoQueueSuppressed() != true) {
@@ -2150,12 +2238,18 @@ class ProfileInspector(
 
     private suspend fun archiveHighlightStoriesForEntity(
         highlight: HighlightEntity,
-        cookie: String?
+        cookie: String?,
+        notifyChanges: Boolean = false
     ): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
         val cleanUser = highlight.username.trim().trimStart('@').lowercase()
-        val stories = instagramEngine.fetchHighlightStories(highlight.id, cookie)
-        if (stories.isEmpty()) return@withContext emptyList()
+        val dao = database.highlightDao()
+        val existingMedia = dao.getMediaListForHighlight(highlight.id)
+        val existingById = existingMedia.associateBy { it.id }
 
+        val stories = instagramEngine.fetchHighlightStories(highlight.id, cookie)
+        if (stories.isEmpty()) return@withContext existingMedia
+
+        val nowMs = System.currentTimeMillis()
         val vaultManager = VaultStorageManager.getInstance(context)
         val safeHlId = highlight.id.replace(":", "_")
         val workers = getSettingsManager().archiverSpeedPreset.value.downloadWorkers.coerceIn(2, 10)
@@ -2170,9 +2264,11 @@ class ProfileInspector(
                         val existingVault = vaultManager.getVaultMediaFile(cleanUser, "highlights", fileName)
                         var localPath = story.mediaUrl
                         var resolvedMediaType = story.mediaType
+                        var fileSize = existingById[story.id]?.fileSize ?: 0L
 
                         if (existingVault != null && existingVault.exists() && existingVault.length() > 0L) {
                             localPath = existingVault.absolutePath
+                            fileSize = existingVault.length()
                         } else if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
                             val tempMedia = File(context.cacheDir, "hl_item_${story.id}_${System.currentTimeMillis()}.$ext")
                             try {
@@ -2181,6 +2277,7 @@ class ProfileInspector(
                                 if (valid != null) {
                                     val encMedia = vaultManager.saveEncryptedFile(cleanUser, "highlights", fileName, tempMedia)
                                     localPath = encMedia.absolutePath
+                                    fileSize = encMedia.length()
                                     resolvedMediaType = if (valid.isVideo) "video" else "image"
                                 }
                             } catch (e: Exception) {
@@ -2197,7 +2294,11 @@ class ProfileInspector(
                             mediaType = resolvedMediaType,
                             mediaUrl = story.mediaUrl,
                             localPath = localPath,
-                            takenAt = story.takenAt
+                            takenAt = story.takenAt,
+                            fileSize = fileSize,
+                            isVanished = false,
+                            vanishedAt = null,
+                            archivedAt = existingById[story.id]?.archivedAt ?: nowMs
                         )
                     }
                 }
@@ -2205,27 +2306,78 @@ class ProfileInspector(
         }
 
         if (mediaEntities.isNotEmpty()) {
-            val dao = database.highlightDao()
             dao.insertHighlightMedia(mediaEntities)
+            val liveIds = mediaEntities.map { it.id }.toHashSet()
+            val addedCount = mediaEntities.count { it.id !in existingById }
+            val removedItems = existingMedia.filter { !it.isVanished && it.id !in liveIds }
+
+            if (existingMedia.isNotEmpty() && notifyChanges) {
+                if (addedCount > 0) {
+                    val title = LanguageManager.getString(context, R.string.notif_highlight_updated_title, cleanUser)
+                    val desc = LanguageManager.getString(context, R.string.notif_highlight_updated_desc, highlight.title, addedCount)
+                    database.changeLogDao().insertLog(
+                        ChangeLogEntity(
+                            targetUsername = cleanUser,
+                            eventType = "highlight_updated",
+                            title = title,
+                            oldValue = existingMedia.size.toString(),
+                            newValue = "${highlight.title} (+$addedCount)",
+                            timestamp = nowMs
+                        )
+                    )
+                    dispatchAlert(cleanUser, "highlight_updated", title, desc, nowMs)
+                }
+                if (removedItems.isNotEmpty()) {
+                    for (rem in removedItems) {
+                        dao.markHighlightMediaVanished(rem.id, nowMs)
+                    }
+                    val title = LanguageManager.getString(context, R.string.notif_highlight_item_vanished_title, cleanUser)
+                    val desc = LanguageManager.getString(context, R.string.notif_highlight_item_vanished_desc, highlight.title, removedItems.size)
+                    database.changeLogDao().insertLog(
+                        ChangeLogEntity(
+                            targetUsername = cleanUser,
+                            eventType = "highlight_item_vanished",
+                            title = title,
+                            oldValue = highlight.title,
+                            newValue = desc,
+                            timestamp = nowMs
+                        )
+                    )
+                    dispatchAlert(cleanUser, "highlight_item_vanished", title, desc, nowMs)
+                }
+            } else {
+                for (rem in removedItems) {
+                    dao.markHighlightMediaVanished(rem.id, nowMs)
+                }
+            }
+
             if (highlight.mediaCount < mediaEntities.size) {
                 dao.insertHighlights(listOf(highlight.copy(mediaCount = mediaEntities.size)))
             }
         }
-        mediaEntities
+        dao.getMediaListForHighlight(highlight.id)
     }
 
     suspend fun fetchHighlightMediaOnDemand(highlight: HighlightEntity): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
         val cached = database.highlightDao().getMediaListForHighlight(highlight.id)
-        if (cached.isNotEmpty()) return@withContext cached
+        if (highlight.isVanished) return@withContext cached
+        val anyMissing = cached.any { !it.isVanished && (it.localPath.startsWith("http") || !File(it.localPath).exists()) }
+        if (cached.isNotEmpty() && !anyMissing) return@withContext cached
         val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
-        val fresh = archiveHighlightStoriesForEntity(highlight, cookie)
-        if (fresh.isNotEmpty()) fresh else database.highlightDao().getMediaListForHighlight(highlight.id)
+        val fresh = archiveHighlightStoriesForEntity(highlight, cookie, notifyChanges = false)
+        if (fresh.isNotEmpty()) fresh else cached
     }
 
-    suspend fun fetchActiveStoriesOnDemand(target: TargetEntity): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
+    private suspend fun syncAndArchiveActiveStoriesInternal(
+        target: TargetEntity,
+        cookie: String?,
+        notifyChanges: Boolean
+    ): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
         val cleanUser = target.username.trim().trimStart('@').lowercase()
         val virtualId = "active_story:$cleanUser"
-        val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
+        val dao = database.highlightDao()
+        val existingStories = dao.getArchivedStoriesListForUser(cleanUser)
+        val existingById = existingStories.associateBy { it.id }
         val viewerDsUserId = instagramEngine.extractDsUserId(cookie)
 
         var resolvedTargetId = target.instagramId?.takeIf { it.isNotBlank() }
@@ -2243,11 +2395,14 @@ class ProfileInspector(
             }
         }
 
-        val freshStories = instagramEngine.fetchActiveUserStories(
+        val feedResult = instagramEngine.fetchActiveUserStoriesDetailed(
             userId = resolvedTargetId,
             username = cleanUser,
             cookieString = cookie
         )
+        val freshStories = feedResult.stories
+        val nowMs = System.currentTimeMillis()
+        val newlyAdded = mutableListOf<HighlightMediaEntity>()
 
         if (freshStories.isNotEmpty()) {
             val vaultManager = VaultStorageManager.getInstance(context)
@@ -2259,16 +2414,20 @@ class ProfileInspector(
                 val existingVault = vaultManager.getVaultMediaFile(cleanUser, "stories", fileName)
                 var localPath = story.mediaUrl
                 var resolvedMediaType = story.mediaType
+                var fileSize = existingById[story.id]?.fileSize ?: 0L
 
                 if (existingVault != null && existingVault.exists() && existingVault.length() > 0L) {
                     localPath = existingVault.absolutePath
+                    fileSize = existingVault.length()
                 } else if (com.instalogger.app.engine.media.MediaUrlGuard.isAllowedMediaUrl(story.mediaUrl)) {
                     val tempMedia = File(context.cacheDir, "story_item_${story.id}_${System.currentTimeMillis()}.$ext")
                     try {
                         instagramEngine.downloadMedia(story.mediaUrl, tempMedia)
                         val valid = com.instalogger.app.engine.media.MediaFileValidator.validateAndHash(tempMedia)
                         if (valid != null) {
-                            localPath = vaultManager.saveEncryptedFile(cleanUser, "stories", fileName, tempMedia).absolutePath
+                            val encFile = vaultManager.saveEncryptedFile(cleanUser, "stories", fileName, tempMedia)
+                            localPath = encFile.absolutePath
+                            fileSize = encFile.length()
                             resolvedMediaType = if (valid.isVideo) "video" else "image"
                         }
                     } catch (e: Exception) {
@@ -2277,28 +2436,158 @@ class ProfileInspector(
                         try { tempMedia.delete() } catch (_: Exception) {}
                     }
                 }
-                entities.add(
-                    HighlightMediaEntity(
-                        id = story.id,
-                        highlightId = virtualId,
-                        username = cleanUser,
-                        mediaType = resolvedMediaType,
-                        mediaUrl = story.mediaUrl,
-                        localPath = localPath,
-                        takenAt = story.takenAt
-                    )
+                val ent = HighlightMediaEntity(
+                    id = story.id,
+                    highlightId = virtualId,
+                    username = cleanUser,
+                    mediaType = resolvedMediaType,
+                    mediaUrl = story.mediaUrl,
+                    localPath = localPath,
+                    takenAt = story.takenAt,
+                    fileSize = fileSize,
+                    isVanished = false,
+                    vanishedAt = null,
+                    archivedAt = existingById[story.id]?.archivedAt ?: nowMs
                 )
+                entities.add(ent)
+                if (story.id !in existingById) {
+                    newlyAdded.add(ent)
+                }
             }
 
             if (entities.isNotEmpty()) {
-                database.highlightDao().insertHighlightMedia(entities)
-                return@withContext entities
+                dao.insertHighlightMedia(entities)
             }
         }
 
-        // Return any previously archived active stories from the last 24 hours
-        val cutoff = System.currentTimeMillis() - (24L * 60L * 60L * 1000L)
-        database.highlightDao().getMediaListForHighlight(virtualId).filter { it.takenAt >= cutoff }
+        // Notify newly added stories (when rule allows)
+        if (notifyChanges && newlyAdded.isNotEmpty()) {
+            val title = LanguageManager.getString(context, R.string.notif_story_added_title, cleanUser)
+            val desc = LanguageManager.getString(context, R.string.notif_story_added_desc, newlyAdded.size)
+            database.changeLogDao().insertLog(
+                ChangeLogEntity(
+                    targetUsername = cleanUser,
+                    eventType = "story_added",
+                    title = title,
+                    oldValue = existingStories.size.toString(),
+                    newValue = "+${newlyAdded.size}",
+                    timestamp = nowMs
+                )
+            )
+            dispatchAlert(cleanUser, "story_added", title, desc, nowMs)
+        }
+
+        // Detect early-deleted active stories (vanished before 23.5h expiry while feed is authoritative)
+        if (feedResult.authoritative && existingStories.isNotEmpty()) {
+            val liveIds = freshStories.map { it.id }.toHashSet()
+            val earlyExpiryWindowMs = (23L * 60L + 30L) * 60L * 1000L
+            val timeFmt = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+            for (oldStory in existingStories) {
+                val ageMs = nowMs - oldStory.takenAt
+                if (!oldStory.isVanished && ageMs in 0L until earlyExpiryWindowMs && oldStory.id !in liveIds) {
+                    dao.markHighlightMediaVanished(oldStory.id, nowMs)
+                    val timeLabel = timeFmt.format(Date(oldStory.takenAt))
+                    val title = LanguageManager.getString(context, R.string.notif_story_vanished_title, cleanUser)
+                    val desc = LanguageManager.getString(context, R.string.notif_story_vanished_desc, timeLabel)
+                    database.changeLogDao().insertLog(
+                        ChangeLogEntity(
+                            targetUsername = cleanUser,
+                            eventType = "story_vanished",
+                            title = title,
+                            oldValue = oldStory.id,
+                            newValue = desc,
+                            timestamp = nowMs
+                        )
+                    )
+                    if (notifyChanges) {
+                        dispatchAlert(cleanUser, "story_vanished", title, desc, nowMs)
+                    }
+                }
+            }
+        }
+
+        val cutoff = nowMs - (24L * 60L * 60L * 1000L)
+        dao.getArchivedStoriesListForUser(cleanUser).filter { !it.isVanished && it.takenAt >= cutoff }
+    }
+
+    suspend fun fetchActiveStoriesOnDemand(target: TargetEntity): List<HighlightMediaEntity> = withContext(Dispatchers.IO) {
+        val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
+        val active = syncAndArchiveActiveStoriesInternal(target, cookie, notifyChanges = false)
+        if (active.isNotEmpty()) active
+        else database.highlightDao().getArchivedStoriesListForUser(target.username.trim().trimStart('@').lowercase())
+    }
+
+    suspend fun syncStoriesAndHighlightsNow(username: String) = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        lastHighlightTrayCheckMs.remove(cleanUser)
+        val target = database.targetDao().getTarget(cleanUser) ?: return@withContext
+        val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
+        archiveHighlightsAndPosts(
+            username = cleanUser,
+            targetId = target.instagramId,
+            cookie = cookie,
+            wasPrivateToPublic = false,
+            isPrivate = target.isPrivate,
+            forceFullPagination = false
+        )
+    }
+
+    suspend fun deleteArchivedStoryOrHighlightItem(item: HighlightMediaEntity): Long = withContext(Dispatchers.IO) {
+        var freed = 0L
+        try {
+            val f = File(item.localPath)
+            if (!item.localPath.startsWith("http") && f.exists()) {
+                freed += f.length()
+                f.delete()
+            }
+        } catch (_: Exception) {}
+        database.highlightDao().deleteHighlightMediaById(item.id)
+        freed
+    }
+
+    suspend fun deleteArchivedHighlightTray(highlight: HighlightEntity): Long = withContext(Dispatchers.IO) {
+        var freed = 0L
+        val dao = database.highlightDao()
+        val mediaItems = dao.getMediaListForHighlight(highlight.id)
+        for (item in mediaItems) {
+            try {
+                val f = File(item.localPath)
+                if (!item.localPath.startsWith("http") && f.exists()) {
+                    freed += f.length()
+                    f.delete()
+                }
+            } catch (_: Exception) {}
+        }
+        highlight.localCoverPath?.let { path ->
+            try {
+                val f = File(path)
+                if (f.exists()) {
+                    freed += f.length()
+                    f.delete()
+                }
+            } catch (_: Exception) {}
+        }
+        dao.deleteMediaForHighlight(highlight.id)
+        dao.deleteHighlightById(highlight.id)
+        freed
+    }
+
+    suspend fun deleteAllArchivedStoriesForUser(username: String): Long = withContext(Dispatchers.IO) {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        val dao = database.highlightDao()
+        val stories = dao.getArchivedStoriesListForUser(cleanUser)
+        var freed = 0L
+        for (item in stories) {
+            try {
+                val f = File(item.localPath)
+                if (!item.localPath.startsWith("http") && f.exists()) {
+                    freed += f.length()
+                    f.delete()
+                }
+            } catch (_: Exception) {}
+        }
+        dao.deleteArchivedStoriesForUser(cleanUser)
+        freed
     }
 
     suspend fun inspectHighlightsAndPosts(username: String): PostSyncStatus = withContext(Dispatchers.IO) {
@@ -2444,6 +2733,6 @@ class ProfileInspector(
 
     companion object {
         private const val AVATAR_DHASH_THRESHOLD = 6
-        private const val HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS = 10L * 60L * 1000L
+        private const val HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS = 3L * 60L * 1000L
     }
 }

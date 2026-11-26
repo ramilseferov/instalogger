@@ -302,6 +302,47 @@ pub async fn get_media_assets(
     )
 }
 
+pub async fn delete_target_media_item(
+    State(state): State<Arc<AppState>>,
+    Path((id, media_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let _target = match state.db.get_target(&id) {
+        Ok(Some(t)) => t,
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "not_found", "message": "Target not found" })),
+            )
+        }
+    };
+    let mut freed_bytes: u64 = 0;
+    if let Ok(Some(item)) = state.db.delete_media_item(&media_id) {
+        let rel = item.relative_file_path.trim_start_matches('/');
+        if rel.starts_with("archives/") && !rel.contains("..") {
+            let p = std::path::Path::new(rel);
+            if let Ok(meta) = std::fs::metadata(p) {
+                freed_bytes = freed_bytes.saturating_add(meta.len());
+            }
+            let _ = std::fs::remove_file(p);
+            if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                if let Some(parent) = p.parent() {
+                    for suffix in ["_thumb.jpg", "_caption.txt", "_meta.json"] {
+                        let sidecar = parent.join(format!("{}{}", stem, suffix));
+                        if let Ok(meta) = std::fs::metadata(&sidecar) {
+                            freed_bytes = freed_bytes.saturating_add(meta.len());
+                        }
+                        let _ = std::fs::remove_file(&sidecar);
+                    }
+                }
+            }
+        }
+    }
+    (
+        StatusCode::OK,
+        Json(json!({ "status": "ok", "freed_bytes": freed_bytes })),
+    )
+}
+
 pub async fn delete_target_avatar(
     State(state): State<Arc<AppState>>,
     Path((id, filename)): Path<(String, String)>,
