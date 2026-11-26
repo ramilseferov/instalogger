@@ -10,6 +10,12 @@ pub struct Target {
     pub is_private: bool,
     pub followed_by_viewer: bool,
     pub media_count: i64,
+    #[serde(default)]
+    pub followers_count: i64,
+    #[serde(default)]
+    pub following_count: i64,
+    #[serde(default)]
+    pub latest_story_at: i64,
     pub profile_pic_path: Option<String>,
     #[serde(default)]
     pub avatar_hash: Option<String>,

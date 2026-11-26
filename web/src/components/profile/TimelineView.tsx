@@ -1,83 +1,104 @@
 import React from 'react';
 import { ChangeLog } from '../../types';
-import {
-  Lock,
-  Unlock,
-  User,
-  FileText,
-  Image,
-  AlertCircle,
-  Clock,
-  Sparkles,
-} from 'lucide-react';
+import { Lock, Unlock, AlertCircle, Clock } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 interface TimelineViewProps {
   logs: ChangeLog[];
 }
 
 export const TimelineView: React.FC<TimelineViewProps> = ({ logs }) => {
+  const { language, t } = useI18n();
+
   if (logs.length === 0) {
     return (
-      <div className="py-12 text-center">
-        <Clock className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-        <p className="text-sm font-semibold text-gray-600">Hələlik heç bir dəyişiklik qeydə alınmayıb</p>
-        <p className="text-xs text-gray-400 mt-1">Sistem profil statusunda və ya məzmununda baş verən bütün dəyişiklikləri burada xronoloji qeyd edəcək.</p>
+      <div className="py-12 px-6 text-center bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] space-y-2">
+        <Clock className="w-8 h-8 text-[var(--text-muted)] mx-auto" strokeWidth={1.5} />
+        <p className="text-sm font-medium text-[var(--text-primary)]">{t.timeline_empty_title}</p>
+        <p className="text-xs text-[var(--text-muted)] max-w-sm mx-auto">{t.timeline_empty_desc}</p>
       </div>
     );
   }
+
+  const renderCountDelta = (label: string, oldRaw: string, newRaw: string) => {
+    const oldNum = parseInt(oldRaw, 10) || 0;
+    const newNum = parseInt(newRaw, 10) || 0;
+    const diff = newNum - oldNum;
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-[var(--text-primary)]">{label}</span>
+        <span className="font-mono tabular-nums text-[var(--text-muted)]">{oldNum.toLocaleString()}</span>
+        <span className="text-[var(--text-muted)]">-&gt;</span>
+        <span className="font-mono tabular-nums font-medium text-[var(--text-primary)]">
+          {newNum.toLocaleString()}
+        </span>
+        <span
+          className={`px-2 py-0.5 rounded-md text-[11px] font-medium tabular-nums ${
+            diff > 0
+              ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400'
+              : 'bg-rose-500/12 text-rose-600 dark:text-rose-400'
+          }`}
+        >
+          {diff > 0 ? `+${diff}` : diff}
+        </span>
+      </div>
+    );
+  };
 
   const renderEventDetails = (log: ChangeLog) => {
     switch (log.event_type) {
       case 'privacy_change': {
         const isNowPublic = log.new_value === 'false';
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
             <span
-              className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${
+              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg font-medium ${
                 isNowPublic
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-amber-100 text-amber-800'
+                  ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400'
+                  : 'bg-amber-500/12 text-amber-700 dark:text-amber-400'
               }`}
             >
-              {isNowPublic ? <Unlock size={12} /> : <Lock size={12} />}
-              {isNowPublic ? 'Gizli → Açıq' : 'Açıq → Gizli'}
+              {isNowPublic ? <Unlock size={12} strokeWidth={1.75} /> : <Lock size={12} strokeWidth={1.75} />}
+              {isNowPublic ? t.event_privacy_opened : t.event_privacy_closed}
             </span>
-            <span className="text-xs text-gray-500 font-medium">
-              {isNowPublic
-                ? 'Hesab açıq oldu — tam arxivləşdirmə başladıldı'
-                : 'Hesab yenidən bağlandı — fayllar qorunur'}
+            <span className="text-[var(--text-secondary)]">
+              {isNowPublic ? t.event_privacy_opened_desc : t.event_privacy_closed_desc}
             </span>
           </div>
         );
       }
       case 'username_change':
         return (
-          <div className="flex flex-col gap-1 text-xs">
-            <span className="font-bold text-gray-800">İstifadəçi adı dəyişdirildi</span>
-            <div className="flex items-center gap-2 text-gray-500">
-              <span className="line-through bg-gray-100 px-2 py-0.5 rounded font-mono">@{log.old_value}</span>
-              <span>→</span>
-              <span className="font-bold text-[#0C7FF2] bg-blue-50 px-2 py-0.5 rounded font-mono">@{log.new_value}</span>
+          <div className="space-y-1.5 text-xs">
+            <div className="font-medium text-[var(--text-primary)]">{t.event_username_changed}</div>
+            <div className="flex flex-wrap items-center gap-2 text-[var(--text-secondary)]">
+              <span className="line-through bg-[var(--bg-subtle)] px-2 py-0.5 rounded font-mono">
+                @{log.old_value}
+              </span>
+              <span>-&gt;</span>
+              <span className="font-medium text-[#0C7FF2] dark:text-[#58A6FF] bg-[var(--accent-soft)] px-2 py-0.5 rounded font-mono">
+                @{log.new_value}
+              </span>
             </div>
           </div>
         );
       case 'full_name_change':
         return (
-          <div className="flex flex-col gap-1 text-xs">
-            <span className="font-bold text-gray-800">Profil adı dəyişdirildi</span>
-            <div className="flex items-center gap-2 text-gray-500">
-              <span className="line-through">{log.old_value || '(yox idi)'}</span>
-              <span>→</span>
-              <span className="font-semibold text-gray-900">{log.new_value}</span>
+          <div className="space-y-1 text-xs">
+            <div className="font-medium text-[var(--text-primary)]">{t.event_fullname_changed}</div>
+            <div className="flex flex-wrap items-center gap-2 text-[var(--text-secondary)]">
+              <span className="line-through">{log.old_value || `(${t.empty_value})`}</span>
+              <span>-&gt;</span>
+              <span className="font-medium text-[var(--text-primary)]">{log.new_value}</span>
             </div>
           </div>
         );
       case 'bio_change':
         return (
-          <div className="flex flex-col gap-1 text-xs">
-            <span className="font-bold text-gray-800">Bioqrafiya yeniləndi</span>
-            <div className="p-2.5 rounded-xl bg-gray-50 border border-gray-100 text-gray-600 mt-1">
-              {log.new_value || '(silinib)'}
+          <div className="space-y-1.5 text-xs">
+            <div className="font-medium text-[var(--text-primary)]">{t.event_bio_changed}</div>
+            <div className="p-2.5 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-[var(--text-secondary)] whitespace-pre-line">
+              {log.new_value || `(${t.deleted_value})`}
             </div>
           </div>
         );
@@ -85,61 +106,48 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ logs }) => {
         const oldSrc = log.old_value.startsWith('/') ? log.old_value : `/${log.old_value}`;
         const newSrc = log.new_value.startsWith('/') ? log.new_value : `/${log.new_value}`;
         return (
-          <div className="flex flex-col gap-2 text-xs">
-            <span className="font-bold text-gray-800">Profil şəkli yeniləndi</span>
-            <div className="flex items-center gap-3 bg-gray-50 p-2.5 rounded-2xl border border-gray-100 w-fit">
-              <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-300 opacity-60">
-                <img src={oldSrc} alt="Köhnə" className="w-full h-full object-cover" />
+          <div className="space-y-2 text-xs">
+            <div className="font-medium text-[var(--text-primary)]">{t.event_avatar_changed}</div>
+            <div className="flex items-center gap-3 bg-[var(--bg-subtle)] p-2.5 rounded-xl border border-[var(--border-subtle)] w-fit">
+              <div className="w-11 h-11 rounded-full overflow-hidden border border-[var(--border-strong)] opacity-60">
+                <img src={oldSrc} alt="" className="w-full h-full object-cover" />
               </div>
-              <span className="text-gray-400 font-bold">→</span>
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#0C7FF2] shadow-xs">
-                <img src={newSrc} alt="Yeni" className="w-full h-full object-cover" />
+              <span className="text-[var(--text-muted)]">-&gt;</span>
+              <div className="w-11 h-11 rounded-full overflow-hidden border-2 border-[#0C7FF2]">
+                <img src={newSrc} alt="" className="w-full h-full object-cover" />
               </div>
             </div>
           </div>
         );
       }
-      case 'post_count_change': {
-        const oldNum = parseInt(log.old_value) || 0;
-        const newNum = parseInt(log.new_value) || 0;
-        const diff = newNum - oldNum;
-        return (
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-bold text-gray-800">Post sayı dəyişdi:</span>
-            <span className="font-mono text-gray-500">{log.old_value}</span>
-            <span>→</span>
-            <span className="font-mono font-bold text-gray-900">{log.new_value}</span>
-            <span
-              className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                diff > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-              }`}
-            >
-              {diff > 0 ? `+${diff} yeni post` : `${diff} post yoxa çıxıb`}
-            </span>
-          </div>
-        );
-      }
+      case 'post_count_change':
+        return renderCountDelta(t.event_posts_changed, log.old_value, log.new_value);
+      case 'followers_change':
+        return renderCountDelta(t.event_followers_changed, log.old_value, log.new_value);
+      case 'following_change':
+        return renderCountDelta(t.event_following_changed, log.old_value, log.new_value);
       case 'post_vanished':
         return (
-          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-100">
-            <AlertCircle size={14} />
-            <span className="font-semibold">Post profildən yoxa çıxıb (arxivdə lokal qorunur)</span>
+          <div className="flex items-center gap-2 text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 px-3 py-2 rounded-xl border border-rose-500/20">
+            <AlertCircle size={14} strokeWidth={1.75} className="shrink-0" />
+            <span className="font-medium">{t.event_post_vanished}</span>
           </div>
         );
       default:
         return (
-          <div className="text-xs text-gray-600">
-            <span className="font-bold">{log.event_type}: </span>
+          <div className="text-xs text-[var(--text-secondary)]">
+            <span className="font-medium text-[var(--text-primary)]">{log.event_type}: </span>
             <span>{log.new_value}</span>
           </div>
         );
     }
   };
 
+  const locale = language === 'az' ? 'az-AZ' : language === 'ru' ? 'ru-RU' : 'en-US';
+
   const formatTimestamp = (ts: string) => {
     try {
-      const d = new Date(ts);
-      return d.toLocaleString('az-AZ', {
+      return new Date(ts).toLocaleString(locale, {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -152,18 +160,16 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ logs }) => {
   };
 
   return (
-    <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-[#E5E8EC]">
-      {logs.map((log) => (
-        <div key={log.id} className="relative group">
-          <div className="absolute -left-[1.85rem] top-1 w-5 h-5 rounded-full bg-white border-2 border-[#0C7FF2] flex items-center justify-center">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#0C7FF2]" />
-          </div>
-
-          <div className="bg-white rounded-2xl p-4 border border-[#E5E8EC] shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold text-gray-400 font-mono">
-                {formatTimestamp(log.timestamp)}
-              </span>
+    <div className="relative pl-6 space-y-3 before:absolute before:left-2 before:top-3 before:bottom-3 before:w-px before:bg-[var(--border-strong)]">
+      {logs.map((log, idx) => (
+        <div
+          key={log.id}
+          className={`relative animate-card-enter stagger-${Math.min((idx % 5) + 1, 5)}`}
+        >
+          <div className="absolute -left-[1.35rem] top-4 w-3 h-3 rounded-full bg-[var(--bg-surface)] border-2 border-[#0C7FF2]" />
+          <div className="bg-[var(--bg-surface)] rounded-2xl p-4 border border-[var(--border-subtle)] space-y-2">
+            <div className="text-[11px] font-mono tabular-nums text-[var(--text-muted)]">
+              {formatTimestamp(log.timestamp)}
             </div>
             {renderEventDetails(log)}
           </div>

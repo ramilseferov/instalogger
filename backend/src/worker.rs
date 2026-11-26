@@ -11,6 +11,8 @@ pub struct BlitzItem {
     pub id: String,
     pub shortcode: String,
     pub media_type: String,
+    #[serde(default)]
+    pub highlight_title: Option<String>,
     pub cdn_url: String,
     pub caption: String,
     pub posted_at: i64,

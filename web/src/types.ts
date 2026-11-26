@@ -1,3 +1,5 @@
+export type ThemeMode = 'system' | 'light' | 'dark';
+
 export interface Target {
   id: string;
   username: string;
@@ -6,9 +8,9 @@ export interface Target {
   is_private: boolean;
   followed_by_viewer: boolean;
   media_count: number;
-  followers_count?: number;
-  following_count?: number;
-  latest_story_at?: number;
+  followers_count: number;
+  following_count: number;
+  latest_story_at: number;
   profile_pic_path: string | null;
   status: string;
   turbo_mode: boolean;
@@ -50,6 +52,7 @@ export interface SystemSettings {
   enable_termux_api: boolean;
   telegram_bot_token: string;
   telegram_chat_id: string;
+  notification_language: 'az' | 'en' | 'ru';
   has_session_cookie: boolean;
   pool_mode: PoolMode;
   pool_fixed_threshold: number;

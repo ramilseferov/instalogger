@@ -1,18 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
-import { PoolMode, SystemSettings } from '../../types';
+import { PoolMode, SystemSettings, ThemeMode } from '../../types';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
+import { SegmentedControl } from '../common/SegmentedControl';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { useI18n, Language } from '../../i18n';
 import {
   Bell,
   Send,
   Key,
-  CheckCircle,
+  CheckCircle2,
   ArrowLeft,
   SlidersHorizontal,
   Terminal,
   AlertCircle,
   Trash2,
+  Palette,
+  Globe,
+  Sun,
+  Moon,
+  Monitor,
+  ChevronRight,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -20,21 +29,15 @@ interface SettingsViewProps {
   onOpenDevLogs: () => void;
 }
 
-const POOL_MODES: { value: PoolMode; label: string }[] = [
-  { value: 'OFF', label: 'Instant (Off)' },
-  { value: 'FIXED_COUNT', label: 'Fixed Count' },
-  { value: 'PERCENTAGE', label: 'Percentage (%)' },
-  { value: 'AUTO_ADAPTIVE', label: 'Auto-Adaptive' },
-];
-
 export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLogs }) => {
+  const { language, setLanguage, themeMode, setThemeMode, t } = useI18n();
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [sessionCookie, setSessionCookie] = useState('');
   const [tgToken, setTgToken] = useState('');
   const [tgChatId, setTgChatId] = useState('');
   const [enableTermux, setEnableTermux] = useState(true);
+  const [notifLang, setNotifLang] = useState<'az' | 'en' | 'ru'>('az');
 
-  // Follower Change Pool & Protection Controls
   const [poolMode, setPoolMode] = useState<PoolMode>('OFF');
   const [poolFixed, setPoolFixed] = useState(50);
   const [poolPercent, setPoolPercent] = useState(0.5);
@@ -48,6 +51,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
 
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingSession, setSavingSession] = useState(false);
+  const [confirmClearSession, setConfirmClearSession] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const loadSettings = async () => {
@@ -57,6 +62,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
       setEnableTermux(s.enable_termux_api);
       setTgToken(s.telegram_bot_token);
       setTgChatId(s.telegram_chat_id);
+      setNotifLang(s.notification_language || 'az');
       setPoolMode(s.pool_mode || 'OFF');
       setPoolFixed(s.pool_fixed_threshold ?? 50);
       setPoolPercent(s.pool_percent_threshold ?? 0.5);
@@ -68,13 +74,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
       setPoolSuppressLogs(s.pool_suppress_logs ?? true);
       setListGuard(s.list_completeness_guard ?? true);
     } catch (e: any) {
-      setErrorMsg(e?.message || 'Failed to load settings');
+      setErrorMsg(e?.message || t.toast_check_failed);
     }
   };
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  const flashSaved = () => {
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2400);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,7 +96,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
         enable_termux_api: enableTermux,
         telegram_bot_token: tgToken,
         telegram_chat_id: tgChatId,
-        session_cookie: sessionCookie || undefined,
+        notification_language: notifLang,
+        session_cookie: sessionCookie.trim() || undefined,
         pool_mode: poolMode,
         pool_fixed_threshold: poolFixed,
         pool_percent_threshold: poolPercent,
@@ -99,23 +111,79 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
       });
       setSessionCookie('');
       await loadSettings();
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2500);
+      flashSaved();
     } catch (e: any) {
-      setErrorMsg(e?.message || 'Failed to save settings');
+      setErrorMsg(e?.message || t.toast_check_failed);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleClearSession = async () => {
+  const handleSaveSessionOnly = async () => {
+    if (!sessionCookie.trim()) return;
+    setSavingSession(true);
+    setErrorMsg(null);
     try {
-      await api.updateSettings({ clear_session_cookie: true });
+      await api.updateSettings({ session_cookie: sessionCookie.trim() });
+      setSessionCookie('');
       await loadSettings();
+      flashSaved();
     } catch (e: any) {
-      setErrorMsg(e?.message || 'Failed to clear session');
+      setErrorMsg(e?.message || t.toast_check_failed);
+    } finally {
+      setSavingSession(false);
     }
   };
+
+  const handleClearSession = async () => {
+    setConfirmClearSession(false);
+    setSavingSession(true);
+    setErrorMsg(null);
+    try {
+      await api.updateSettings({ clear_session_cookie: true });
+      setSessionCookie('');
+      await loadSettings();
+      flashSaved();
+    } catch (e: any) {
+      setErrorMsg(e?.message || t.toast_check_failed);
+    } finally {
+      setSavingSession(false);
+    }
+  };
+
+  const themeCards: {
+    mode: ThemeMode;
+    label: string;
+    icon: React.ReactNode;
+    previewBg: string;
+    previewCard: string;
+    previewBar: string;
+  }[] = [
+    {
+      mode: 'light',
+      label: t.theme_light,
+      icon: <Sun size={14} strokeWidth={1.75} />,
+      previewBg: 'bg-[#F4F5F7]',
+      previewCard: 'bg-white border-slate-200',
+      previewBar: 'bg-slate-300',
+    },
+    {
+      mode: 'dark',
+      label: t.theme_dark,
+      icon: <Moon size={14} strokeWidth={1.75} />,
+      previewBg: 'bg-[#0D0F12]',
+      previewCard: 'bg-[#171B21] border-white/10',
+      previewBar: 'bg-slate-600',
+    },
+    {
+      mode: 'system',
+      label: t.theme_system,
+      icon: <Monitor size={14} strokeWidth={1.75} />,
+      previewBg: 'bg-gradient-to-r from-[#F4F5F7] from-50% to-[#0D0F12] to-50%',
+      previewCard: 'bg-white/80 dark:bg-[#171B21]/90 border-slate-300/60 dark:border-white/10',
+      previewBar: 'bg-[#0C7FF2]',
+    },
+  ];
 
   const ToggleRow = ({
     title,
@@ -128,22 +196,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
     checked: boolean;
     onChange: (next: boolean) => void;
   }) => (
-    <div className="flex items-center justify-between gap-4 py-1.5">
-      <div>
-        <div className="text-xs font-bold text-slate-900 dark:text-white">{title}</div>
-        <div className="text-[11px] text-slate-500 dark:text-slate-400">{desc}</div>
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-[var(--text-primary)]">{title}</div>
+        <div className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-0.5">{desc}</div>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 ${
-          checked ? 'bg-[#0C7FF2]' : 'bg-slate-300 dark:bg-slate-700'
+        className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-150 shrink-0 ${
+          checked ? 'bg-[#0C7FF2]' : 'bg-[var(--border-strong)]'
         }`}
       >
         <div
-          className={`w-5 h-5 rounded-full bg-white transition-transform ${
+          className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
             checked ? 'translate-x-5' : 'translate-x-0'
           }`}
         />
@@ -152,106 +220,315 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
   );
 
   return (
-    <div className="min-h-screen bg-[#F2F4F7] dark:bg-slate-950 transition-colors">
-      <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="p-2 rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:text-[#0C7FF2] transition-colors"
-            aria-label="Back"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">System Settings</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Follower change pool, notifications, session isolation, and developer console
-            </p>
+    <div className="min-h-screen bg-[var(--bg-canvas)] pb-20">
+      <header className="sticky top-0 z-30 bg-[var(--bg-canvas)]/90 backdrop-blur-md border-b border-[var(--border-subtle)]">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-9 h-9 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] flex items-center justify-center active:scale-95 transition-[color,border-color,transform] duration-150 shrink-0"
+              aria-label={t.back}
+            >
+              <ArrowLeft size={16} strokeWidth={1.75} />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold text-[var(--text-primary)] truncate">
+                {t.settings}
+              </h1>
+              <p className="text-xs text-[var(--text-muted)] truncate">{t.settings_subtitle}</p>
+            </div>
           </div>
-        </div>
 
+          {saved && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-lg border border-emerald-500/20 animate-toast shrink-0">
+              <CheckCircle2 size={14} strokeWidth={1.75} />
+              {t.saved}
+            </span>
+          )}
+        </div>
+      </header>
+
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
         {errorMsg && (
-          <div className="rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 px-4 py-2.5 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
-            <AlertCircle size={15} />
+          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2.5 animate-toast">
+            <AlertCircle size={15} strokeWidth={1.75} className="shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        <form onSubmit={handleSave} className="space-y-4">
-          {/* Follower Change Pool & Protection */}
-          <Card className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-blue-500/10 text-[#0C7FF2]">
-                <SlidersHorizontal size={18} />
+        {/* Section 1: Appearance & Language */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+            {t.section_appearance_lang}
+          </h2>
+          <Card className="space-y-5">
+            {/* Theme Selector (3 mini previews like Android/TourJet) */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center">
+                  <Palette size={16} strokeWidth={1.75} />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{t.appearance}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{t.appearance_desc}</div>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                  Follower Change Pool & High-Velocity Protection
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Batch micro +1/-1 ticks on large accounts or stay on classic instant alerts.
-                </p>
-              </div>
-            </div>
 
-            <div className="flex flex-wrap gap-2">
-              {POOL_MODES.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => setPoolMode(m.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                    poolMode === m.value
-                      ? 'bg-[#0C7FF2] text-white border-[#0C7FF2]'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-
-            {poolMode === 'FIXED_COUNT' && (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-1.5">
-                  {[10, 50, 100, 250, 500, 1000].map((preset) => (
+              <div className="grid grid-cols-3 gap-3">
+                {themeCards.map((card) => {
+                  const active = themeMode === card.mode;
+                  return (
                     <button
-                      key={preset}
+                      key={card.mode}
                       type="button"
-                      onClick={() => setPoolFixed(preset)}
-                      className={`px-2.5 py-1 rounded-md text-xs font-mono border ${
-                        poolFixed === preset
-                          ? 'bg-blue-500/15 border-[#0C7FF2] text-[#0C7FF2] font-bold'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                      onClick={() => setThemeMode(card.mode)}
+                      className={`group rounded-xl p-2.5 border text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.98] ${
+                        active
+                          ? 'border-[#0C7FF2] bg-[var(--accent-soft)]'
+                          : 'border-[var(--border-subtle)] bg-[var(--bg-subtle)]/50 hover:border-[var(--border-strong)]'
                       }`}
                     >
-                      ±{preset}
+                      <div
+                        className={`h-16 rounded-lg p-2 border border-black/5 dark:border-white/5 flex flex-col justify-between ${card.previewBg}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#0C7FF2]" />
+                          <span className={`h-1 w-8 rounded-full ${card.previewBar} opacity-60`} />
+                        </div>
+                        <div className={`h-7 rounded-md border p-1.5 space-y-1 ${card.previewCard}`}>
+                          <div className={`h-1 w-10 rounded-full ${card.previewBar}`} />
+                          <div className={`h-1 w-6 rounded-full ${card.previewBar} opacity-50`} />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-1 px-0.5">
+                        <span
+                          className={`text-xs font-medium ${
+                            active ? 'text-[#0C7FF2] dark:text-[#58A6FF]' : 'text-[var(--text-secondary)]'
+                          }`}
+                        >
+                          {card.label}
+                        </span>
+                        <span className={active ? 'text-[#0C7FF2] dark:text-[#58A6FF]' : 'text-[var(--text-muted)]'}>
+                          {card.icon}
+                        </span>
+                      </div>
                     </button>
-                  ))}
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--border-subtle)] pt-5 space-y-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center">
+                  <Globe size={16} strokeWidth={1.75} />
                 </div>
-                <input
-                  type="number"
-                  min={1}
-                  max={1000000}
-                  value={poolFixed}
-                  onChange={(e) => setPoolFixed(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full sm:w-48 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 dark:text-white"
+                <div>
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{t.language}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{t.language_desc}</div>
+                </div>
+              </div>
+
+              <SegmentedControl<Language>
+                value={language}
+                onChange={setLanguage}
+                options={[
+                  { value: 'az', label: 'Azərbaycan' },
+                  { value: 'en', label: 'English' },
+                  { value: 'ru', label: 'Русский' },
+                ]}
+              />
+            </div>
+          </Card>
+        </section>
+
+        {/* Section 2: Instagram Session */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">{t.section_session}</h2>
+          <Card className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                  <Key size={16} strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{t.session_title}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{t.session_desc}</div>
+                </div>
+              </div>
+              <span
+                className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg border ${
+                  settings?.has_session_cookie
+                    ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                    : 'bg-[var(--bg-subtle)] text-[var(--text-muted)] border-[var(--border-subtle)]'
+                }`}
+              >
+                {settings?.has_session_cookie ? t.session_connected : t.session_not_set}
+              </span>
+            </div>
+
+            <textarea
+              rows={2}
+              placeholder={t.session_placeholder}
+              value={sessionCookie}
+              onChange={(e) => setSessionCookie(e.target.value)}
+              className="w-full bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl p-3 text-xs font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] resize-none focus:outline-none transition-colors duration-150"
+            />
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={handleSaveSessionOnly}
+                disabled={savingSession || !sessionCookie.trim()}
+              >
+                {t.session_save}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="md"
+                icon={<Trash2 size={14} strokeWidth={1.75} />}
+                onClick={() => setConfirmClearSession(true)}
+                disabled={savingSession || !settings?.has_session_cookie}
+              >
+                {t.session_clear}
+              </Button>
+            </div>
+          </Card>
+        </section>
+
+        <form onSubmit={handleSave} className="space-y-6">
+          {/* Section 3: Notifications & Alert Language */}
+          <section className="space-y-2.5">
+            <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+              {t.section_notifications}
+            </h2>
+            <Card className="space-y-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center">
+                    <Bell size={16} strokeWidth={1.75} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-[var(--text-primary)]">{t.notif_lang_title}</div>
+                    <div className="text-xs text-[var(--text-muted)]">{t.notif_lang_desc}</div>
+                  </div>
+                </div>
+                <SegmentedControl<'az' | 'en' | 'ru'>
+                  value={notifLang}
+                  onChange={setNotifLang}
+                  options={[
+                    { value: 'az', label: 'Azərbaycan' },
+                    { value: 'en', label: 'English' },
+                    { value: 'ru', label: 'Русский' },
+                  ]}
                 />
               </div>
-            )}
 
-            {poolMode === 'PERCENTAGE' && (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-1.5">
+              <div className="border-t border-[var(--border-subtle)] pt-3">
+                <ToggleRow
+                  title={t.notif_termux_title}
+                  desc={t.notif_termux_desc}
+                  checked={enableTermux}
+                  onChange={setEnableTermux}
+                />
+              </div>
+
+              <div className="border-t border-[var(--border-subtle)] pt-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-primary)]">
+                  <Send size={14} strokeWidth={1.75} className="text-[var(--text-secondary)]" />
+                  <span>{t.notif_telegram_title}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="password"
+                    placeholder={t.notif_telegram_token}
+                    value={tgToken}
+                    onChange={(e) => setTgToken(e.target.value)}
+                    className="w-full h-10 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl px-3.5 text-xs font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors duration-150"
+                  />
+                  <input
+                    type="text"
+                    placeholder={t.notif_telegram_chat}
+                    value={tgChatId}
+                    onChange={(e) => setTgChatId(e.target.value)}
+                    className="w-full h-10 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl px-3.5 text-xs font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors duration-150"
+                  />
+                </div>
+              </div>
+            </Card>
+          </section>
+
+          {/* Section 4: Follower Change Batching */}
+          <section className="space-y-2.5">
+            <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+              {t.section_follower_batch}
+            </h2>
+            <Card className="space-y-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center">
+                  <SlidersHorizontal size={16} strokeWidth={1.75} />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-[var(--text-primary)]">{t.batch_title}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{t.batch_desc}</div>
+                </div>
+              </div>
+
+              <SegmentedControl<PoolMode>
+                value={poolMode}
+                onChange={setPoolMode}
+                options={[
+                  { value: 'OFF', label: t.batch_mode_off },
+                  { value: 'FIXED_COUNT', label: t.batch_mode_fixed },
+                  { value: 'PERCENTAGE', label: t.batch_mode_percent },
+                  { value: 'AUTO_ADAPTIVE', label: t.batch_mode_auto },
+                ]}
+              />
+
+              <div className={`collapse-grid ${poolMode === 'FIXED_COUNT' ? 'is-open' : ''}`}>
+                <div className="space-y-2.5 pt-1">
+                  <div className="flex flex-wrap gap-1.5">
+                    {[10, 50, 100, 250, 500, 1000].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setPoolFixed(preset)}
+                        className={`h-8 px-3 rounded-lg text-xs font-mono tabular-nums border transition-colors duration-150 ${
+                          poolFixed === preset
+                            ? 'bg-[var(--accent-soft)] border-[#0C7FF2] text-[#0C7FF2] dark:text-[#58A6FF] font-medium'
+                            : 'bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                        }`}
+                      >
+                        ±{preset}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000000}
+                    value={poolFixed}
+                    onChange={(e) => setPoolFixed(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-full sm:w-44 h-9 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl px-3 text-xs font-mono tabular-nums text-[var(--text-primary)] focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className={`collapse-grid ${poolMode === 'PERCENTAGE' ? 'is-open' : ''}`}>
+                <div className="flex flex-wrap gap-1.5 pt-1">
                   {[0.1, 0.5, 1.0, 2.0, 5.0].map((pct) => (
                     <button
                       key={pct}
                       type="button"
                       onClick={() => setPoolPercent(pct)}
-                      className={`px-2.5 py-1 rounded-md text-xs font-mono border ${
+                      className={`h-8 px-3 rounded-lg text-xs font-mono tabular-nums border transition-colors duration-150 ${
                         poolPercent === pct
-                          ? 'bg-blue-500/15 border-[#0C7FF2] text-[#0C7FF2] font-bold'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                          ? 'bg-[var(--accent-soft)] border-[#0C7FF2] text-[#0C7FF2] dark:text-[#58A6FF] font-medium'
+                          : 'bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
                       }`}
                     >
                       {pct}%
@@ -259,206 +536,137 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onBack, onOpenDevLog
                   ))}
                 </div>
               </div>
-            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div>
-                <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
-                  Digest Window
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    [0, 'Off'],
-                    [15, '15m'],
-                    [60, '1h'],
-                    [360, '6h'],
-                    [1440, '24h'],
-                  ].map(([mins, label]) => (
-                    <button
-                      key={String(mins)}
-                      type="button"
-                      onClick={() => setPoolDigest(Number(mins))}
-                      className={`px-2.5 py-1 rounded-md text-xs border ${
-                        poolDigest === Number(mins)
-                          ? 'bg-blue-500/15 border-[#0C7FF2] text-[#0C7FF2] font-bold'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-[var(--border-subtle)]">
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                    {t.batch_digest}
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      [0, t.batch_off],
+                      [15, '15m'],
+                      [60, '1h'],
+                      [360, '6h'],
+                      [1440, '24h'],
+                    ].map(([mins, label]) => (
+                      <button
+                        key={String(mins)}
+                        type="button"
+                        onClick={() => setPoolDigest(Number(mins))}
+                        className={`h-8 px-2.5 rounded-lg text-xs tabular-nums border transition-colors duration-150 ${
+                          poolDigest === Number(mins)
+                            ? 'bg-[var(--accent-soft)] border-[#0C7FF2] text-[#0C7FF2] dark:text-[#58A6FF] font-medium'
+                            : 'bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                    {t.batch_cooldown}
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      [0, t.batch_off],
+                      [1, '1m'],
+                      [5, '5m'],
+                      [15, '15m'],
+                      [60, '1h'],
+                    ].map(([mins, label]) => (
+                      <button
+                        key={String(mins)}
+                        type="button"
+                        onClick={() => setPoolCooldown(Number(mins))}
+                        className={`h-8 px-2.5 rounded-lg text-xs tabular-nums border transition-colors duration-150 ${
+                          poolCooldown === Number(mins)
+                            ? 'bg-[var(--accent-soft)] border-[#0C7FF2] text-[#0C7FF2] dark:text-[#58A6FF] font-medium'
+                            : 'bg-[var(--bg-subtle)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1.5">
-                  Alert Cooldown
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    [0, 'Off'],
-                    [1, '1m'],
-                    [5, '5m'],
-                    [15, '15m'],
-                    [60, '1h'],
-                  ].map(([mins, label]) => (
-                    <button
-                      key={String(mins)}
-                      type="button"
-                      onClick={() => setPoolCooldown(Number(mins))}
-                      className={`px-2.5 py-1 rounded-md text-xs border ${
-                        poolCooldown === Number(mins)
-                          ? 'bg-blue-500/15 border-[#0C7FF2] text-[#0C7FF2] font-bold'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-              <ToggleRow
-                title="CDN Anti-Flicker Filter"
-                desc="Suppress single-poll +/-1 or +/-2 Instagram edge cache oscillations."
-                checked={poolAntiFlicker}
-                onChange={setPoolAntiFlicker}
-              />
-              <ToggleRow
-                title="Rapid Spike Alert"
-                desc="Notify immediately when a sudden surge or mass drop exceeds normal velocity."
-                checked={poolSpike}
-                onChange={setPoolSpike}
-              />
-              <ToggleRow
-                title="Apply Pool to Following"
-                desc="Apply the same threshold rules to following count updates."
-                checked={poolFollowing}
-                onChange={setPoolFollowing}
-              />
-              <ToggleRow
-                title="Suppress Minor Audit Logs"
-                desc="Write a single consolidated audit log entry when the pool flushes."
-                checked={poolSuppressLogs}
-                onChange={setPoolSuppressLogs}
-              />
-              <ToggleRow
-                title="List Completeness Guard"
-                desc="Block false unfollow alerts caused by truncated 50-item API responses."
-                checked={listGuard}
-                onChange={setListGuard}
-              />
-            </div>
-          </Card>
-
-          {/* Notifications & Telegram */}
-          <Card className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-blue-500/10 text-[#0C7FF2]">
-                <Bell size={18} />
-              </div>
-              <div className="flex-1">
+              <div className="pt-3 border-t border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
                 <ToggleRow
-                  title="Android Termux Push Notifications"
-                  desc="Dispatch local alerts via Termux:API notification bridge."
-                  checked={enableTermux}
-                  onChange={setEnableTermux}
+                  title={t.batch_antiflicker_title}
+                  desc={t.batch_antiflicker_desc}
+                  checked={poolAntiFlicker}
+                  onChange={setPoolAntiFlicker}
+                />
+                <ToggleRow
+                  title={t.batch_spike_title}
+                  desc={t.batch_spike_desc}
+                  checked={poolSpike}
+                  onChange={setPoolSpike}
+                />
+                <ToggleRow
+                  title={t.batch_following_title}
+                  desc={t.batch_following_desc}
+                  checked={poolFollowing}
+                  onChange={setPoolFollowing}
+                />
+                <ToggleRow
+                  title={t.batch_suppress_title}
+                  desc={t.batch_suppress_desc}
+                  checked={poolSuppressLogs}
+                  onChange={setPoolSuppressLogs}
+                />
+                <ToggleRow
+                  title={t.batch_guard_title}
+                  desc={t.batch_guard_desc}
+                  checked={listGuard}
+                  onChange={setListGuard}
                 />
               </div>
-            </div>
+            </Card>
+          </section>
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200">
-                <Send size={14} className="text-[#0C7FF2]" />
-                <span>Telegram Bot Alerts</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  type="password"
-                  placeholder="Bot Token (123456:ABC...)"
-                  value={tgToken}
-                  onChange={(e) => setTgToken(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-900 dark:text-white"
-                />
-                <input
-                  type="text"
-                  placeholder="Chat ID or @channel"
-                  value={tgChatId}
-                  onChange={(e) => setTgChatId(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-slate-900 dark:text-white"
-                />
-              </div>
-            </div>
-          </Card>
-
-          {/* Instagram Session Cookie */}
-          <Card className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-blue-500/10 text-[#0C7FF2]">
-                  <Key size={18} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-                    Instagram Session Cookie (Optional)
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Public profiles are fetched zero-login first; session is used only for private profiles and stories.
-                  </p>
-                </div>
-              </div>
-              {settings?.has_session_cookie && (
-                <button
-                  type="button"
-                  onClick={handleClearSession}
-                  className="px-2.5 py-1 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center gap-1"
-                >
-                  <Trash2 size={12} /> Clear
-                </button>
-              )}
-            </div>
-
-            <textarea
-              rows={2}
-              placeholder="sessionid=...; csrftoken=...; ds_user_id=..."
-              value={sessionCookie}
-              onChange={(e) => setSessionCookie(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs font-mono text-slate-900 dark:text-white resize-none"
-            />
-          </Card>
-
-          {/* Developer Logs Card */}
-          <Card className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
-                <Terminal size={18} />
-              </div>
-              <div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Developer Logs Terminal</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Live redacted console with copyable lines, level filters, and HTTP diagnostics.
-                </p>
-              </div>
-            </div>
-            <Button type="button" variant="secondary" size="sm" onClick={onOpenDevLogs}>
-              Open Terminal
-            </Button>
-          </Card>
-
-          <div className="flex items-center justify-end gap-3 pt-1">
-            {saved && (
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                <CheckCircle size={14} /> Saved
-              </span>
-            )}
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Settings'}
+          <div className="flex items-center justify-end gap-3">
+            <Button type="submit" variant="primary" size="md" disabled={saving}>
+              {saving ? t.saving : t.save}
             </Button>
           </div>
         </form>
+
+        {/* Section 5: Diagnostics */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+            {t.section_diagnostics}
+          </h2>
+          <Card onClick={onOpenDevLogs} className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-[var(--bg-subtle)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                <Terminal size={17} strokeWidth={1.75} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-[var(--text-primary)]">{t.dev_logs}</div>
+                <div className="text-xs text-[var(--text-muted)] truncate">{t.dev_logs_desc}</div>
+              </div>
+            </div>
+            <ChevronRight size={17} strokeWidth={1.75} className="text-[var(--text-muted)] shrink-0" />
+          </Card>
+        </section>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmClearSession}
+        title={t.session_clear_confirm_title}
+        description={t.session_clear_confirm_desc}
+        confirmLabel={t.clear}
+        cancelLabel={t.cancel}
+        destructive
+        onConfirm={handleClearSession}
+        onCancel={() => setConfirmClearSession(false)}
+      />
     </div>
   );
 };

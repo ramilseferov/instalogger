@@ -4,10 +4,22 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/instalogger-icon.svg" />
     <link rel="apple-touch-icon" href="/instalogger-icon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>InstaLogger — Instagram Monitor & Archiver</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>InstaLogger</title>
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('instalogger_theme_mode') || localStorage.getItem('instalogger_theme') || 'system';
+          var dark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.colorScheme = 'dark';
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-[#F2F4F7] text-gray-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+  <body class="antialiased selection:bg-[#0C7FF2]/20">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

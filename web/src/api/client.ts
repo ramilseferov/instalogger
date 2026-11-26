@@ -29,14 +29,14 @@ export const api = {
     return data.target;
   },
 
-  async addTarget(username: string, turbo: boolean = false): Promise<Target> {
+  async addTarget(username: string, turbo: boolean = false): Promise<{ target: Target; warning?: string | null }> {
     const res = await fetch(`${BASE_URL}/targets`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, turbo }),
     });
     const data = await parseJsonOrThrow(res);
-    return data.target;
+    return { target: data.target, warning: data.warning ?? null };
   },
 
   async deleteTarget(id: string): Promise<void> {

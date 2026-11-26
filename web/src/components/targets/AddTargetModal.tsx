@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, UserPlus, Zap } from 'lucide-react';
 import { Button } from '../common/Button';
+import { useI18n } from '../../i18n';
 
 interface AddTargetModalProps {
   isOpen: boolean;
@@ -13,10 +14,20 @@ export const AddTargetModal: React.FC<AddTargetModalProps> = ({
   onClose,
   onAdd,
 }) => {
+  const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [turbo, setTurbo] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !loading) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, loading, onClose]);
 
   if (!isOpen) return null;
 
@@ -33,7 +44,7 @@ export const AddTargetModal: React.FC<AddTargetModalProps> = ({
       setTurbo(false);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Hədəfi əlavə edərkən xəta baş verdi');
+      setError(err?.message || t.toast_check_failed);
     } finally {
       setLoading(false);
     }
@@ -41,98 +52,110 @@ export const AddTargetModal: React.FC<AddTargetModalProps> = ({
 
   return (
     <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 backdrop-blur-md p-4 transition-opacity duration-300"
+      role="dialog"
+      aria-modal="true"
+      onClick={() => !loading && onClose()}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-white rounded-4xl sm:rounded-3xl p-6 shadow-2xl border border-gray-100 animate-scale-in"
+        className="w-full max-w-md bg-[var(--bg-surface)] rounded-2xl p-6 shadow-2xl border border-[var(--border-strong)] animate-panel"
       >
-        <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+        <div className="flex items-center justify-between pb-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-full bg-blue-50 text-[#0C7FF2] shadow-xs">
-              <UserPlus size={20} />
+            <div className="w-9 h-9 rounded-xl bg-[var(--accent-soft)] text-[#0C7FF2] dark:text-[#58A6FF] flex items-center justify-center">
+              <UserPlus size={18} strokeWidth={1.75} />
             </div>
-            <h2 className="text-xl font-bold text-gray-900">
-              Yeni Profil İzlə
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">
+              {t.add_target_title}
             </h2>
           </div>
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:scale-90 transition-all duration-150"
+            type="button"
+            onClick={() => !loading && onClose()}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-colors duration-150"
+            aria-label={t.cancel}
           >
-            <X size={20} />
+            <X size={18} strokeWidth={1.75} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-5">
+        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
           {error && (
-            <div className="p-3.5 rounded-2xl bg-rose-50 text-rose-700 text-xs font-medium border border-rose-100 animate-toast">
+            <div className="p-3 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-medium border border-rose-500/20 animate-toast">
               {error}
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-              Instagram İstifadəçi Adı
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-[var(--text-secondary)]">
+              {t.username_label}
             </label>
             <div className="relative flex items-center">
-              <span className="absolute left-4 text-gray-400 font-bold select-none">@</span>
+              <span className="absolute left-3.5 text-[var(--text-muted)] font-medium select-none">@</span>
               <input
                 type="text"
                 required
                 autoFocus
-                placeholder="məsələn: example_profile"
+                placeholder={t.username_placeholder}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-[#F2F4F7] rounded-2xl pl-8 pr-4 py-3.5 text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0C7FF2] focus:bg-white border border-transparent focus:border-transparent transition-all duration-200"
+                className="w-full h-11 bg-[var(--bg-subtle)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl pl-8 pr-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors duration-150"
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-4 bg-[#F8F9FA] rounded-2xl border border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-full transition-colors duration-200 ${turbo ? 'bg-blue-100 text-[#0C7FF2]' : 'bg-gray-200 text-gray-500'}`}>
-                <Zap size={18} />
+          <div className="flex items-center justify-between gap-3 p-3.5 bg-[var(--bg-subtle)] rounded-xl border border-[var(--border-subtle)]">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors duration-150 shrink-0 ${
+                  turbo
+                    ? 'bg-[var(--accent-soft)] text-[#0C7FF2] dark:text-[#58A6FF]'
+                    : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'
+                }`}
+              >
+                <Zap size={16} strokeWidth={1.75} />
               </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">Turbo Rejim</p>
-                <p className="text-xs text-gray-500">Hər 30-60 saniyədən bir yoxla</p>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-[var(--text-primary)]">{t.turbo_mode}</p>
+                <p className="text-[11px] text-[var(--text-muted)]">{t.turbo_desc}</p>
               </div>
             </div>
 
             <button
               type="button"
+              role="switch"
+              aria-checked={turbo}
               onClick={() => setTurbo(!turbo)}
-              className={`w-12 h-7 rounded-full p-1 transition-colors duration-200 ${
-                turbo ? 'bg-[#0C7FF2]' : 'bg-gray-300'
+              className={`w-11 h-6 rounded-full p-0.5 transition-colors duration-150 shrink-0 ${
+                turbo ? 'bg-[#0C7FF2]' : 'bg-[var(--border-strong)]'
               }`}
             >
               <div
-                className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform duration-200 ease-out ${
+                className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                   turbo ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>
           </div>
 
-          <div className="flex items-center gap-3 pt-2">
+          <div className="grid grid-cols-2 gap-2.5 pt-2">
             <Button
               type="button"
               variant="secondary"
-              className="flex-1"
+              size="md"
               onClick={onClose}
               disabled={loading}
             >
-              Ləğv et
+              {t.cancel}
             </Button>
             <Button
               type="submit"
               variant="primary"
-              className="flex-1"
+              size="md"
               disabled={loading || !username.trim()}
             >
-              {loading ? 'Yoxlanılır...' : 'İzləməyə Başla'}
+              {loading ? t.checking : t.start_tracking}
             </Button>
           </div>
         </form>

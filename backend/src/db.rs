@@ -53,6 +53,9 @@ impl Database {
                 is_private BOOLEAN NOT NULL DEFAULT 0,
                 followed_by_viewer BOOLEAN NOT NULL DEFAULT 0,
                 media_count INTEGER NOT NULL DEFAULT 0,
+                followers_count INTEGER NOT NULL DEFAULT 0,
+                following_count INTEGER NOT NULL DEFAULT 0,
+                latest_story_at INTEGER NOT NULL DEFAULT 0,
                 profile_pic_path TEXT,
                 avatar_hash TEXT,
                 profile_hash TEXT,
@@ -103,6 +106,9 @@ impl Database {
         )?;
         let _ = conn.execute("ALTER TABLE targets ADD COLUMN avatar_hash TEXT", []);
         let _ = conn.execute("ALTER TABLE targets ADD COLUMN profile_hash TEXT", []);
+        let _ = conn.execute("ALTER TABLE targets ADD COLUMN followers_count INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE targets ADD COLUMN following_count INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE targets ADD COLUMN latest_story_at INTEGER NOT NULL DEFAULT 0", []);
         Ok(())
     }
 
@@ -113,9 +119,10 @@ impl Database {
         conn.execute(
             "INSERT INTO targets (
                 id, username, full_name, biography, is_private, followed_by_viewer,
-                media_count, profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
+                media_count, followers_count, following_count, latest_story_at,
+                profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
                 check_interval_seconds, last_checked_at, last_status_change_at, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 target.id,
                 target.username,
@@ -124,6 +131,9 @@ impl Database {
                 target.is_private,
                 target.followed_by_viewer,
                 target.media_count,
+                target.followers_count,
+                target.following_count,
+                target.latest_story_at,
                 target.profile_pic_path,
                 target.avatar_hash,
                 target.profile_hash,
@@ -142,7 +152,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, username, full_name, biography, is_private, followed_by_viewer,
-                    media_count, profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
+                    media_count, followers_count, following_count, latest_story_at,
+                    profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
                     check_interval_seconds, last_checked_at, last_status_change_at, created_at
              FROM targets WHERE id = ?1 OR username = ?1 LIMIT 1",
         )?;
@@ -157,21 +168,24 @@ impl Database {
                     is_private: row.get(4)?,
                     followed_by_viewer: row.get(5)?,
                     media_count: row.get(6)?,
-                    profile_pic_path: row.get(7)?,
-                    avatar_hash: row.get(8)?,
-                    profile_hash: row.get(9)?,
-                    status: row.get(10)?,
-                    turbo_mode: row.get(11)?,
-                    check_interval_seconds: row.get(12)?,
+                    followers_count: row.get(7)?,
+                    following_count: row.get(8)?,
+                    latest_story_at: row.get(9)?,
+                    profile_pic_path: row.get(10)?,
+                    avatar_hash: row.get(11)?,
+                    profile_hash: row.get(12)?,
+                    status: row.get(13)?,
+                    turbo_mode: row.get(14)?,
+                    check_interval_seconds: row.get(15)?,
                     last_checked_at: row
-                        .get::<_, Option<String>>(13)?
+                        .get::<_, Option<String>>(16)?
                         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                         .map(|dt| dt.with_timezone(&Utc)),
                     last_status_change_at: row
-                        .get::<_, Option<String>>(14)?
+                        .get::<_, Option<String>>(17)?
                         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                         .map(|dt| dt.with_timezone(&Utc)),
-                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(15)?)
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(18)?)
                         .map(|dt| dt.with_timezone(&Utc))
                         .unwrap_or_else(|_| Utc::now()),
                 })
@@ -185,7 +199,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, username, full_name, biography, is_private, followed_by_viewer,
-                    media_count, profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
+                    media_count, followers_count, following_count, latest_story_at,
+                    profile_pic_path, avatar_hash, profile_hash, status, turbo_mode,
                     check_interval_seconds, last_checked_at, last_status_change_at, created_at
              FROM targets ORDER BY created_at DESC",
         )?;
@@ -199,21 +214,24 @@ impl Database {
                 is_private: row.get(4)?,
                 followed_by_viewer: row.get(5)?,
                 media_count: row.get(6)?,
-                profile_pic_path: row.get(7)?,
-                avatar_hash: row.get(8)?,
-                profile_hash: row.get(9)?,
-                status: row.get(10)?,
-                turbo_mode: row.get(11)?,
-                check_interval_seconds: row.get(12)?,
+                followers_count: row.get(7)?,
+                following_count: row.get(8)?,
+                latest_story_at: row.get(9)?,
+                profile_pic_path: row.get(10)?,
+                avatar_hash: row.get(11)?,
+                profile_hash: row.get(12)?,
+                status: row.get(13)?,
+                turbo_mode: row.get(14)?,
+                check_interval_seconds: row.get(15)?,
                 last_checked_at: row
-                    .get::<_, Option<String>>(13)?
+                    .get::<_, Option<String>>(16)?
                     .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                     .map(|dt| dt.with_timezone(&Utc)),
                 last_status_change_at: row
-                    .get::<_, Option<String>>(14)?
+                    .get::<_, Option<String>>(17)?
                     .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                     .map(|dt| dt.with_timezone(&Utc)),
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(15)?)
+                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(18)?)
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),
             })
@@ -236,13 +254,16 @@ impl Database {
                 is_private = ?4,
                 followed_by_viewer = ?5,
                 media_count = ?6,
-                profile_pic_path = ?7,
-                avatar_hash = ?8,
-                profile_hash = ?9,
-                status = ?10,
-                last_checked_at = ?11,
-                last_status_change_at = ?12
-             WHERE id = ?13",
+                followers_count = ?7,
+                following_count = ?8,
+                latest_story_at = ?9,
+                profile_pic_path = ?10,
+                avatar_hash = ?11,
+                profile_hash = ?12,
+                status = ?13,
+                last_checked_at = ?14,
+                last_status_change_at = ?15
+             WHERE id = ?16",
             params![
                 target.username,
                 target.full_name,
@@ -250,6 +271,9 @@ impl Database {
                 target.is_private,
                 target.followed_by_viewer,
                 target.media_count,
+                target.followers_count,
+                target.following_count,
+                target.latest_story_at,
                 target.profile_pic_path,
                 target.avatar_hash,
                 target.profile_hash,
@@ -429,6 +453,16 @@ impl Database {
         conn.execute(
             "UPDATE archived_media SET is_vanished = 1, vanished_at = ?1 WHERE id = ?2",
             params![now, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_media_completed(&self, id: &str, file_size_bytes: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE archived_media SET download_status = 'completed', downloaded_at = ?1, file_size_bytes = ?2 WHERE id = ?3",
+            params![now, file_size_bytes, id],
         )?;
         Ok(())
     }

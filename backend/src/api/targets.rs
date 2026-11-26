@@ -83,23 +83,43 @@ pub async fn add_target(
         None
     };
 
+    let mut initial_warning: Option<String> = None;
     let snapshot = match state
         .scheduler
         .worker
         .check_profile(&clean_username, session_path)
         .await
     {
-        Ok(s) => s,
+        Ok(s) => {
+            crate::api::dev_logs::push_dev_log(
+                "I",
+                "Targets",
+                &format!(
+                    "Added @{} (followers={}, following={}, posts={})",
+                    clean_username, s.followers_count, s.following_count, s.media_count
+                ),
+            );
+            s
+        }
         Err(e) => {
             error!("Initial profile fetch failed for @{}: {}", clean_username, e);
+            crate::api::dev_logs::push_dev_log(
+                "W",
+                "Targets",
+                &format!("Initial fetch failed for @{}: {}", clean_username, e),
+            );
+            initial_warning = Some(e.to_string());
             crate::scheduler::ProfileSnapshot {
                 id: format!("usr_{}", clean_username),
                 username: clean_username.clone(),
                 full_name: "".to_string(),
                 biography: "".to_string(),
-                is_private: true,
+                is_private: false,
                 followed_by_viewer: false,
                 media_count: 0,
+                followers_count: 0,
+                following_count: 0,
+                latest_story_at: 0,
                 profile_pic_url: "".to_string(),
                 profile_pic_path: None,
                 avatar_hash: None,
@@ -116,6 +136,9 @@ pub async fn add_target(
         is_private: snapshot.is_private,
         followed_by_viewer: snapshot.followed_by_viewer,
         media_count: snapshot.media_count,
+        followers_count: snapshot.followers_count,
+        following_count: snapshot.following_count,
+        latest_story_at: snapshot.latest_story_at,
         profile_pic_path: snapshot.profile_pic_path.clone(),
         avatar_hash: snapshot.avatar_hash.clone(),
         profile_hash: snapshot.profile_hash.clone(),
@@ -134,19 +157,23 @@ pub async fn add_target(
         );
     }
 
-    // If public or authorized follower, trigger archival
-    if !snapshot.is_private || (snapshot.is_private && snapshot.followed_by_viewer) {
+    // If initial fetch succeeded and account is public or authorized follower, trigger archival with session
+    if initial_warning.is_none() && (!snapshot.is_private || snapshot.followed_by_viewer) {
         let scheduler_clone = Arc::clone(&state.scheduler);
         let u_clone = snapshot.username.clone();
         let id_clone = snapshot.id.clone();
+        let sess_owned = session_path.map(|s| s.to_string());
         tokio::spawn(async move {
             let _ = scheduler_clone
-                .trigger_full_archive(&u_clone, &id_clone, None)
+                .trigger_full_archive(&u_clone, &id_clone, sess_owned.as_deref())
                 .await;
         });
     }
 
-    (StatusCode::CREATED, Json(json!({ "status": "ok", "target": target })))
+    (
+        StatusCode::CREATED,
+        Json(json!({ "status": "ok", "target": target, "warning": initial_warning })),
+    )
 }
 
 pub async fn delete_target(

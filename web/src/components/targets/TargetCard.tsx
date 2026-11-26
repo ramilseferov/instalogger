@@ -35,15 +35,15 @@ export const TargetCard: React.FC<TargetCardProps> = ({
       className="group relative flex flex-col gap-3.5"
     >
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3.5 min-w-0">
           <div
             className={`shrink-0 rounded-full p-[2px] ${
               hasActiveStory
-                ? 'bg-gradient-to-tr from-amber-500 via-pink-600 to-purple-600'
-                : 'bg-slate-200 dark:bg-slate-700'
+                ? 'bg-[#0C7FF2]'
+                : 'bg-[var(--border-strong)]'
             }`}
           >
-            <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 overflow-hidden border-2 border-white dark:border-slate-900">
+            <div className="w-12 h-12 rounded-full bg-[var(--bg-subtle)] flex items-center justify-center text-[var(--text-muted)] overflow-hidden border-2 border-[var(--bg-surface)]">
               {target.profile_pic_path ? (
                 <img
                   src={target.profile_pic_path.startsWith('/') ? target.profile_pic_path : `/${target.profile_pic_path}`}
@@ -51,64 +51,73 @@ export const TargetCard: React.FC<TargetCardProps> = ({
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <User size={22} className="text-slate-400" />
+                <User size={20} strokeWidth={1.75} />
               )}
             </div>
           </div>
 
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-bold text-base text-slate-900 dark:text-white group-hover:text-[#0C7FF2] transition-colors truncate">
+              <h3 className="font-semibold text-sm text-[var(--text-primary)] group-hover:text-[#0C7FF2] dark:group-hover:text-[#58A6FF] transition-colors duration-150 truncate">
                 @{target.username}
               </h3>
               {hasActiveStory && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-500/15 text-pink-600 dark:text-pink-400 border border-pink-500/30">
-                  Story
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-[var(--accent-soft)] text-[#0C7FF2] dark:text-[#58A6FF]">
+                  {t.story_badge}
                 </span>
               )}
               {target.turbo_mode && <StatusBadge status="turbo" />}
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[200px] sm:max-w-[320px]">
+            <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">
               {target.full_name || t.no_name}
             </p>
           </div>
         </div>
 
-        <ChevronRight size={18} className="text-slate-400 group-hover:text-[#0C7FF2] transition-colors shrink-0" />
+        <ChevronRight
+          size={17}
+          strokeWidth={1.75}
+          className="text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors duration-150 shrink-0"
+        />
       </div>
 
-      <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-slate-800">
+      <div className="flex items-center justify-between gap-2 pt-3 border-t border-[var(--border-subtle)]">
         <div className="flex items-center gap-2 flex-wrap">
           <StatusBadge status={target.is_private ? 'private' : 'public'} />
-          <span className="text-xs text-slate-600 dark:text-slate-300 font-medium bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-full">
+          <span className="text-xs text-[var(--text-secondary)] font-medium bg-[var(--bg-subtle)] px-2.5 py-0.5 rounded-lg tabular-nums">
+            {(target.followers_count || 0).toLocaleString()} {t.followers.toLowerCase()}
+          </span>
+          <span className="text-xs text-[var(--text-secondary)] font-medium bg-[var(--bg-subtle)] px-2.5 py-0.5 rounded-lg tabular-nums hidden sm:inline-block">
+            {(target.following_count || 0).toLocaleString()} {t.following.toLowerCase()}
+          </span>
+          <span className="text-xs text-[var(--text-secondary)] font-medium bg-[var(--bg-subtle)] px-2.5 py-0.5 rounded-lg tabular-nums">
             {target.media_count} {t.posts}
           </span>
-          {typeof target.followers_count === 'number' && target.followers_count > 0 && (
-            <span className="text-xs text-slate-600 dark:text-slate-300 font-medium bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-full">
-              {target.followers_count.toLocaleString()} {t.followers}
-            </span>
-          )}
         </div>
 
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
+            type="button"
             onClick={() => onToggleTurbo(target, !target.turbo_mode)}
             title={t.turbo_mode}
-            className={`p-2 rounded-full transition-colors ${
+            aria-label={t.turbo_mode}
+            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors duration-150 ${
               target.turbo_mode
-                ? 'bg-blue-500/15 text-[#0C7FF2]'
-                : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200'
+                ? 'bg-[var(--accent-soft)] text-[#0C7FF2] dark:text-[#58A6FF]'
+                : 'text-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <Zap size={15} />
+            <Zap size={15} strokeWidth={1.75} />
           </button>
           <button
+            type="button"
             onClick={() => onCheckNow(target)}
             disabled={checking}
             title={t.check_now}
-            className="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-[#0C7FF2] disabled:opacity-50 transition-colors"
+            aria-label={t.check_now}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-[#0C7FF2] dark:hover:text-[#58A6FF] disabled:opacity-45 transition-colors duration-150"
           >
-            <RefreshCw size={15} className={checking ? 'animate-spin text-[#0C7FF2]' : ''} />
+            <RefreshCw size={15} strokeWidth={1.75} className={checking ? 'animate-spin text-[#0C7FF2]' : ''} />
           </button>
         </div>
       </div>

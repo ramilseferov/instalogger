@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Target } from './types';
 import { api } from './api/client';
 import { HeaderBanner } from './components/common/HeaderBanner';
@@ -23,45 +23,24 @@ export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [wsConnected, setWsConnected] = useState(false);
   const [toast, setToast] = useState<{ kind: 'info' | 'err'; text: string } | null>(null);
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('instalogger_theme');
-      if (saved === 'dark') return true;
-      if (saved === 'light') return false;
-      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
-    } catch {
-      return false;
-    }
-  });
 
-  useEffect(() => {
-    const root = document.documentElement;
-    if (darkMode) {
-      root.classList.add('dark');
-      root.style.colorScheme = 'dark';
-      try { localStorage.setItem('instalogger_theme', 'dark'); } catch {}
-    } else {
-      root.classList.remove('dark');
-      root.style.colorScheme = 'light';
-      try { localStorage.setItem('instalogger_theme', 'light'); } catch {}
-    }
-  }, [darkMode]);
-
-  const showToast = (kind: 'info' | 'err', text: string) => {
+  const showToast = useCallback((kind: 'info' | 'err', text: string) => {
     setToast({ kind, text });
-    window.setTimeout(() => setToast(null), 4500);
-  };
+    window.setTimeout(() => {
+      setToast((prev) => (prev?.text === text ? null : prev));
+    }, 4500);
+  }, []);
 
-  const fetchTargets = async () => {
+  const fetchTargets = useCallback(async () => {
     try {
       const list = await api.getTargets();
       setTargets(list);
     } catch (e: any) {
-      showToast('err', `Failed to load targets: ${e?.message || 'Daemon unreachable'}`);
+      showToast('err', e?.message || t.toast_check_failed);
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast, t.toast_check_failed]);
 
   useEffect(() => {
     fetchTargets();
@@ -79,11 +58,10 @@ export const App: React.FC = () => {
           try {
             const msg = JSON.parse(event.data);
             if (msg.type === 'change_detected') {
-              showToast('info', `@${msg.username}: ${msg.event} (${msg.old} -> ${msg.new})`);
+              showToast('info', `@${msg.username}: ${msg.old} -> ${msg.new}`);
               fetchTargets();
             }
-          } catch {
-          }
+          } catch {}
         };
       }
     } catch {
@@ -91,9 +69,11 @@ export const App: React.FC = () => {
     }
 
     return () => {
-      try { ws?.close(); } catch {}
+      try {
+        ws?.close();
+      } catch {}
     };
-  }, []);
+  }, [fetchTargets, showToast]);
 
   const filteredTargets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -110,7 +90,7 @@ export const App: React.FC = () => {
       await api.toggleTurbo(target.id, turbo);
       await fetchTargets();
     } catch (e: any) {
-      showToast('err', e?.message || 'Failed to toggle turbo mode');
+      showToast('err', e?.message || t.toast_check_failed);
     }
   };
 
@@ -119,9 +99,9 @@ export const App: React.FC = () => {
     try {
       await api.checkNow(target.id);
       await fetchTargets();
-      showToast('info', `@${target.username} updated`);
+      showToast('info', `@${target.username} ${t.toast_target_updated}`);
     } catch (e: any) {
-      showToast('err', `@${target.username} check failed: ${e?.message || 'Error'}`);
+      showToast('err', `@${target.username}: ${e?.message || t.toast_check_failed}`);
     } finally {
       setCheckingId(null);
     }
@@ -143,55 +123,71 @@ export const App: React.FC = () => {
     await fetchTargets();
     setRefreshingAll(false);
     if (fail === 0) {
-      showToast('info', `All targets checked (${ok}/${targets.length})`);
+      showToast('info', `${t.toast_refresh_done} (${ok}/${targets.length})`);
     } else {
-      showToast('err', `Refresh finished: ${ok} updated, ${fail} failed (see Developer Logs)`);
+      showToast('err', `${t.toast_refresh_partial}: ${ok}/${targets.length}`);
     }
   };
 
   if (activeView === 'dev_logs') {
-    return <DeveloperLogsView onBack={() => setActiveView('dashboard')} />;
+    return (
+      <div key="view-dev-logs" className="animate-view-enter">
+        <DeveloperLogsView onBack={() => setActiveView('dashboard')} />
+      </div>
+    );
   }
 
   if (activeView === 'settings') {
     return (
-      <SettingsView
-        onBack={() => setActiveView('dashboard')}
-        onOpenDevLogs={() => setActiveView('dev_logs')}
-      />
+      <div key="view-settings" className="animate-view-enter">
+        <SettingsView
+          onBack={() => setActiveView('dashboard')}
+          onOpenDevLogs={() => setActiveView('dev_logs')}
+        />
+      </div>
     );
   }
 
   if (selectedTarget) {
     return (
-      <ProfileDetail
-        target={selectedTarget}
-        onBack={() => {
-          setSelectedTarget(null);
-          fetchTargets();
-        }}
-        onTargetUpdated={() => {
-          fetchTargets();
-          api.getTarget(selectedTarget.id).then(setSelectedTarget).catch(() => {});
-        }}
-      />
+      <div key={`view-profile-${selectedTarget.id}`} className="animate-view-enter">
+        <ProfileDetail
+          target={selectedTarget}
+          onBack={() => {
+            setSelectedTarget(null);
+            fetchTargets();
+          }}
+          onOpenSettings={() => {
+            setSelectedTarget(null);
+            setActiveView('settings');
+          }}
+          onTargetUpdated={() => {
+            fetchTargets();
+            api
+              .getTarget(selectedTarget.id)
+              .then(setSelectedTarget)
+              .catch(() => {});
+          }}
+        />
+      </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F2F4F7] dark:bg-slate-950 pb-24 transition-colors">
+    <div key="view-dashboard" className="min-h-screen bg-[var(--bg-canvas)] pb-20 animate-view-enter">
       {toast && (
         <div
-          className={`fixed top-4 left-4 right-4 z-50 max-w-md mx-auto backdrop-blur-md text-xs font-semibold px-4 py-3 rounded-xl shadow-lg flex items-center gap-2.5 border ${
+          role="status"
+          className={`fixed top-4 left-4 right-4 z-50 max-w-md mx-auto px-4 py-3 rounded-xl border shadow-lg backdrop-blur-md text-xs font-medium flex items-center gap-2.5 animate-toast ${
             toast.kind === 'err'
-              ? 'bg-rose-950/95 text-rose-100 border-rose-700'
-              : 'bg-slate-900/95 text-white border-slate-700'
+              ? 'bg-[var(--bg-surface)] text-rose-600 dark:text-rose-400 border-rose-500/30'
+              : 'bg-[var(--bg-surface)] text-[var(--text-primary)] border-[var(--border-strong)]'
           }`}
         >
           {toast.kind === 'err' ? (
-            <AlertCircle size={16} className="text-rose-400 shrink-0" />
+            <AlertCircle size={16} strokeWidth={1.75} className="text-rose-500 shrink-0" />
           ) : (
-            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            <CheckCircle2 size={16} strokeWidth={1.75} className="text-emerald-500 shrink-0" />
           )}
           <span className="flex-1 truncate">{toast.text}</span>
         </div>
@@ -200,41 +196,43 @@ export const App: React.FC = () => {
       <HeaderBanner
         activeCount={targets.length}
         wsConnected={wsConnected}
-        darkMode={darkMode}
-        onToggleDarkMode={() => setDarkMode((d) => !d)}
         onDevLogsClick={() => setActiveView('dev_logs')}
         onSettingsClick={() => setActiveView('settings')}
       />
 
-      <main className="max-w-3xl mx-auto px-4 space-y-4">
-        {/* Toolbar: Search + Refresh All + Add Target */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-5 space-y-5">
+        {/* Toolbar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="relative flex-1">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search
+              size={15}
+              strokeWidth={1.75}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
+            />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={`Search ${targets.length} ${t.targets_badge.toLowerCase()}...`}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-10 pr-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-[#0C7FF2]"
+              placeholder={t.search_targets}
+              className="w-full h-10 bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl pl-10 pr-3.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors duration-150"
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-2 sm:flex items-center gap-2">
             <Button
-              size="sm"
+              size="md"
               variant="secondary"
-              icon={<RefreshCw size={14} className={refreshingAll ? 'animate-spin' : ''} />}
+              icon={<RefreshCw size={15} strokeWidth={1.75} className={refreshingAll ? 'animate-spin' : ''} />}
               onClick={handleRefreshAll}
               disabled={refreshingAll || targets.length === 0}
             >
-              {refreshingAll ? 'Checking...' : t.check_now}
+              {refreshingAll ? t.checking : t.check_now}
             </Button>
 
             <Button
-              size="sm"
+              size="md"
               variant="primary"
-              icon={<UserPlus size={15} />}
+              icon={<UserPlus size={15} strokeWidth={1.75} />}
               onClick={() => setIsAddModalOpen(true)}
             >
               {t.add_target}
@@ -243,32 +241,32 @@ export const App: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400">
-            <RefreshCw size={26} className="animate-spin text-[#0C7FF2]" />
-            <p className="text-xs font-semibold">Loading targets...</p>
+          <div className="py-20 flex flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
+            <RefreshCw size={22} strokeWidth={1.75} className="animate-spin text-[#0C7FF2]" />
+            <p className="text-xs font-medium">{t.loading_targets}</p>
           </div>
         ) : filteredTargets.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="w-14 h-14 rounded-full bg-blue-500/10 text-[#0C7FF2] flex items-center justify-center mx-auto">
-              <UserPlus size={24} />
+          <div className="bg-[var(--bg-surface)] rounded-2xl p-10 text-center border border-[var(--border-subtle)] space-y-4">
+            <div className="w-12 h-12 rounded-xl bg-[var(--accent-soft)] text-[#0C7FF2] dark:text-[#58A6FF] flex items-center justify-center mx-auto">
+              <UserPlus size={22} strokeWidth={1.75} />
             </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">{t.no_targets_title}</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-[var(--text-primary)]">{t.no_targets_title}</h2>
+              <p className="text-xs text-[var(--text-secondary)] max-w-sm mx-auto leading-relaxed">
                 {t.no_targets_desc}
               </p>
             </div>
             <Button
               variant="primary"
               size="md"
-              icon={<UserPlus size={15} />}
+              icon={<UserPlus size={15} strokeWidth={1.75} />}
               onClick={() => setIsAddModalOpen(true)}
             >
               {t.add_target}
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {filteredTargets.map((target, idx) => (
               <TargetCard
                 key={target.id}
@@ -288,8 +286,13 @@ export const App: React.FC = () => {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAdd={async (username, turbo) => {
-          await api.addTarget(username, turbo);
+          const res = await api.addTarget(username, turbo);
           await fetchTargets();
+          if (res.warning) {
+            showToast('err', res.warning);
+          } else {
+            showToast('info', `@${res.target.username} ${t.toast_target_updated}`);
+          }
         }}
       />
     </div>

@@ -100,47 +100,67 @@ def sync_profile_avatar(profile: Dict[str, Any], session: Optional[requests.Sess
 def parse_profile_metadata(user_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract normalized profile fields from Instagram user object."""
     media_edge = user_data.get("edge_owner_to_timeline_media") or {}
-    media_count = media_edge.get("count", 0)
+    media_count = media_edge.get("count") if media_edge.get("count") is not None else user_data.get("media_count", 0)
     followed_by = user_data.get("edge_followed_by") or {}
-    followers_count = followed_by.get("count", 0)
+    followers_count = followed_by.get("count") if followed_by.get("count") is not None else user_data.get("follower_count", 0)
     follow = user_data.get("edge_follow") or {}
-    following_count = follow.get("count", 0)
-    profile_pic = user_data.get("profile_pic_url_hd") or user_data.get("profile_pic_url") or ""
+    following_count = follow.get("count") if follow.get("count") is not None else user_data.get("following_count", 0)
+    profile_pic = (
+        (user_data.get("hd_profile_pic_url_info") or {}).get("url")
+        or user_data.get("profile_pic_url_hd")
+        or user_data.get("profile_pic_url")
+        or ""
+    )
+    latest_reel_sec = int(user_data.get("latest_reel_media") or 0)
+    latest_story_at = latest_reel_sec * 1000 if latest_reel_sec > 0 and latest_reel_sec < 10_000_000_000 else latest_reel_sec
 
     prof = {
-        "id": str(user_data.get("id", "")),
+        "id": str(user_data.get("pk") or user_data.get("id") or ""),
         "username": str(user_data.get("username", "")),
         "full_name": str(user_data.get("full_name", "")),
         "biography": str(user_data.get("biography", "")),
         "is_private": bool(user_data.get("is_private", False)),
         "followed_by_viewer": bool(user_data.get("followed_by_viewer", False)),
-        "media_count": int(media_count),
-        "followers_count": int(followers_count),
-        "following_count": int(following_count),
+        "media_count": int(media_count or 0),
+        "followers_count": int(followers_count or 0),
+        "following_count": int(following_count or 0),
+        "latest_story_at": int(latest_story_at),
         "profile_pic_url": str(profile_pic),
     }
 
-    raw_state = f"{prof['username']}|{prof['full_name']}|{prof['biography']}|{prof['is_private']}|{followers_count}|{following_count}|{media_count}"
+    raw_state = f"{prof['username']}|{prof['full_name']}|{prof['biography']}|{prof['is_private']}|{prof['followers_count']}|{prof['following_count']}|{prof['media_count']}"
     prof["profile_hash"] = hashlib.sha256(raw_state.encode("utf-8")).hexdigest()
     return prof
 
 
 def parse_posts_blitz(node: Dict[str, Any]) -> Dict[str, Any]:
     """Extract normalized media metadata and signed CDN URL from a post/reel node."""
-    shortcode = node.get("shortcode") or node.get("code") or node.get("id") or ""
-    is_video = bool(node.get("is_video", False))
+    shortcode = str(node.get("shortcode") or node.get("code") or node.get("id") or "")
+    vids = node.get("video_versions") or []
+    imgs = (node.get("image_versions2") or {}).get("candidates") or []
+    is_video = bool(node.get("is_video", False)) or node.get("media_type") == 2 or bool(vids)
     media_type = "reel" if is_video else "post"
 
-    cdn_url = node.get("video_url") if is_video else (node.get("display_url") or node.get("thumbnail_src") or "")
-    if not cdn_url:
-        cdn_url = node.get("display_url") or ""
+    video_url = node.get("video_url") or (vids[0].get("url") if vids and isinstance(vids[0], dict) else "")
+    display_url = (
+        node.get("display_url")
+        or node.get("display_uri")
+        or node.get("thumbnail_src")
+        or (imgs[0].get("url") if imgs and isinstance(imgs[0], dict) else "")
+        or ""
+    )
+    cdn_url = video_url if (is_video and video_url) else display_url
 
     caption = ""
-    caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
-    if caption_edges and isinstance(caption_edges, list):
-        caption = caption_edges[0].get("node", {}).get("text", "")
+    cap_obj = node.get("caption")
+    if isinstance(cap_obj, dict) and cap_obj.get("text"):
+        caption = str(cap_obj.get("text") or "")
+    else:
+        caption_edges = (node.get("edge_media_to_caption") or {}).get("edges", [])
+        if caption_edges and isinstance(caption_edges, list):
+            caption = str(caption_edges[0].get("node", {}).get("text", "") or "")
 
-    timestamp = node.get("taken_at_timestamp") or node.get("taken_at") or int(time.time())
+    timestamp = int(node.get("taken_at_timestamp") or node.get("taken_at") or int(time.time()))
 
     return {
         "id": f"{media_type}_{shortcode}",
@@ -150,8 +170,8 @@ def parse_posts_blitz(node: Dict[str, Any]) -> Dict[str, Any]:
         "caption": caption,
         "posted_at": timestamp,
         "dimensions": {
-            "height": node.get("dimensions", {}).get("height", 0),
-            "width": node.get("dimensions", {}).get("width", 0),
+            "height": (node.get("dimensions") or {}).get("height", 0),
+            "width": (node.get("dimensions") or {}).get("width", 0),
         },
     }
 
@@ -187,12 +207,19 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
     avatar_rel = sync_profile_avatar(profile, client.session)
     profile["profile_pic_path"] = avatar_rel
 
-    media_edges = user_data.get("edge_owner_to_timeline_media", {}).get("edges", [])
+    media_edges = (user_data.get("edge_owner_to_timeline_media") or {}).get("edges", [])
+    if not media_edges and (not profile.get("is_private") or profile.get("followed_by_viewer")):
+        media_edges = client.fetch_user_posts(profile["username"], profile.get("id"), limit=24)
+
     items = []
+    seen_shortcodes = set()
 
     for edge in media_edges:
         node = edge.get("node", {})
         item = parse_posts_blitz(node)
+        if not item["shortcode"] or item["shortcode"] in seen_shortcodes:
+            continue
+        seen_shortcodes.add(item["shortcode"])
         item["target_id"] = profile["id"]
         item["relative_file_path"] = f"archives/{profile['id']}/{item['media_type']}s/{item['shortcode']}.{'mp4' if item['media_type'] == 'reel' else 'jpg'}"
         items.append(item)
@@ -200,7 +227,7 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
     # When profile is active/public or followed by viewer, also extract all highlights
     if not profile.get("is_private") or profile.get("followed_by_viewer"):
         try:
-            hl_trays = client.fetch_user_highlights(profile["id"])
+            hl_trays = client.fetch_user_highlights(profile["id"], username=profile["username"])
             for tray in hl_trays:
                 tray_title = sanitize_identifier(tray.get("title") or "Highlight")
                 stories = client.fetch_highlight_stories(tray["id"])

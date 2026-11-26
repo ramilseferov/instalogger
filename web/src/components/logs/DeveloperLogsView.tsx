@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { DevLogEntry } from '../../types';
+import { useI18n } from '../../i18n';
+import { SegmentedControl } from '../common/SegmentedControl';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import {
   ArrowLeft,
   Copy,
   Trash2,
   Search,
-  Terminal,
   RefreshCw,
-  Lock,
+  ShieldCheck,
   Check,
   ArrowDownToLine,
 } from 'lucide-react';
@@ -17,20 +19,24 @@ interface DeveloperLogsViewProps {
   onBack: () => void;
 }
 
-const LEVEL_STYLES: Record<string, string> = {
-  E: 'text-rose-400 font-bold',
-  W: 'text-amber-400 font-bold',
-  I: 'text-emerald-400 font-bold',
-  D: 'text-sky-400 font-bold',
+type LevelFilter = 'ALL' | 'E' | 'W' | 'I' | 'D';
+
+const LEVEL_BADGE: Record<string, string> = {
+  E: 'bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/20',
+  W: 'bg-amber-500/12 text-amber-700 dark:text-amber-400 border-amber-500/20',
+  I: 'bg-[var(--accent-soft)] text-[#0C7FF2] dark:text-[#58A6FF] border-[#0C7FF2]/20',
+  D: 'bg-[var(--bg-subtle)] text-[var(--text-muted)] border-[var(--border-subtle)]',
 };
 
 export const DeveloperLogsView: React.FC<DeveloperLogsViewProps> = ({ onBack }) => {
+  const { t } = useI18n();
   const [logs, setLogs] = useState<DevLogEntry[]>([]);
-  const [levelFilter, setLevelFilter] = useState<'ALL' | 'E' | 'W' | 'I' | 'D'>('ALL');
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>('ALL');
   const [query, setQuery] = useState('');
   const [livePoll, setLivePoll] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [copiedMsg, setCopiedMsg] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<number | 'all' | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -40,7 +46,7 @@ export const DeveloperLogsView: React.FC<DeveloperLogsViewProps> = ({ onBack }) 
       setLogs(list);
       setErrorMsg(null);
     } catch (e: any) {
-      setErrorMsg(e?.message || 'Failed to load logs');
+      setErrorMsg(e?.message || t.toast_check_failed);
     }
   };
 
@@ -77,171 +83,211 @@ export const DeveloperLogsView: React.FC<DeveloperLogsViewProps> = ({ onBack }) 
     return `${ts} [${l.level}][${l.tag}] ${l.message}`;
   };
 
-  const copyText = async (text: string, label: string) => {
+  const copyText = async (text: string, key: number | 'all') => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopiedMsg(label);
-      window.setTimeout(() => setCopiedMsg(null), 1800);
+      setCopiedId(key);
+      window.setTimeout(() => setCopiedId((prev) => (prev === key ? null : prev)), 1600);
     } catch {
-      setErrorMsg('Clipboard permission denied');
+      setErrorMsg('Clipboard access denied');
     }
   };
 
-  const handleClear = async () => {
+  const handleClearConfirmed = async () => {
+    setConfirmClear(false);
     try {
       await api.clearDevLogs();
       setLogs([]);
     } catch (e: any) {
-      setErrorMsg(e?.message || 'Failed to clear logs');
+      setErrorMsg(e?.message || t.toast_check_failed);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0D12] text-slate-200 flex flex-col">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-20 bg-[#111620]/95 backdrop-blur-md border-b border-slate-800 px-4 py-3">
-        <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onBack}
-              className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 transition-colors"
-              aria-label="Back"
-            >
-              <ArrowLeft size={18} />
-            </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <Terminal size={16} className="text-emerald-400" />
-                <h1 className="font-mono text-sm font-bold text-slate-100">Developer Logs</h1>
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] flex flex-col">
+      <header className="sticky top-0 z-20 bg-[var(--bg-canvas)]/95 backdrop-blur-md border-b border-[var(--border-subtle)] px-4 sm:px-6 py-3.5">
+        <div className="max-w-5xl mx-auto space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={onBack}
+                className="w-9 h-9 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)] flex items-center justify-center active:scale-95 transition-[color,border-color,transform] duration-150 shrink-0"
+                aria-label={t.back}
+              >
+                <ArrowLeft size={16} strokeWidth={1.75} />
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-base font-semibold text-[var(--text-primary)] truncate">
+                  {t.dev_logs}
+                </h1>
+                <p className="text-xs text-[var(--text-muted)] tabular-nums">
+                  {filtered.length} {t.logs_lines} · {errCount} {t.logs_level_err.toLowerCase()} · {warnCount}{' '}
+                  {t.logs_level_warn.toLowerCase()}
+                </p>
               </div>
-              <p className="font-mono text-[11px] text-slate-400">
-                {filtered.length} lines · {errCount} err · {warnCount} warn
-              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setLivePoll((v) => !v)}
+                className={`h-9 px-3 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 transition-colors duration-150 ${
+                  livePoll
+                    ? 'bg-[var(--accent-soft)] border-[#0C7FF2]/30 text-[#0C7FF2] dark:text-[#58A6FF]'
+                    : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+                }`}
+              >
+                <RefreshCw size={13} strokeWidth={1.75} className={livePoll ? 'animate-spin' : ''} />
+                <span>{livePoll ? t.logs_live : t.logs_paused}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAutoScroll((v) => !v)}
+                className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors duration-150 ${
+                  autoScroll
+                    ? 'bg-[var(--accent-soft)] border-[#0C7FF2]/30 text-[#0C7FF2] dark:text-[#58A6FF]'
+                    : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-muted)]'
+                }`}
+                title="Auto-scroll"
+                aria-label="Auto-scroll"
+              >
+                <ArrowDownToLine size={15} strokeWidth={1.75} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => copyText(filtered.map(formatLine).join('\n'), 'all')}
+                disabled={filtered.length === 0}
+                className="h-9 px-3 rounded-xl bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-xs font-medium text-[var(--text-primary)] inline-flex items-center gap-1.5 disabled:opacity-40 transition-colors duration-150"
+              >
+                {copiedId === 'all' ? (
+                  <Check size={14} strokeWidth={1.75} className="text-emerald-500" />
+                ) : (
+                  <Copy size={14} strokeWidth={1.75} className="text-[var(--text-secondary)]" />
+                )}
+                <span>{copiedId === 'all' ? t.logs_copied : t.logs_copy_all}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                disabled={logs.length === 0}
+                className="w-9 h-9 rounded-xl bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center disabled:opacity-40 transition-colors duration-150"
+                title={t.logs_clear}
+                aria-label={t.logs_clear}
+              >
+                <Trash2 size={15} strokeWidth={1.75} />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setLivePoll((v) => !v)}
-              className={`px-2.5 py-1.5 rounded-lg border font-mono text-xs flex items-center gap-1.5 transition-colors ${
-                livePoll
-                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : 'bg-slate-900 border-slate-800 text-slate-400'
-              }`}
-            >
-              <RefreshCw size={13} className={livePoll ? 'animate-spin' : ''} />
-              {livePoll ? 'LIVE' : 'PAUSED'}
-            </button>
+          <div className="flex flex-col md:flex-row gap-2.5 md:items-center">
+            <div className="relative flex-1">
+              <Search
+                size={14}
+                strokeWidth={1.75}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
+              />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t.logs_search_placeholder}
+                className="w-full h-10 bg-[var(--bg-surface)] border border-[var(--border-subtle)] focus:border-[#0C7FF2] rounded-xl pl-9 pr-3 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors duration-150"
+              />
+            </div>
 
-            <button
-              onClick={() => setAutoScroll((v) => !v)}
-              className={`p-2 rounded-lg border transition-colors ${
-                autoScroll
-                  ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
-                  : 'bg-slate-900 border-slate-800 text-slate-400'
-              }`}
-              title="Auto-scroll"
-            >
-              <ArrowDownToLine size={15} />
-            </button>
-
-            <button
-              onClick={() =>
-                copyText(filtered.map(formatLine).join('\n'), 'All logs copied')
-              }
-              disabled={filtered.length === 0}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 font-mono text-xs text-sky-300 flex items-center gap-1.5 disabled:opacity-40"
-            >
-              {copiedMsg ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-              {copiedMsg || 'Copy All'}
-            </button>
-
-            <button
-              onClick={handleClear}
-              className="p-2 rounded-lg bg-slate-900 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-500/40 text-rose-400 transition-colors"
-              title="Clear logs"
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-        </div>
-
-        {/* Search & Level Filter */}
-        <div className="max-w-5xl mx-auto mt-3 flex flex-col sm:flex-row gap-2.5 sm:items-center justify-between">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="grep tag, HTTP status, target..."
-              className="w-full bg-[#0A0D12] border border-slate-800 focus:border-sky-500 rounded-lg pl-9 pr-3 py-1.5 font-mono text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none"
+            <SegmentedControl<LevelFilter>
+              value={levelFilter}
+              onChange={setLevelFilter}
+              className="md:w-[380px]"
+              options={[
+                { value: 'ALL', label: t.logs_level_all },
+                { value: 'E', label: t.logs_level_err },
+                { value: 'W', label: t.logs_level_warn },
+                { value: 'I', label: t.logs_level_info },
+                { value: 'D', label: t.logs_level_debug },
+              ]}
             />
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {(['ALL', 'E', 'W', 'I', 'D'] as const).map((lvl) => (
-              <button
-                key={lvl}
-                onClick={() => setLevelFilter(lvl)}
-                className={`px-2.5 py-1 rounded-md font-mono text-[11px] border transition-colors ${
-                  levelFilter === lvl
-                    ? 'bg-slate-800 border-slate-500 text-white font-bold'
-                    : 'bg-[#0A0D12] border-slate-800 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {lvl === 'ALL' ? `ALL (${logs.length})` : lvl}
-              </button>
-            ))}
+          <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            <ShieldCheck size={13} strokeWidth={1.75} />
+            <span>{t.logs_redacted_notice}</span>
           </div>
-        </div>
-
-        <div className="max-w-5xl mx-auto mt-2 flex items-center gap-1.5 font-mono text-[11px] text-emerald-400/90">
-          <Lock size={11} />
-          <span>Redacted output · session cookies and signed CDN tokens are stripped before display</span>
         </div>
       </header>
 
       {errorMsg && (
-        <div className="max-w-5xl w-full mx-auto mt-3 px-4">
-          <div className="rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 font-mono text-xs text-rose-300">
+        <div className="max-w-5xl w-full mx-auto mt-3 px-4 sm:px-6">
+          <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-600 dark:text-rose-400">
             {errorMsg}
           </div>
         </div>
       )}
 
-      {/* Terminal Output */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-4 py-3 font-mono text-xs leading-relaxed select-text"
+        className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 select-text"
       >
-        <div className="max-w-5xl mx-auto space-y-1">
+        <div className="max-w-5xl mx-auto bg-[var(--bg-surface)] rounded-2xl border border-[var(--border-subtle)] overflow-hidden">
           {filtered.length === 0 ? (
-            <div className="py-20 text-center text-slate-500">
-              No matching log entries.
+            <div className="py-20 text-center text-xs text-[var(--text-muted)]">
+              {t.logs_empty}
             </div>
           ) : (
-            filtered.map((entry) => (
-              <div
-                key={entry.id}
-                onClick={() => copyText(formatLine(entry), 'Line copied')}
-                className="px-2 py-0.5 rounded hover:bg-slate-900/90 cursor-pointer flex gap-2 break-all"
-                title="Click line to copy"
-              >
-                <span className="text-slate-500 shrink-0">
-                  {entry.timestamp.replace('T', ' ').slice(11, 23)}
-                </span>
-                <span className={`${LEVEL_STYLES[entry.level] || 'text-slate-300'} shrink-0`}>
-                  {entry.level}/{entry.tag}:
-                </span>
-                <span className={entry.level === 'E' ? 'text-rose-200' : 'text-slate-200'}>
-                  {entry.message}
-                </span>
-              </div>
-            ))
+            <div className="divide-y divide-[var(--border-subtle)] font-mono text-xs">
+              {filtered.map((entry) => {
+                const isCopied = copiedId === entry.id;
+                return (
+                  <div
+                    key={entry.id}
+                    onClick={() => copyText(formatLine(entry), entry.id)}
+                    className={`px-3.5 py-2.5 flex items-start gap-2.5 cursor-pointer transition-colors duration-150 ${
+                      isCopied
+                        ? 'bg-emerald-500/10'
+                        : 'hover:bg-[var(--bg-subtle)]/70'
+                    }`}
+                  >
+                    <span className="text-[11px] text-[var(--text-muted)] tabular-nums shrink-0 pt-0.5">
+                      {entry.timestamp.replace('T', ' ').slice(11, 23)}
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${
+                        LEVEL_BADGE[entry.level] || LEVEL_BADGE.D
+                      }`}
+                    >
+                      {entry.level}
+                    </span>
+                    <span className="text-[var(--text-secondary)] font-medium shrink-0 pt-0.5">
+                      {entry.tag}
+                    </span>
+                    <span className="text-[var(--text-primary)] break-all leading-relaxed flex-1 pt-0.5">
+                      {entry.message}
+                    </span>
+                    {isCopied && (
+                      <Check size={14} strokeWidth={1.75} className="text-emerald-500 shrink-0 mt-0.5" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmClear}
+        title={t.logs_clear_confirm_title}
+        description={t.logs_clear_confirm_desc}
+        confirmLabel={t.logs_clear}
+        cancelLabel={t.cancel}
+        destructive
+        onConfirm={handleClearConfirmed}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 };

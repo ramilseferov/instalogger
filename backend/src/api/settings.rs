@@ -15,6 +15,7 @@ pub struct SettingsPayload {
     pub enable_termux_api: Option<bool>,
     pub telegram_bot_token: Option<String>,
     pub telegram_chat_id: Option<String>,
+    pub notification_language: Option<String>,
     pub session_cookie: Option<String>,
     pub clear_session_cookie: Option<bool>,
     pub pool_mode: Option<String>,
@@ -58,6 +59,11 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> impl IntoRespon
     let termux = get_bool("enable_termux_api", true);
     let tg_token = state.db.get_setting("telegram_bot_token").unwrap_or(None).unwrap_or_default();
     let tg_chat = state.db.get_setting("telegram_chat_id").unwrap_or(None).unwrap_or_default();
+    let notif_lang = state
+        .db
+        .get_setting("notification_language")
+        .unwrap_or(None)
+        .unwrap_or_else(|| "az".to_string());
     let pool_mode = state
         .db
         .get_setting("pool_mode")
@@ -74,6 +80,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> impl IntoRespon
                 "enable_termux_api": termux,
                 "telegram_bot_token": if tg_token.is_empty() { "" } else { "••••••••" },
                 "telegram_chat_id": tg_chat,
+                "notification_language": notif_lang,
                 "has_session_cookie": session_exists,
                 "pool_mode": pool_mode,
                 "pool_fixed_threshold": get_i64("pool_fixed_threshold", 50),
@@ -104,6 +111,14 @@ pub async fn update_settings(
     }
     if let Some(chat_id) = payload.telegram_chat_id {
         let _ = state.db.set_setting("telegram_chat_id", &chat_id);
+    }
+    if let Some(lang) = payload.notification_language {
+        let normalized = match lang.trim().to_lowercase().as_str() {
+            "en" => "en",
+            "ru" => "ru",
+            _ => "az",
+        };
+        let _ = state.db.set_setting("notification_language", normalized);
     }
     if payload.clear_session_cookie == Some(true) {
         let _ = std::fs::remove_file("sessions/instagram_session.json");
