@@ -72,6 +72,9 @@ class ProfileInspector(
     private val inspectionLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private val archiveMutexMap = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private val lastHighlightTrayCheckMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val lastActiveStoriesCheckMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val lastFriendshipsCheckMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val unfollowedPrivateUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun getSettingsManager(): AppSettingsManager {
         return (context.applicationContext as? InstaLoggerApp)?.settingsManager
@@ -749,24 +752,42 @@ class ProfileInspector(
         // IMMEDIATE DATABASE COMMIT
         targetDao.insertTarget(updatedTarget)
 
-        // Check and archive followers & following lists in background
+        val isUnfollowedPrivate = snapshot.isPrivate && !snapshot.followedByViewer
+        if (isUnfollowedPrivate) {
+            unfollowedPrivateUntilMs[cleanUser] = now + UNFOLLOWED_PRIVATE_COOLDOWN_MS
+        } else if (!snapshot.isPrivate || snapshot.followedByViewer || wasPrivateToPublic) {
+            unfollowedPrivateUntilMs.remove(cleanUser)
+        }
+
+        // Check and archive followers & following lists in background (throttled to prevent HTTP 429)
         val targetId = snapshot.instagramId ?: existing?.instagramId
-        if (!targetId.isNullOrBlank()) {
+        if (!targetId.isNullOrBlank() && !isUnfollowedPrivate) {
             if (!cookie.isNullOrBlank() || wasPrivateToPublic || !snapshot.isPrivate) {
-                inspectFollowersList(cleanUser, targetId, cookie, now, storedFollowersCount, settingsManager.listCompletenessGuardEnabled.value)
-                inspectFollowingList(cleanUser, targetId, cookie, now, storedFollowingCount, settingsManager.listCompletenessGuardEnabled.value)
+                val countsChanged = existing == null ||
+                    storedFollowersCount != existing.followersCount ||
+                    storedFollowingCount != existing.followingCount
+                val lastFriendAt = lastFriendshipsCheckMs[cleanUser] ?: 0L
+                val friendshipDue = wasPrivateToPublic || countsChanged || (now - lastFriendAt >= FRIENDSHIP_REFRESH_INTERVAL_MS)
+                if (friendshipDue) {
+                    lastFriendshipsCheckMs[cleanUser] = now
+                    inspectFollowersList(cleanUser, targetId, cookie, now, storedFollowersCount, settingsManager.listCompletenessGuardEnabled.value)
+                    inspectFollowingList(cleanUser, targetId, cookie, now, storedFollowingCount, settingsManager.listCompletenessGuardEnabled.value)
+                }
             }
         }
 
-        // 8. Auto archive highlights and posts (public profiles always run without session)
-        if (!snapshot.isPrivate || !cookie.isNullOrBlank()) {
+        // 8. Auto archive highlights, active stories and posts (skip unfollowed private accounts)
+        val storyGrew = existing != null && resolvedLatestStoryAt > 0L && resolvedLatestStoryAt > existing.latestStoryAt
+        if (!isUnfollowedPrivate && (!snapshot.isPrivate || !cookie.isNullOrBlank())) {
             archiveHighlightsAndPosts(
                 username = cleanUser,
                 targetId = targetId,
                 cookie = cookie,
                 wasPrivateToPublic = wasPrivateToPublic,
                 isPrivate = snapshot.isPrivate,
-                forceFullPagination = postCountDropped
+                forceFullPagination = postCountDropped,
+                storyGrew = storyGrew,
+                followedByViewer = snapshot.followedByViewer
             )
         } else {
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
@@ -1750,7 +1771,9 @@ class ProfileInspector(
         cookie: String? = null,
         wasPrivateToPublic: Boolean = false,
         isPrivate: Boolean = false,
-        forceFullPagination: Boolean = false
+        forceFullPagination: Boolean = false,
+        storyGrew: Boolean = false,
+        followedByViewer: Boolean = false
     ) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val job = appBackgroundScope.async {
@@ -1760,7 +1783,9 @@ class ProfileInspector(
                 cookie = cookie,
                 wasPrivateToPublic = wasPrivateToPublic,
                 isPrivate = isPrivate,
-                forceFullPagination = forceFullPagination
+                forceFullPagination = forceFullPagination,
+                storyGrew = storyGrew,
+                followedByViewer = followedByViewer
             )
         }
         try {
@@ -1776,7 +1801,9 @@ class ProfileInspector(
         cookie: String? = null,
         wasPrivateToPublic: Boolean = false,
         isPrivate: Boolean = false,
-        forceFullPagination: Boolean = false
+        forceFullPagination: Boolean = false,
+        storyGrew: Boolean = false,
+        followedByViewer: Boolean = false
     ) = withContext(Dispatchers.IO) {
         val archiveMutex = archiveMutexMap.computeIfAbsent(cleanUser) { Mutex() }
         if (!archiveMutex.tryLock()) {
@@ -1797,8 +1824,10 @@ class ProfileInspector(
             importLocalPostsAndHighlights(cleanUser, effectiveTargetId)
             fetchMediaFromLocalDaemon(cleanUser, effectiveTargetId)
 
-            // Private accounts without a session cannot be queried anonymously
-            if (resolvedPrivate && effectiveCookie.isNullOrBlank()) {
+            // Private accounts without a session or not followed by viewer cannot be queried
+            val unfollowedPrivateBlocked = resolvedPrivate && !followedByViewer &&
+                (unfollowedPrivateUntilMs[cleanUser] ?: 0L) > System.currentTimeMillis()
+            if ((resolvedPrivate && effectiveCookie.isNullOrBlank()) || (unfollowedPrivateBlocked && !forceFullPagination && !wasPrivateToPublic)) {
                 _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.REQUIRES_SESSION)
                 return@withContext
             }
@@ -1816,12 +1845,22 @@ class ProfileInspector(
             val (hlCount, fetchedCount) = coroutineScope {
                 val activeStoriesJob = async {
                     try {
-                        if (targetRecord != null) {
-                            syncAndArchiveActiveStoriesInternal(
-                                target = targetRecord.copy(instagramId = effectiveTargetId ?: targetRecord.instagramId),
-                                cookie = effectiveCookie,
-                                notifyChanges = !wasPrivateToPublic
-                            )
+                        if (targetRecord != null && !unfollowedPrivateBlocked) {
+                            val nowStoryMs = System.currentTimeMillis()
+                            val lastStoryAt = lastActiveStoriesCheckMs[cleanUser] ?: 0L
+                            val shouldCheckStories = storyGrew ||
+                                forceFullPagination ||
+                                wasPrivateToPublic ||
+                                lastStoryAt == 0L ||
+                                (nowStoryMs - lastStoryAt >= ACTIVE_STORY_REFRESH_INTERVAL_MS)
+                            if (shouldCheckStories) {
+                                lastActiveStoriesCheckMs[cleanUser] = nowStoryMs
+                                syncAndArchiveActiveStoriesInternal(
+                                    target = targetRecord.copy(instagramId = effectiveTargetId ?: targetRecord.instagramId),
+                                    cookie = effectiveCookie,
+                                    notifyChanges = !wasPrivateToPublic
+                                )
+                            }
                         }
                     } catch (e: Exception) {
                         AppLogger.w("ProfileInspector", "Active stories parallel job failed for @$cleanUser: ${e.message}")
@@ -2067,6 +2106,9 @@ class ProfileInspector(
                             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.RATE_LIMITED)
                         }
                         is PostFetchResult.RequiresSession -> {
+                            if (resolvedPrivate) {
+                                unfollowedPrivateUntilMs[cleanUser] = System.currentTimeMillis() + UNFOLLOWED_PRIVATE_COOLDOWN_MS
+                            }
                             val status = if (resolvedPrivate) PostSyncStatus.REQUIRES_SESSION else PostSyncStatus.FAILED
                             _postSyncState.value = _postSyncState.value + (cleanUser to status)
                         }
@@ -2172,6 +2214,9 @@ class ProfileInspector(
         if (isTargetDeleted(cleanUser)) return@withContext false
         val hasSession = sessionManager.hasSession()
         if (target.isPrivate && !hasSession) return@withContext false
+        if (target.isPrivate && (unfollowedPrivateUntilMs[cleanUser] ?: 0L) > System.currentTimeMillis()) {
+            return@withContext false
+        }
 
         val posts = database.postDao().getPostsListForUser(cleanUser)
         val pendingDownloads = posts.count { post ->
@@ -2520,6 +2565,7 @@ class ProfileInspector(
     suspend fun syncStoriesAndHighlightsNow(username: String) = withContext(Dispatchers.IO) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         lastHighlightTrayCheckMs.remove(cleanUser)
+        lastActiveStoriesCheckMs.remove(cleanUser)
         val target = database.targetDao().getTarget(cleanUser) ?: return@withContext
         val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
         archiveHighlightsAndPosts(
@@ -2528,7 +2574,8 @@ class ProfileInspector(
             cookie = cookie,
             wasPrivateToPublic = false,
             isPrivate = target.isPrivate,
-            forceFullPagination = false
+            forceFullPagination = false,
+            storyGrew = true
         )
     }
 
@@ -2734,5 +2781,8 @@ class ProfileInspector(
     companion object {
         private const val AVATAR_DHASH_THRESHOLD = 6
         private const val HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS = 3L * 60L * 1000L
+        private const val ACTIVE_STORY_REFRESH_INTERVAL_MS = 3L * 60L * 1000L
+        private const val FRIENDSHIP_REFRESH_INTERVAL_MS = 15L * 60L * 1000L
+        private const val UNFOLLOWED_PRIVATE_COOLDOWN_MS = 30L * 60L * 1000L
     }
 }

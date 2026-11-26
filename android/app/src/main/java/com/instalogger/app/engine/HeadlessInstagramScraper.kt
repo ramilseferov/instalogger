@@ -37,6 +37,16 @@ sealed class HeadlessScrapeResult {
     data class Failed(val reason: String) : HeadlessScrapeResult()
 }
 
+data class StoryScrapeResult(
+    val items: List<InstagramHighlightItem>,
+    val authoritative: Boolean = false
+)
+
+data class HighlightTrayScrapeResult(
+    val highlights: List<InstagramHighlight>,
+    val authoritative: Boolean = false
+)
+
 class HeadlessInstagramScraper(context: Context) {
 
     private val appContext = context.applicationContext
@@ -46,6 +56,14 @@ class HeadlessInstagramScraper(context: Context) {
     private val storySemaphore = Semaphore(2)
     private val profileSemaphore = Semaphore(2)
     private val commentSemaphore = Semaphore(1)
+    private val cachedProfileHighlights = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InstagramHighlight>>>()
+
+    fun getCachedHighlights(username: String, maxAgeMs: Long = 10L * 60L * 1000L): List<InstagramHighlight>? {
+        val clean = username.trim().trimStart('@').lowercase()
+        val entry = cachedProfileHighlights[clean] ?: return null
+        if (System.currentTimeMillis() - entry.first > maxAgeMs) return null
+        return entry.second
+    }
 
     suspend fun scrapePublicPosts(username: String, limit: Int = 24): HeadlessScrapeResult {
         val cleanUser = username.trim().trimStart('@').lowercase()
@@ -259,15 +277,31 @@ class HeadlessInstagramScraper(context: Context) {
     suspend fun scrapeStoriesOrHighlight(
         targetUrl: String,
         highlightId: String,
-        cookieString: String?
-    ): List<InstagramHighlightItem> {
+        cookieString: String?,
+        expectedUsername: String? = null,
+        expectedUserId: String? = null
+    ): List<InstagramHighlightItem> = scrapeStoriesOrHighlightDetailed(
+        targetUrl = targetUrl,
+        highlightId = highlightId,
+        cookieString = cookieString,
+        expectedUsername = expectedUsername,
+        expectedUserId = expectedUserId
+    ).items
+
+    suspend fun scrapeStoriesOrHighlightDetailed(
+        targetUrl: String,
+        highlightId: String,
+        cookieString: String?,
+        expectedUsername: String? = null,
+        expectedUserId: String? = null
+    ): StoryScrapeResult {
         AppLogger.i(TAG, "WebView story/highlight intercept start: $targetUrl (id=$highlightId)")
         return storySemaphore.withPermit {
             withTimeoutOrNull(STORY_TIMEOUT_MS) {
-                scrapeStoriesOnce(targetUrl, highlightId, cookieString)
+                scrapeStoriesOnce(targetUrl, highlightId, cookieString, expectedUsername, expectedUserId)
             } ?: run {
                 AppLogger.w(TAG, "WebView story/highlight intercept timed out for $highlightId")
-                emptyList()
+                StoryScrapeResult(emptyList(), authoritative = false)
             }
         }
     }
@@ -276,12 +310,18 @@ class HeadlessInstagramScraper(context: Context) {
     private suspend fun scrapeStoriesOnce(
         targetUrl: String,
         highlightId: String,
-        cookieString: String?
-    ): List<InstagramHighlightItem> = suspendCancellableCoroutine { cont ->
+        cookieString: String?,
+        expectedUsername: String?,
+        expectedUserId: String?
+    ): StoryScrapeResult = suspendCancellableCoroutine { cont ->
         val finished = AtomicBoolean(false)
         val scheduledCallbacks = mutableListOf<Runnable>()
         val collected = linkedMapOf<String, InstagramHighlightItem>()
         var webViewRef: WebView? = null
+        val cleanExpectedUser = expectedUsername?.trim()?.trimStart('@')?.lowercase().orEmpty()
+        val cleanExpectedUid = expectedUserId?.trim().orEmpty()
+        val storyHookJs = buildStoryNetworkHookJs(cleanExpectedUser, cleanExpectedUid, highlightId)
+        val storyExtractJs = buildStoryExtractJs(cleanExpectedUser, cleanExpectedUid, highlightId)
 
         fun destroyWebViewOnMain() {
             scheduledCallbacks.forEach { mainHandler.removeCallbacks(it) }
@@ -300,12 +340,12 @@ class HeadlessInstagramScraper(context: Context) {
             }
         }
 
-        fun finish(items: List<InstagramHighlightItem>, reason: String) {
+        fun finish(items: List<InstagramHighlightItem>, reason: String, authoritative: Boolean = items.isNotEmpty()) {
             if (!finished.compareAndSet(false, true)) return
-            AppLogger.i(TAG, "WebView story/highlight finish ($highlightId): ${items.size} item(s) [$reason]")
+            AppLogger.i(TAG, "WebView story/highlight finish ($highlightId): ${items.size} item(s) auth=$authoritative [$reason]")
             mainHandler.post { destroyWebViewOnMain() }
             if (cont.isActive) {
-                cont.resume(items)
+                cont.resume(StoryScrapeResult(items, authoritative))
             }
         }
 
@@ -363,7 +403,15 @@ class HeadlessInstagramScraper(context: Context) {
                             val obj = gson.fromJson(jsonPayload, JsonObject::class.java) ?: return
                             val status = obj.get("status")?.asString.orEmpty()
                             if (status == "login_wall") {
-                                finish(emptyList(), "login_wall")
+                                finish(emptyList(), "login_wall", authoritative = false)
+                                return
+                            }
+                            if (status == "no_story") {
+                                finish(emptyList(), "redirected_no_story", authoritative = true)
+                                return
+                            }
+                            if (status == "private") {
+                                finish(emptyList(), "private_account", authoritative = false)
                                 return
                             }
                             val arr = obj.getAsJsonArray("items") ?: return
@@ -389,7 +437,7 @@ class HeadlessInstagramScraper(context: Context) {
                             val source = obj.get("source")?.asString ?: "unknown"
                             if (collected.isNotEmpty() && source == "network_json") {
                                 // Structured network JSON gives the entire reel at once — finish cleanly
-                                finish(collected.values.toList(), "network_json")
+                                finish(collected.values.toList(), "network_json", authoritative = true)
                             }
                         } catch (e: Exception) {
                             AppLogger.w(TAG, "Story bridge parse error: ${e.message}")
@@ -412,14 +460,18 @@ class HeadlessInstagramScraper(context: Context) {
                     delays.forEach { delayMs ->
                         val r = Runnable {
                             if (!finished.get()) {
-                                webViewRef?.evaluateJavascript(STORY_EXTRACT_JS, null)
+                                webViewRef?.evaluateJavascript(storyExtractJs, null)
                             }
                         }
                         scheduledCallbacks.add(r)
                         mainHandler.postDelayed(r, delayMs)
                     }
                     val finalTimeout = Runnable {
-                        finish(collected.values.toList(), if (collected.isNotEmpty()) "dom_fallback" else "timeout_empty")
+                        finish(
+                            collected.values.toList(),
+                            if (collected.isNotEmpty()) "dom_fallback" else "timeout_empty",
+                            authoritative = collected.isNotEmpty()
+                        )
                     }
                     scheduledCallbacks.add(finalTimeout)
                     mainHandler.postDelayed(finalTimeout, 9500L)
@@ -433,17 +485,22 @@ class HeadlessInstagramScraper(context: Context) {
 
                     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                         super.onPageStarted(view, url, favicon)
-                        view?.evaluateJavascript(STORY_NETWORK_HOOK_JS, null)
+                        view?.evaluateJavascript(storyHookJs, null)
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         if (finished.get()) return
                         if (url != null && url.contains("/accounts/login")) {
-                            finish(emptyList(), "redirected_to_login")
+                            finish(emptyList(), "redirected_to_login", authoritative = false)
                             return
                         }
-                        view?.evaluateJavascript(STORY_NETWORK_HOOK_JS, null)
+                        // If Instagram immediately redirected /stories/<user>/ back to /<user>/ or /, no active story exists
+                        if (highlightId.startsWith("active_story:") && url != null && !url.lowercase().contains("/stories/")) {
+                            finish(emptyList(), "redirected_no_story", authoritative = true)
+                            return
+                        }
+                        view?.evaluateJavascript(storyHookJs, null)
                         schedulePolls()
                     }
                 }
@@ -451,7 +508,7 @@ class HeadlessInstagramScraper(context: Context) {
                 wv.loadUrl(targetUrl)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "WebView story/highlight init failed", e)
-                finish(emptyList(), "init_exception")
+                finish(emptyList(), "init_exception", authoritative = false)
             }
         }
     }
@@ -576,6 +633,7 @@ class HeadlessInstagramScraper(context: Context) {
                             val fullName = obj.get("fullName")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
                             val bio = obj.get("biography")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText().orEmpty()
                             val isPrivate = obj.get("isPrivate")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
+                            val followedByViewer = obj.get("followedByViewer")?.takeIf { !it.isJsonNull }?.asBoolean ?: false
                             val followers = obj.get("followers")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
                             val following = obj.get("following")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
                             val mediaCount = obj.get("mediaCount")?.takeIf { !it.isJsonNull }?.asLong ?: 0L
@@ -589,6 +647,7 @@ class HeadlessInstagramScraper(context: Context) {
                                 fullName = fullName,
                                 biography = bio,
                                 isPrivate = isPrivate,
+                                followedByViewer = followedByViewer,
                                 followersCount = followers,
                                 followingCount = following,
                                 mediaCount = mediaCount,
@@ -602,6 +661,19 @@ class HeadlessInstagramScraper(context: Context) {
                             }
                         } catch (e: Exception) {
                             AppLogger.w(TAG, "Profile bridge parse error: ${e.message}")
+                        }
+                    }
+
+                    @JavascriptInterface
+                    fun onHighlightsPayload(jsonPayload: String) {
+                        try {
+                            val obj = gson.fromJson(jsonPayload, JsonObject::class.java) ?: return
+                            val arr = obj.getAsJsonArray("items") ?: return
+                            val parsed = parseHighlightArrayFromBridge(arr)
+                            if (parsed.isNotEmpty()) {
+                                cachedProfileHighlights[username] = System.currentTimeMillis() to parsed
+                            }
+                        } catch (_: Exception) {
                         }
                     }
                 }
@@ -656,6 +728,238 @@ class HeadlessInstagramScraper(context: Context) {
             } catch (e: Exception) {
                 AppLogger.e(TAG, "WebView profile init failed for @$username", e)
                 finish(null, "init_exception")
+            }
+        }
+    }
+
+    private fun parseHighlightArrayFromBridge(arr: com.google.gson.JsonArray): List<InstagramHighlight> {
+        val list = mutableListOf<InstagramHighlight>()
+        val seen = hashSetOf<String>()
+        for (el in arr) {
+            val o = el.asJsonObject ?: continue
+            val rawId = o.get("id")?.takeIf { !it.isJsonNull }?.asString?.trim().orEmpty()
+            if (rawId.isBlank()) continue
+            val normalizedId = if (rawId.startsWith("highlight:")) rawId else "highlight:$rawId"
+            if (!seen.add(normalizedId)) continue
+            val title = o.get("title")?.takeIf { !it.isJsonNull }?.asString?.cleanDisplayText()?.ifBlank { "Highlight" } ?: "Highlight"
+            val coverUrl = o.get("coverUrl")?.takeIf { !it.isJsonNull }?.asString?.trim()?.takeIf { it.startsWith("http") }
+            val count = o.get("mediaCount")?.takeIf { !it.isJsonNull }?.asInt ?: 0
+            list.add(
+                InstagramHighlight(
+                    id = normalizedId,
+                    title = title,
+                    coverUrl = coverUrl,
+                    mediaCount = count
+                )
+            )
+        }
+        return list
+    }
+
+    suspend fun scrapeHighlights(
+        username: String,
+        cookieString: String?
+    ): HighlightTrayScrapeResult {
+        val cleanUser = username.trim().trimStart('@').lowercase()
+        if (cleanUser.isBlank()) return HighlightTrayScrapeResult(emptyList(), authoritative = false)
+        AppLogger.i(TAG, "WebView highlights tray intercept start: @$cleanUser")
+        return profileSemaphore.withPermit {
+            withTimeoutOrNull(HIGHLIGHT_TRAY_TIMEOUT_MS) {
+                scrapeHighlightsOnce(cleanUser, cookieString)
+            } ?: run {
+                AppLogger.w(TAG, "WebView highlights tray timed out for @$cleanUser")
+                HighlightTrayScrapeResult(emptyList(), authoritative = false)
+            }
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
+    private suspend fun scrapeHighlightsOnce(
+        username: String,
+        cookieString: String?
+    ): HighlightTrayScrapeResult = suspendCancellableCoroutine { cont ->
+        val finished = AtomicBoolean(false)
+        val scheduledCallbacks = mutableListOf<Runnable>()
+        val collected = linkedMapOf<String, InstagramHighlight>()
+        var webViewRef: WebView? = null
+        var sawTrayNetworkResponse = false
+
+        fun destroyWebViewOnMain() {
+            scheduledCallbacks.forEach { mainHandler.removeCallbacks(it) }
+            scheduledCallbacks.clear()
+            val wv = webViewRef ?: return
+            webViewRef = null
+            try {
+                wv.stopLoading()
+                wv.removeJavascriptInterface(HIGHLIGHTS_BRIDGE_NAME)
+                wv.webViewClient = WebViewClient()
+                wv.loadUrl("about:blank")
+                wv.clearHistory()
+                wv.removeAllViews()
+                wv.destroy()
+            } catch (_: Exception) {
+            }
+        }
+
+        fun finish(items: List<InstagramHighlight>, authoritative: Boolean, reason: String) {
+            if (!finished.compareAndSet(false, true)) return
+            if (items.isNotEmpty()) {
+                cachedProfileHighlights[username] = System.currentTimeMillis() to items
+            }
+            AppLogger.i(TAG, "WebView highlights finish (@$username): ${items.size} tray(s) auth=$authoritative [$reason]")
+            mainHandler.post { destroyWebViewOnMain() }
+            if (cont.isActive) {
+                cont.resume(HighlightTrayScrapeResult(items, authoritative))
+            }
+        }
+
+        cont.invokeOnCancellation {
+            finished.set(true)
+            mainHandler.post { destroyWebViewOnMain() }
+        }
+
+        mainHandler.post {
+            if (finished.get()) return@post
+            try {
+                val cm = CookieManager.getInstance()
+                cm.setAcceptCookie(true)
+                if (!cookieString.isNullOrBlank()) {
+                    for (pair in cookieString.split(";")) {
+                        val trimmed = pair.trim()
+                        if (trimmed.contains("=")) {
+                            cm.setCookie("https://www.instagram.com", "$trimmed; Path=/; Domain=.instagram.com; Secure")
+                        }
+                    }
+                    cm.flush()
+                }
+
+                val wv = WebView(appContext).apply {
+                    visibility = View.INVISIBLE
+                    layoutParams = ViewGroup.LayoutParams(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                    measure(
+                        View.MeasureSpec.makeMeasureSpec(VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY)
+                    )
+                    layout(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
+                }
+                webViewRef = wv
+                cm.setAcceptThirdPartyCookies(wv, true)
+
+                wv.settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    loadsImagesAutomatically = false
+                    blockNetworkImage = true
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    cacheMode = WebSettings.LOAD_DEFAULT
+                    mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    userAgentString = MOBILE_CHROME_UA
+                }
+
+                val hookJs = buildHighlightsNetworkHookJs(username)
+                val extractJs = buildHighlightsExtractJs(username)
+
+                val bridge = object {
+                    @JavascriptInterface
+                    fun onHighlightsPayload(jsonPayload: String) {
+                        if (finished.get()) return
+                        try {
+                            val obj = gson.fromJson(jsonPayload, JsonObject::class.java) ?: return
+                            val status = obj.get("status")?.asString.orEmpty()
+                            if (status == "login_wall") {
+                                finish(emptyList(), authoritative = false, reason = "login_wall")
+                                return
+                            }
+                            if (status == "private") {
+                                finish(emptyList(), authoritative = false, reason = "private_account")
+                                return
+                            }
+                            val source = obj.get("source")?.asString.orEmpty()
+                            val arr = obj.getAsJsonArray("items")
+                            if (arr != null) {
+                                val parsed = parseHighlightArrayFromBridge(arr)
+                                synchronized(collected) {
+                                    for (hl in parsed) {
+                                        val prev = collected[hl.id]
+                                        if (prev == null) {
+                                            collected[hl.id] = hl
+                                        } else {
+                                            collected[hl.id] = prev.copy(
+                                                title = if (prev.title == "Highlight" && hl.title != "Highlight") hl.title else prev.title,
+                                                coverUrl = prev.coverUrl ?: hl.coverUrl,
+                                                mediaCount = maxOf(prev.mediaCount, hl.mediaCount)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            if (source == "network_json") {
+                                sawTrayNetworkResponse = true
+                                val snap = synchronized(collected) { collected.values.toList() }
+                                if (snap.isNotEmpty()) {
+                                    finish(snap, authoritative = true, reason = "network_json")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Highlights bridge parse error: ${e.message}")
+                        }
+                    }
+                }
+
+                wv.addJavascriptInterface(bridge, HIGHLIGHTS_BRIDGE_NAME)
+
+                var pollsScheduled = false
+                fun schedulePolls() {
+                    if (pollsScheduled || finished.get()) return
+                    pollsScheduled = true
+                    val delays = longArrayOf(1200L, 2600L, 4400L)
+                    delays.forEach { d ->
+                        val r = Runnable {
+                            if (!finished.get()) {
+                                webViewRef?.evaluateJavascript(extractJs, null)
+                            }
+                        }
+                        scheduledCallbacks.add(r)
+                        mainHandler.postDelayed(r, d)
+                    }
+                    val finalTimeout = Runnable {
+                        val snap = synchronized(collected) { collected.values.toList() }
+                        val auth = snap.isNotEmpty() || sawTrayNetworkResponse
+                        finish(snap, authoritative = auth, reason = if (snap.isNotEmpty()) "dom_or_ssr" else if (sawTrayNetworkResponse) "confirmed_empty" else "timeout_empty")
+                    }
+                    scheduledCallbacks.add(finalTimeout)
+                    mainHandler.postDelayed(finalTimeout, 6200L)
+                }
+
+                wv.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        val scheme = request?.url?.scheme?.lowercase() ?: return false
+                        return scheme != "http" && scheme != "https"
+                    }
+
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        super.onPageStarted(view, url, favicon)
+                        view?.evaluateJavascript(hookJs, null)
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        if (finished.get()) return
+                        if (url != null && url.contains("/accounts/login")) {
+                            finish(emptyList(), authoritative = false, reason = "redirected_to_login")
+                            return
+                        }
+                        view?.evaluateJavascript(hookJs, null)
+                        schedulePolls()
+                    }
+                }
+
+                wv.loadUrl("https://www.instagram.com/$username/")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "WebView highlights init failed for @$username", e)
+                finish(emptyList(), authoritative = false, reason = "init_exception")
             }
         }
     }
@@ -1183,10 +1487,12 @@ class HeadlessInstagramScraper(context: Context) {
         private const val STORY_BRIDGE_NAME = "StoryBridge"
         private const val PAGINATED_BRIDGE_NAME = "PaginatedPostsBridge"
         private const val PROFILE_BRIDGE_NAME = "ProfileBridge"
+        private const val HIGHLIGHTS_BRIDGE_NAME = "HighlightsBridge"
         private const val COMMENTS_BRIDGE_NAME = "CommentsBridge"
         private const val TOTAL_TIMEOUT_MS = 22_000L
         private const val STORY_TIMEOUT_MS = 16_000L
         private const val PROFILE_TIMEOUT_MS = 15_000L
+        private const val HIGHLIGHT_TRAY_TIMEOUT_MS = 11_000L
         private const val PAGINATED_TIMEOUT_MS = 95_000L
         private const val COMMENTS_TIMEOUT_MS = 38_000L
 
@@ -1210,11 +1516,32 @@ class HeadlessInstagramScraper(context: Context) {
                     }
 
                     function inspectJsonText(text, source) {
-                        if (!text || text.length < 40 || text.toLowerCase().indexOf(TARGET) === -1) return;
+                        if (!text || text.length < 40) return;
                         try {
-                            const root = JSON.parse(text);
+                            const cleaned = String(text).replace(/^\s*for\s*\(\s*;\s*;\s*\)\s*;\s*/, '').trim();
+                            const root = JSON.parse(cleaned);
                             let best = null;
                             let bestScore = -1;
+                            const hlFound = [];
+                            const hlSeen = new Set();
+                            function pushHl(node) {
+                                if (!node || typeof node !== 'object') return;
+                                const rawId = String(node.id || node.pk || '').trim();
+                                if (!rawId) return;
+                                if (rawId.indexOf('highlight:') !== 0 && node.reel_type !== 'highlight_reel') return;
+                                if (hlSeen.has(rawId)) return;
+                                hlSeen.add(rawId);
+                                const cover = node.cover_media_cropped_thumbnail_url ||
+                                    (node.cover_media && node.cover_media.cropped_image_version && node.cover_media.cropped_image_version.url) ||
+                                    (node.cover_media && node.cover_media.thumbnail_src) ||
+                                    (node.cover_media_cropped_thumbnail && node.cover_media_cropped_thumbnail.url) || '';
+                                hlFound.push({
+                                    id: rawId,
+                                    title: node.title || 'Highlight',
+                                    coverUrl: cover,
+                                    mediaCount: Number(node.media_count || 0) || 0
+                                });
+                            }
                             function walk(n) {
                                 if (!n || typeof n !== 'object') return;
                                 if (Array.isArray(n)) { n.forEach(walk); return; }
@@ -1222,15 +1549,31 @@ class HeadlessInstagramScraper(context: Context) {
                                     const sc = scoreUser(n);
                                     if (sc > bestScore) { bestScore = sc; best = n; }
                                 }
+                                if (n.lox_highlights_connection && Array.isArray(n.lox_highlights_connection.edges)) {
+                                    n.lox_highlights_connection.edges.forEach(function(e) { if (e && e.node) pushHl(e.node); });
+                                }
+                                if (n.edge_highlight_reels && Array.isArray(n.edge_highlight_reels.edges)) {
+                                    n.edge_highlight_reels.edges.forEach(function(e) { if (e && e.node) pushHl(e.node); });
+                                }
+                                if (n.highlights && Array.isArray(n.highlights.edges)) {
+                                    n.highlights.edges.forEach(function(e) { if (e && e.node) pushHl(e.node); });
+                                }
+                                if (Array.isArray(n.tray)) {
+                                    n.tray.forEach(pushHl);
+                                }
                                 Object.keys(n).forEach(function(k) { walk(n[k]); });
                             }
                             walk(root);
+                            if (hlFound.length > 0 && window.ProfileBridge && window.ProfileBridge.onHighlightsPayload) {
+                                window.ProfileBridge.onHighlightsPayload(JSON.stringify({ items: hlFound }));
+                            }
                             if (best && bestScore >= 4 && window.ProfileBridge) {
                                 const pk = (best.pk && /^\d+$/.test(String(best.pk))) ? String(best.pk) : ((best.id && /^\d+$/.test(String(best.id))) ? String(best.id) : '');
                                 const followers = Number(best.follower_count !== undefined ? best.follower_count : (best.edge_followed_by ? best.edge_followed_by.count : 0)) || 0;
                                 const following = Number(best.following_count !== undefined ? best.following_count : (best.edge_follow ? best.edge_follow.count : 0)) || 0;
                                 const mediaCount = Number(best.media_count !== undefined ? best.media_count : (best.edge_owner_to_timeline_media ? best.edge_owner_to_timeline_media.count : 0)) || 0;
                                 const picUrl = (best.hd_profile_pic_url_info && best.hd_profile_pic_url_info.url) || best.profile_pic_url_hd || best.profile_pic_url || '';
+                                const followedByViewer = !!(best.followed_by_viewer || (best.friendship_status && best.friendship_status.following));
                                 window.ProfileBridge.onProfilePayload(JSON.stringify({
                                     status: 'ok',
                                     source: source,
@@ -1239,6 +1582,7 @@ class HeadlessInstagramScraper(context: Context) {
                                     fullName: best.full_name || '',
                                     biography: best.biography || '',
                                     isPrivate: !!best.is_private,
+                                    followedByViewer: followedByViewer,
                                     followers: followers,
                                     following: following,
                                     mediaCount: mediaCount,
@@ -1257,7 +1601,7 @@ class HeadlessInstagramScraper(context: Context) {
                             const url = (arguments[0] && typeof arguments[0] === 'string') ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
                             return origFetch.apply(this, arguments).then(function(resp) {
                                 try {
-                                    if (url.indexOf('graphql') !== -1 || url.indexOf('web_profile_info') !== -1 || url.indexOf('users/') !== -1) {
+                                    if (url.indexOf('graphql') !== -1 || url.indexOf('web_profile_info') !== -1 || url.indexOf('users/') !== -1 || url.indexOf('highlights') !== -1) {
                                         resp.clone().text().then(function(t) { inspectJsonText(t, 'fetch_json'); }).catch(function(){});
                                     }
                                 } catch (_) {}
@@ -1276,13 +1620,191 @@ class HeadlessInstagramScraper(context: Context) {
                         this.addEventListener('load', function() {
                             try {
                                 const u = this.__igProfUrl || '';
-                                if (u.indexOf('graphql') !== -1 || u.indexOf('web_profile_info') !== -1 || u.indexOf('users/') !== -1) {
+                                if (u.indexOf('graphql') !== -1 || u.indexOf('web_profile_info') !== -1 || u.indexOf('users/') !== -1 || u.indexOf('highlights') !== -1) {
                                     inspectJsonText(this.responseText || '', 'xhr_json');
                                 }
                             } catch (_) {}
                         });
                         return origSend.apply(this, arguments);
                     };
+                })();
+            """.trimIndent()
+        }
+
+        private fun buildHighlightsNetworkHookJs(targetUsername: String): String {
+            val safeTarget = targetUsername.replace("'", "").lowercase()
+            return """
+                (function() {
+                    if (window.__igHlHookInstalled) return;
+                    window.__igHlHookInstalled = true;
+                    const TARGET = '$safeTarget';
+
+                    function parsePayloads(raw) {
+                        const cleaned = String(raw || '').replace(/^\s*for\s*\(\s*;\s*;\s*\)\s*;\s*/, '').trim();
+                        if (!cleaned) return [];
+                        try { return [JSON.parse(cleaned)]; } catch (_) {}
+                        const out = [];
+                        cleaned.split(/\r?\n/).forEach(function(line) {
+                            const l = line.trim();
+                            if (l.length > 2 && l[0] === '{') {
+                                try { out.push(JSON.parse(l)); } catch (_) {}
+                            }
+                        });
+                        return out;
+                    }
+
+                    function inspectHighlightText(text, source) {
+                        if (!text || text.length < 30) return;
+                        const hasHlSignal = text.indexOf('highlight:') !== -1 ||
+                            text.indexOf('highlights_tray') !== -1 ||
+                            text.indexOf('lox_highlights_connection') !== -1 ||
+                            text.indexOf('edge_highlight_reels') !== -1 ||
+                            text.indexOf('highlight_reel') !== -1;
+                        if (!hasHlSignal) return;
+                        const payloads = parsePayloads(text);
+                        const found = [];
+                        const seen = new Set();
+                        let sawHighlightTrayField = false;
+
+                        function pushNode(node) {
+                            if (!node || typeof node !== 'object') return;
+                            const rawId = String(node.id || node.pk || '').trim();
+                            if (!rawId) return;
+                            const isHl = rawId.indexOf('highlight:') === 0 || node.reel_type === 'highlight_reel' || /^\d{15,22}$/.test(rawId);
+                            if (!isHl) return;
+                            const normId = rawId.indexOf('highlight:') === 0 ? rawId : ('highlight:' + rawId);
+                            if (seen.has(normId)) return;
+                            seen.add(normId);
+                            const cover = node.cover_media_cropped_thumbnail_url ||
+                                (node.cover_media && node.cover_media.cropped_image_version && node.cover_media.cropped_image_version.url) ||
+                                (node.cover_media && node.cover_media.full_image_version && node.cover_media.full_image_version.url) ||
+                                (node.cover_media && node.cover_media.thumbnail_src) ||
+                                (node.cover_media_cropped_thumbnail && node.cover_media_cropped_thumbnail.url) || '';
+                            found.push({
+                                id: normId,
+                                title: node.title || 'Highlight',
+                                coverUrl: cover,
+                                mediaCount: Number(node.media_count || 0) || 0
+                            });
+                        }
+
+                        function walk(n) {
+                            if (!n || typeof n !== 'object') return;
+                            if (Array.isArray(n)) { n.forEach(walk); return; }
+                            const edgeKeys = ['lox_highlights_connection', 'edge_highlight_reels', 'highlights', 'xdt_api__v1__highlights__highlights_tray__connection'];
+                            for (let i = 0; i < edgeKeys.length; i++) {
+                                const conn = n[edgeKeys[i]];
+                                if (conn && Array.isArray(conn.edges)) {
+                                    sawHighlightTrayField = true;
+                                    conn.edges.forEach(function(e) { if (e && e.node) pushNode(e.node); });
+                                }
+                            }
+                            if (n.xdt_api__v1__highlights__highlights_tray && Array.isArray(n.xdt_api__v1__highlights__highlights_tray.tray)) {
+                                sawHighlightTrayField = true;
+                                n.xdt_api__v1__highlights__highlights_tray.tray.forEach(pushNode);
+                            }
+                            if (Array.isArray(n.tray)) {
+                                n.tray.forEach(function(it) {
+                                    if (it && (String(it.id || '').indexOf('highlight:') === 0 || it.reel_type === 'highlight_reel')) {
+                                        sawHighlightTrayField = true;
+                                        pushNode(it);
+                                    }
+                                });
+                            }
+                            Object.keys(n).forEach(function(k) { walk(n[k]); });
+                        }
+
+                        payloads.forEach(function(p) { try { walk(p); } catch (_) {} });
+                        if ((found.length > 0 || sawHighlightTrayField) && window.HighlightsBridge) {
+                            window.HighlightsBridge.onHighlightsPayload(JSON.stringify({
+                                status: 'ok',
+                                source: source,
+                                items: found
+                            }));
+                        }
+                    }
+
+                    window.__igInspectHighlightJson = inspectHighlightText;
+
+                    const origFetch = window.fetch;
+                    if (origFetch) {
+                        window.fetch = function() {
+                            const url = (arguments[0] && typeof arguments[0] === 'string') ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
+                            return origFetch.apply(this, arguments).then(function(resp) {
+                                try {
+                                    if (url.indexOf('graphql') !== -1 || url.indexOf('highlights') !== -1 || url.indexOf('web_profile_info') !== -1) {
+                                        resp.clone().text().then(function(t) { inspectHighlightText(t, 'network_json'); }).catch(function(){});
+                                    }
+                                } catch (_) {}
+                                return resp;
+                            });
+                        };
+                    }
+
+                    const origOpen = XMLHttpRequest.prototype.open;
+                    const origSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.__igHlUrl = String(url || '');
+                        return origOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function() {
+                        this.addEventListener('load', function() {
+                            try {
+                                const u = this.__igHlUrl || '';
+                                if (u.indexOf('graphql') !== -1 || u.indexOf('highlights') !== -1 || u.indexOf('web_profile_info') !== -1) {
+                                    inspectHighlightText(this.responseText || '', 'network_json');
+                                }
+                            } catch (_) {}
+                        });
+                        return origSend.apply(this, arguments);
+                    };
+                })();
+            """.trimIndent()
+        }
+
+        private fun buildHighlightsExtractJs(targetUsername: String): String {
+            val safeTarget = targetUsername.replace("'", "").lowercase()
+            return """
+                (function() {
+                    try {
+                        const href = window.location.href || '';
+                        if (href.indexOf('/accounts/login') !== -1) {
+                            if (window.HighlightsBridge) window.HighlightsBridge.onHighlightsPayload(JSON.stringify({ status: 'login_wall', items: [] }));
+                            return;
+                        }
+                        const bodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+                        if (/this account is private|bu hesab gizlidir|это закрытый аккаунт|follow to see their photos/i.test(bodyText)) {
+                            if (window.HighlightsBridge) window.HighlightsBridge.onHighlightsPayload(JSON.stringify({ status: 'private', items: [] }));
+                            return;
+                        }
+                        if (typeof window.__igInspectHighlightJson === 'function') {
+                            document.querySelectorAll('script[type="application/json"]').forEach(function(s) {
+                                const t = s.textContent || '';
+                                if (t.indexOf('highlight') !== -1) {
+                                    window.__igInspectHighlightJson(t, 'ssr_script');
+                                }
+                            });
+                        }
+                        // Also scan rendered highlight links in DOM
+                        const domItems = [];
+                        const seen = new Set();
+                        document.querySelectorAll('a[href*="/stories/highlights/"]').forEach(function(a) {
+                            const h = a.getAttribute('href') || '';
+                            const m = h.match(/\/stories\/highlights\/(\d+)/);
+                            if (!m) return;
+                            const id = 'highlight:' + m[1];
+                            if (seen.has(id)) return;
+                            seen.add(id);
+                            const img = a.querySelector('img');
+                            const cover = img ? (img.currentSrc || img.src || '') : '';
+                            const rawText = (a.innerText || (img && img.alt) || '').trim();
+                            const title = rawText ? rawText.split(/\r?\n/)[0].trim().slice(0, 48) : 'Highlight';
+                            domItems.push({ id: id, title: title || 'Highlight', coverUrl: cover, mediaCount: 0 });
+                        });
+                        if (domItems.length > 0 && window.HighlightsBridge) {
+                            window.HighlightsBridge.onHighlightsPayload(JSON.stringify({ status: 'ok', source: 'dom_links', items: domItems }));
+                        }
+                    } catch (_) {}
                 })();
             """.trimIndent()
         }
@@ -1604,52 +2126,127 @@ class HeadlessInstagramScraper(context: Context) {
             """.trimIndent()
         }
 
-        private val STORY_NETWORK_HOOK_JS = """
+        private fun buildStoryNetworkHookJs(
+            expectedUsername: String,
+            expectedUserId: String,
+            highlightId: String
+        ): String {
+            val safeUser = expectedUsername.replace("'", "").trim().trimStart('@').lowercase()
+            val safeUid = expectedUserId.replace("'", "").trim()
+            val isHighlight = highlightId.startsWith("highlight:")
+            val hlNum = if (isHighlight) highlightId.removePrefix("highlight:").replace("'", "").trim() else ""
+            return """
             (function() {
                 if (window.__igStoryHookInstalled) return;
                 window.__igStoryHookInstalled = true;
+                const EXP_USER = '$safeUser';
+                const EXP_UID = '$safeUid';
+                const IS_HL = ${if (isHighlight) "true" else "false"};
+                const HL_NUM = '$hlNum';
+
+                function isAdItem(it) {
+                    if (!it || typeof it !== 'object') return true;
+                    return !!(it.ad_id || it.fb_ad_id || it.is_ad === true || it.is_sponsored === true || it.injected);
+                }
+
+                function matchesTargetReel(reelNode) {
+                    if (!reelNode || typeof reelNode !== 'object') return false;
+                    const rid = String(reelNode.id || reelNode.pk || '');
+                    if (IS_HL) {
+                        if (HL_NUM && (rid === ('highlight:' + HL_NUM) || rid === HL_NUM || rid.indexOf(HL_NUM) !== -1)) return true;
+                        if (reelNode.reel_type === 'highlight_reel' && (!HL_NUM || rid.indexOf(HL_NUM) !== -1)) return true;
+                        return false;
+                    }
+                    // Active story mode: reject highlight reels and unrelated users
+                    if (rid.indexOf('highlight:') === 0 || reelNode.reel_type === 'highlight_reel') return false;
+                    const u = reelNode.user || reelNode.owner || null;
+                    const uname = (u && u.username) ? String(u.username).trim().toLowerCase() : '';
+                    const uid = String((u && (u.pk || u.id)) || rid || '');
+                    if (EXP_USER && uname) {
+                        return uname === EXP_USER;
+                    }
+                    if (EXP_UID && uid) {
+                        return uid === EXP_UID;
+                    }
+                    return false;
+                }
+
+                function itemMatchesTarget(it) {
+                    if (IS_HL) return true;
+                    const u = it.user || it.owner || null;
+                    const uname = (u && u.username) ? String(u.username).trim().toLowerCase() : '';
+                    const uid = String((u && (u.pk || u.id)) || '');
+                    if (EXP_USER && uname) return uname === EXP_USER;
+                    if (EXP_UID && uid) return uid === EXP_UID;
+                    return false;
+                }
 
                 function extractItemsFromJsonText(text, endpoint) {
                     if (!text || text.length < 40) return;
+                    if (endpoint && (endpoint.indexOf('feed/timeline') !== -1 || endpoint.indexOf('reels_tray') !== -1)) return;
                     if (text.indexOf('video_versions') === -1 &&
                         text.indexOf('image_versions2') === -1 &&
                         text.indexOf('reels_media') === -1) return;
                     try {
-                        const data = JSON.parse(text);
+                        const cleaned = String(text).replace(/^\s*for\s*\(\s*;\s*;\s*\)\s*;\s*/, '').trim();
+                        const data = JSON.parse(cleaned);
                         const found = [];
                         const seen = new Set();
+                        let skippedForeign = 0;
+
+                        function pushItem(it) {
+                            if (!it || typeof it !== 'object' || isAdItem(it)) return;
+                            const pk = String(it.pk || it.id || '');
+                            const vid = (Array.isArray(it.video_versions) && it.video_versions[0] && it.video_versions[0].url) ? it.video_versions[0].url : '';
+                            const img = (it.image_versions2 && Array.isArray(it.image_versions2.candidates) && it.image_versions2.candidates[0] && it.image_versions2.candidates[0].url) ? it.image_versions2.candidates[0].url : '';
+                            const isVid = !!vid || it.media_type === 2 || it.is_video === true;
+                            const url = isVid && vid ? vid : img;
+                            if (!url) return;
+                            const key = pk || url;
+                            if (seen.has(key)) return;
+                            seen.add(key);
+                            found.push({
+                                id: pk || ('item_' + found.length),
+                                type: isVid ? 'video' : 'image',
+                                url: url,
+                                takenAt: Number(it.taken_at || it.taken_at_timestamp || 0)
+                            });
+                        }
+
                         function walk(node) {
                             if (!node || typeof node !== 'object') return;
                             if (Array.isArray(node)) { node.forEach(walk); return; }
                             if (Array.isArray(node.items)) {
-                                node.items.forEach(function(it) {
-                                    if (!it || typeof it !== 'object') return;
-                                    const pk = String(it.pk || it.id || '');
-                                    const vid = (Array.isArray(it.video_versions) && it.video_versions[0] && it.video_versions[0].url) ? it.video_versions[0].url : '';
-                                    const img = (it.image_versions2 && Array.isArray(it.image_versions2.candidates) && it.image_versions2.candidates[0] && it.image_versions2.candidates[0].url) ? it.image_versions2.candidates[0].url : '';
-                                    const isVid = !!vid || it.media_type === 2 || it.is_video === true;
-                                    const url = isVid && vid ? vid : img;
-                                    if (!url) return;
-                                    const key = pk || url;
-                                    if (seen.has(key)) return;
-                                    seen.add(key);
-                                    found.push({
-                                        id: pk || ('item_' + found.length),
-                                        type: isVid ? 'video' : 'image',
-                                        url: url,
-                                        takenAt: Number(it.taken_at || it.taken_at_timestamp || 0)
+                                if (matchesTargetReel(node)) {
+                                    node.items.forEach(pushItem);
+                                } else {
+                                    // Check if individual items explicitly match target (and skip foreign reels)
+                                    let anyMatched = false;
+                                    node.items.forEach(function(it) {
+                                        if (it && typeof it === 'object' && itemMatchesTarget(it)) {
+                                            anyMatched = true;
+                                            pushItem(it);
+                                        }
                                     });
-                                });
+                                    if (!anyMatched && node.items.length > 0) skippedForeign += node.items.length;
+                                }
                             }
-                            Object.keys(node).forEach(function(k) { walk(node[k]); });
+                            Object.keys(node).forEach(function(k) {
+                                if (k === 'feed_items' || k === 'xdt_api__v1__feed__timeline__connection') return;
+                                walk(node[k]);
+                            });
                         }
                         walk(data);
                         if (found.length > 0 && window.StoryBridge) {
-                            window.StoryBridge.onDebugLog('Intercepted ' + found.length + ' items from ' + endpoint);
+                            window.StoryBridge.onDebugLog('Intercepted ' + found.length + ' target item(s) (foreignSkip=' + skippedForeign + ') from ' + endpoint);
                             window.StoryBridge.onStoryPayload(JSON.stringify({ status: 'ok', source: 'network_json', items: found }));
+                        } else if (skippedForeign > 0 && window.StoryBridge) {
+                            window.StoryBridge.onDebugLog('Rejected ' + skippedForeign + ' unrelated story item(s) from ' + endpoint);
                         }
                     } catch (_) {}
                 }
+
+                window.__igExtractStoryJson = extractItemsFromJsonText;
 
                 const origFetch = window.fetch;
                 if (origFetch) {
@@ -1657,7 +2254,8 @@ class HeadlessInstagramScraper(context: Context) {
                         const url = (arguments[0] && typeof arguments[0] === 'string') ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
                         return origFetch.apply(this, arguments).then(function(resp) {
                             try {
-                                if (url.indexOf('graphql') !== -1 || url.indexOf('reels_media') !== -1 || url.indexOf('story') !== -1) {
+                                if (url.indexOf('reels_tray') === -1 && url.indexOf('feed/timeline') === -1 &&
+                                    (url.indexOf('graphql') !== -1 || url.indexOf('reels_media') !== -1 || url.indexOf('story') !== -1)) {
                                     resp.clone().text().then(function(t) { extractItemsFromJsonText(t, url.slice(0, 80)); }).catch(function(){});
                                 }
                             } catch (_) {}
@@ -1676,7 +2274,8 @@ class HeadlessInstagramScraper(context: Context) {
                     this.addEventListener('load', function() {
                         try {
                             const u = this.__igUrl || '';
-                            if (u.indexOf('graphql') !== -1 || u.indexOf('reels_media') !== -1 || u.indexOf('story') !== -1) {
+                            if (u.indexOf('reels_tray') === -1 && u.indexOf('feed/timeline') === -1 &&
+                                (u.indexOf('graphql') !== -1 || u.indexOf('reels_media') !== -1 || u.indexOf('story') !== -1)) {
                                 extractItemsFromJsonText(this.responseText || '', u.slice(0, 80));
                             }
                         } catch (_) {}
@@ -1684,16 +2283,44 @@ class HeadlessInstagramScraper(context: Context) {
                     return origSend.apply(this, arguments);
                 };
             })();
-        """.trimIndent()
+            """.trimIndent()
+        }
 
-        private val STORY_EXTRACT_JS = """
+        private fun buildStoryExtractJs(
+            expectedUsername: String,
+            expectedUserId: String,
+            highlightId: String
+        ): String {
+            val safeUser = expectedUsername.replace("'", "").trim().trimStart('@').lowercase()
+            val isHighlight = highlightId.startsWith("highlight:")
+            val hlNum = if (isHighlight) highlightId.removePrefix("highlight:").replace("'", "").trim() else ""
+            return """
             (function() {
                 try {
+                    const EXP_USER = '$safeUser';
+                    const IS_HL = ${if (isHighlight) "true" else "false"};
+                    const HL_NUM = '$hlNum';
                     const href = window.location.href || '';
+                    const path = (window.location.pathname || '').toLowerCase();
                     if (href.indexOf('/accounts/login') !== -1) {
                         if (window.StoryBridge) window.StoryBridge.onStoryPayload(JSON.stringify({ status: 'login_wall', items: [] }));
                         return;
                     }
+                    const bodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+                    if (/this account is private|bu hesab gizlidir|это закрытый аккаунт/i.test(bodyText)) {
+                        if (window.StoryBridge) window.StoryBridge.onStoryPayload(JSON.stringify({ status: 'private', items: [] }));
+                        return;
+                    }
+                    // Verify we are still on the target story/highlight URL; if redirected away -> no active story
+                    if (!IS_HL) {
+                        if (path.indexOf('/stories/') !== 0 || (EXP_USER && path.indexOf('/stories/' + EXP_USER) !== 0)) {
+                            if (window.StoryBridge) window.StoryBridge.onStoryPayload(JSON.stringify({ status: 'no_story', items: [] }));
+                            return;
+                        }
+                    } else if (HL_NUM && path.indexOf('/stories/highlights/' + HL_NUM) !== 0 && path.indexOf('/stories/') !== 0) {
+                        return;
+                    }
+
                     // Click "View story" / "Hekayəyə bax" button if Instagram shows an interstitial gate
                     try {
                         const buttons = document.querySelectorAll('button, div[role="button"]');
@@ -1706,44 +2333,18 @@ class HeadlessInstagramScraper(context: Context) {
                         }
                     } catch (_) {}
 
-                    const found = [];
+                    // 1. Scan embedded JSON scripts using the strict ownership-filtered extractor
+                    if (typeof window.__igExtractStoryJson === 'function') {
+                        document.querySelectorAll('script[type="application/json"]').forEach(function(s) {
+                            const txt = s.textContent || '';
+                            if (txt.indexOf('reels_media') !== -1 || txt.indexOf('video_versions') !== -1 || txt.indexOf('image_versions2') !== -1) {
+                                window.__igExtractStoryJson(txt, 'ssr_script');
+                            }
+                        });
+                    }
+
+                    // 2. Scan rendered <video> and story <img> elements ONLY while URL matches target story/highlight
                     const seen = new Set();
-
-                    // 1. Scan embedded JSON scripts
-                    const scripts = document.querySelectorAll('script[type="application/json"]');
-                    function walk(node) {
-                        if (!node || typeof node !== 'object') return;
-                        if (Array.isArray(node)) { node.forEach(walk); return; }
-                        if (Array.isArray(node.items)) {
-                            node.items.forEach(function(it) {
-                                if (!it || typeof it !== 'object') return;
-                                const pk = String(it.pk || it.id || '');
-                                const vid = (Array.isArray(it.video_versions) && it.video_versions[0] && it.video_versions[0].url) ? it.video_versions[0].url : '';
-                                const img = (it.image_versions2 && Array.isArray(it.image_versions2.candidates) && it.image_versions2.candidates[0] && it.image_versions2.candidates[0].url) ? it.image_versions2.candidates[0].url : '';
-                                const isVid = !!vid || it.media_type === 2 || it.is_video === true;
-                                const url = isVid && vid ? vid : img;
-                                if (!url) return;
-                                const key = pk || url;
-                                if (seen.has(key)) return;
-                                seen.add(key);
-                                found.push({ id: pk || ('ssr_' + found.length), type: isVid ? 'video' : 'image', url: url, takenAt: Number(it.taken_at || 0) });
-                            });
-                        }
-                        Object.keys(node).forEach(function(k) { walk(node[k]); });
-                    }
-                    scripts.forEach(function(s) {
-                        const txt = s.textContent || '';
-                        if (txt.indexOf('reels_media') !== -1 || txt.indexOf('video_versions') !== -1 || txt.indexOf('image_versions2') !== -1) {
-                            try { walk(JSON.parse(txt)); } catch (_) {}
-                        }
-                    });
-
-                    if (found.length > 0 && window.StoryBridge) {
-                        window.StoryBridge.onStoryPayload(JSON.stringify({ status: 'ok', source: 'network_json', items: found }));
-                        return;
-                    }
-
-                    // 2. Scan rendered <video> and story <img> elements
                     const domItems = [];
                     document.querySelectorAll('video').forEach(function(v) {
                         const src = v.currentSrc || v.src || (v.querySelector('source') ? v.querySelector('source').src : '');
@@ -1770,7 +2371,8 @@ class HeadlessInstagramScraper(context: Context) {
                     if (window.StoryBridge) window.StoryBridge.onDebugLog('extract error: ' + String(e));
                 }
             })();
-        """.trimIndent()
+            """.trimIndent()
+        }
 
         private fun buildExtractionJs(targetUsername: String): String {
             val safeTarget = targetUsername.replace("'", "").trim().trimStart('@').lowercase()
