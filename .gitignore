@@ -35,8 +35,15 @@ captures/
 
 # Keystores & local secrets
 debug.keystore
+debug.keystore.base64
+*.jks
+*.keystore
+*.pem
+*.key
 .env
-.env.local
+.env.*
+.github-token
+/.github-token
 
 # Sensitive user session data and local media
 sessions/*.json
@@ -55,6 +62,7 @@ Thumbs.db
 .vscode/
 .aistudio/
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
@@ -64,6 +72,7 @@ __pycache__/
 *~
 .superpowers/
 
-# Local custom build and release scripts (do not upload to github)
+# Local personal remote-build wrapper and AI instruction files
 build.sh
-scripts/
+GEMINI.md
+/GEMINI.md
