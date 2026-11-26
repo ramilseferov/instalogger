@@ -96,7 +96,7 @@ class ProfileInspector(
 
         var notifId = timestamp
 
-        if (settings == null || settings.inAppNotifications.value) {
+        if (settings == null || settings.isInAppNotificationAllowed(eventType, targetUsername)) {
             notifId = database.notificationDao().insertNotification(
                 NotificationEntity(
                     targetId = targetUsername,
@@ -113,7 +113,8 @@ class ProfileInspector(
             id = notifId,
             title = title,
             message = message,
-            eventType = eventType
+            eventType = eventType,
+            targetUsername = targetUsername
         )
         onAlertNotification(title, message)
     }

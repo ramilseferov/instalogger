@@ -4,13 +4,20 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,8 +28,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,7 +44,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -40,12 +57,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.engine.pool.FollowerPoolMode
 import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
+import com.instalogger.app.settings.NotificationEventKey
+import com.instalogger.app.settings.NotificationTreeGroup
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
@@ -82,6 +102,16 @@ fun NotificationSettingsBottomSheet(
 
     var fixedInputText by remember(poolFixed) { mutableStateOf(poolFixed.toString()) }
     var percentInputText by remember(poolPercent) { mutableStateOf(poolPercent.toString()) }
+    val allTargets by app.database.targetDao().getAllTargets().collectAsStateWithLifecycle(initialValue = emptyList())
+    val treeRevision by settingsManager.notifTreeRevision.collectAsStateWithLifecycle()
+    var selectedScopeUsername by remember { mutableStateOf<String?>(null) } // null = Global
+    val expandedGroups = remember {
+        mutableStateMapOf(
+            NotificationTreeGroup.FOLLOWERS to true,
+            NotificationTreeGroup.CONTENT to true,
+            NotificationTreeGroup.PROFILE to false
+        )
+    }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.86f).dp
@@ -381,88 +411,345 @@ fun NotificationSettingsBottomSheet(
                         }
 
                         1 -> {
-                            // TAB 1: Event Categories (Color-coded & Clean)
-                            SettingsSectionBox {
-                                Text(
-                                    text = stringResource(R.string.notif_categories_title),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = stringResource(R.string.notif_categories_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                NotificationCategory.entries.forEachIndexed { index, cat ->
-                                    if (index > 0) {
-                                        HorizontalDivider(
-                                            modifier = Modifier.padding(vertical = 10.dp),
-                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                        )
-                                    }
-
-                                    val isCatChecked by settingsManager.getCategoryFlow(cat).collectAsStateWithLifecycle()
-                                    val catColor = when (cat) {
-                                        NotificationCategory.PROFILE_CHANGES -> Color(0xFF8B5CF6)
-                                        NotificationCategory.PRIVACY_ALERTS -> StatusAmber
-                                        NotificationCategory.ACTIVITY_UPDATES -> StatusGreen
-                                        NotificationCategory.SYSTEM_ALERTS -> AccentBlue
-                                    }
-
+                            // TAB 1: Tree-Structured Notification Categories + Per-Profile Granular Controls
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                // Profile Scope Selector Strip (Global + every tracked @username)
+                                SettingsSectionBox {
+                                    Text(
+                                        text = stringResource(R.string.notif_scope_profiles_label),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(36.dp)
-                                                    .clip(ShapeTokens.SmallShape)
-                                                    .background(catColor.copy(alpha = if (isCatChecked) 0.16f else 0.07f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = cat.icon,
-                                                    contentDescription = null,
-                                                    tint = if (isCatChecked) catColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
+                                        val globalSelected = selectedScopeUsername == null
+                                        ProfileScopeChip(
+                                            label = stringResource(R.string.notif_scope_global),
+                                            isSelected = globalSelected,
+                                            hasCustomOverride = false,
+                                            isMuted = false,
+                                            isGlobal = true,
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                selectedScopeUsername = null
                                             }
-                                            Column {
-                                                Text(
-                                                    text = stringResource(cat.titleRes),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        allTargets.forEach { target ->
+                                            val isSelected = selectedScopeUsername == target.username
+                                            val isCustom = remember(treeRevision, target.username) {
+                                                settingsManager.hasTargetNotificationOverride(target.username)
+                                            }
+                                            val isMuted = remember(treeRevision, target.username) {
+                                                settingsManager.isTargetNotificationsMuted(target.username)
+                                            }
+                                            ProfileScopeChip(
+                                                label = "@${target.username}",
+                                                isSelected = isSelected,
+                                                hasCustomOverride = isCustom,
+                                                isMuted = isMuted,
+                                                isGlobal = false,
+                                                onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    selectedScopeUsername = target.username
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    // Per-Profile Override & Mute Controls when a specific profile is selected
+                                    val scopedUser = selectedScopeUsername
+                                    AnimatedVisibility(
+                                        visible = scopedUser != null,
+                                        enter = expandVertically(tween(200)) + fadeIn(tween(160)),
+                                        exit = shrinkVertically(tween(160)) + fadeOut(tween(120))
+                                    ) {
+                                        if (scopedUser != null) {
+                                            val isMuted = remember(treeRevision, scopedUser) {
+                                                settingsManager.isTargetNotificationsMuted(scopedUser)
+                                            }
+                                            val isCustom = remember(treeRevision, scopedUser) {
+                                                settingsManager.hasTargetNotificationOverride(scopedUser)
+                                            }
+                                            Column(
+                                                modifier = Modifier.padding(top = 12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+
+                                                SettingSwitchRow(
+                                                    title = stringResource(R.string.notif_profile_mute_toggle),
+                                                    description = stringResource(R.string.notif_profile_mute_desc),
+                                                    checked = isMuted,
+                                                    onCheckedChange = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        settingsManager.setTargetNotificationsMuted(scopedUser, it)
+                                                    }
                                                 )
-                                                Text(
-                                                    text = stringResource(cat.descRes),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+
+                                                SettingSwitchRow(
+                                                    title = stringResource(R.string.notif_profile_custom_toggle),
+                                                    description = stringResource(R.string.notif_profile_custom_desc),
+                                                    checked = isCustom,
+                                                    onCheckedChange = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        settingsManager.setTargetNotificationOverrideEnabled(scopedUser, it)
+                                                    }
                                                 )
+
+                                                if (isCustom || isMuted) {
+                                                    OutlinedButton(
+                                                        onClick = {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            settingsManager.resetTargetNotificationOverrides(scopedUser)
+                                                        },
+                                                        shape = ShapeTokens.MediumShape,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(40.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(stringResource(R.string.notif_profile_reset_global))
+                                                    }
+                                                }
                                             }
                                         }
+                                    }
+                                }
 
-                                        Switch(
-                                            checked = isCatChecked,
-                                            onCheckedChange = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                settingsManager.setCategoryEnabled(cat, it)
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = Color.White,
-                                                checkedTrackColor = catColor
-                                            )
-                                        )
+                                // Hierarchical Tree Branches
+                                val scopedUser = selectedScopeUsername
+                                val isScopeMuted = remember(treeRevision, scopedUser) {
+                                    scopedUser != null && settingsManager.isTargetNotificationsMuted(scopedUser)
+                                }
+
+                                NotificationTreeGroup.entries.forEach { group ->
+                                    val leaves = remember(group) { NotificationEventKey.forGroup(group) }
+                                    val isExpanded = expandedGroups[group] == true
+                                    val groupColor = when (group) {
+                                        NotificationTreeGroup.FOLLOWERS -> StatusGreen
+                                        NotificationTreeGroup.CONTENT -> AccentBlue
+                                        NotificationTreeGroup.PROFILE -> Color(0xFF8B5CF6)
+                                    }
+                                    val groupIcon = when (group) {
+                                        NotificationTreeGroup.FOLLOWERS -> Icons.Default.People
+                                        NotificationTreeGroup.CONTENT -> Icons.Default.PhotoLibrary
+                                        NotificationTreeGroup.PROFILE -> Icons.Default.Person
+                                    }
+                                    val enabledCount = remember(treeRevision, scopedUser, group) {
+                                        leaves.count { leaf ->
+                                            if (scopedUser != null) settingsManager.isTargetEventKeyEnabled(scopedUser, leaf)
+                                            else settingsManager.isEventKeyEnabled(leaf)
+                                        }
+                                    }
+                                    val allEnabled = enabledCount == leaves.size
+                                    val chevronRot by animateFloatAsState(
+                                        targetValue = if (isExpanded) 180f else 0f,
+                                        animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                        label = "tree_chevron_${group.id}"
+                                    )
+
+                                    SettingsSectionBox {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .alpha(if (isScopeMuted) 0.45f else 1f)
+                                        ) {
+                                            // Parent Tree Node Header
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        expandedGroups[group] = !isExpanded
+                                                    }
+                                                    .padding(vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(36.dp)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(groupColor.copy(alpha = if (enabledCount > 0) 0.16f else 0.08f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = groupIcon,
+                                                        contentDescription = null,
+                                                        tint = if (enabledCount > 0) groupColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(19.dp)
+                                                    )
+                                                }
+
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = stringResource(group.titleRes),
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurface,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f, fill = false)
+                                                        )
+                                                        Surface(
+                                                            shape = ShapeTokens.PillShape,
+                                                            color = groupColor.copy(alpha = 0.13f)
+                                                        ) {
+                                                            Text(
+                                                                text = stringResource(R.string.notif_tree_active_count, enabledCount, leaves.size),
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = groupColor,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = stringResource(group.descRes),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+
+                                                Icon(
+                                                    imageVector = Icons.Default.ExpandMore,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier
+                                                        .size(18.dp)
+                                                        .graphicsLayer { rotationZ = chevronRot }
+                                                )
+
+                                                Switch(
+                                                    checked = allEnabled && !isScopeMuted,
+                                                    enabled = !isScopeMuted,
+                                                    onCheckedChange = { next ->
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        if (scopedUser != null) {
+                                                            settingsManager.setTargetTreeGroupEnabled(scopedUser, group, next)
+                                                        } else {
+                                                            settingsManager.setTreeGroupEnabled(group, next)
+                                                        }
+                                                    },
+                                                    colors = SwitchDefaults.colors(
+                                                        checkedThumbColor = Color.White,
+                                                        checkedTrackColor = groupColor
+                                                    )
+                                                )
+                                            }
+
+                                            // Collapsible Child Leaf Nodes with Crisp Tree Connector Lines
+                                            AnimatedVisibility(
+                                                visible = isExpanded,
+                                                enter = expandVertically(tween(220, easing = FastOutSlowInEasing)) + fadeIn(tween(180)),
+                                                exit = shrinkVertically(tween(180, easing = FastOutSlowInEasing)) + fadeOut(tween(130))
+                                            ) {
+                                                val lineColor = groupColor.copy(alpha = 0.36f)
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(top = 8.dp)
+                                                ) {
+                                                    leaves.forEachIndexed { leafIdx, leaf ->
+                                                        val isLastLeaf = leafIdx == leaves.lastIndex
+                                                        val leafChecked = remember(treeRevision, scopedUser, leaf) {
+                                                            if (scopedUser != null) settingsManager.isTargetEventKeyEnabled(scopedUser, leaf)
+                                                            else settingsManager.isEventKeyEnabled(leaf)
+                                                        }
+
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .height(IntrinsicSize.Min),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            // Tree Connector Branch Canvas (vertical trunk + horizontal branch)
+                                                            Canvas(
+                                                                modifier = Modifier
+                                                                    .width(26.dp)
+                                                                    .fillMaxHeight()
+                                                            ) {
+                                                                val xTrunk = 12.dp.toPx()
+                                                                val midY = size.height / 2f
+                                                                val strokePx = 1.6.dp.toPx()
+                                                                drawLine(
+                                                                    color = lineColor,
+                                                                    start = Offset(xTrunk, 0f),
+                                                                    end = Offset(xTrunk, if (isLastLeaf) midY else size.height),
+                                                                    strokeWidth = strokePx,
+                                                                    cap = StrokeCap.Round
+                                                                )
+                                                                drawLine(
+                                                                    color = lineColor,
+                                                                    start = Offset(xTrunk, midY),
+                                                                    end = Offset(size.width - 2.dp.toPx(), midY),
+                                                                    strokeWidth = strokePx,
+                                                                    cap = StrokeCap.Round
+                                                                )
+                                                            }
+
+                                                            Row(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .padding(vertical = 6.dp),
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.SpaceBetween
+                                                            ) {
+                                                                Column(
+                                                                    modifier = Modifier
+                                                                        .weight(1f)
+                                                                        .padding(end = 10.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = stringResource(leaf.titleRes),
+                                                                        style = MaterialTheme.typography.bodyMedium,
+                                                                        fontWeight = FontWeight.Medium,
+                                                                        color = MaterialTheme.colorScheme.onSurface
+                                                                    )
+                                                                    Text(
+                                                                        text = stringResource(leaf.descRes),
+                                                                        style = MaterialTheme.typography.bodySmall,
+                                                                        fontSize = 11.5.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+                                                                }
+
+                                                                Switch(
+                                                                    checked = leafChecked && !isScopeMuted,
+                                                                    enabled = !isScopeMuted,
+                                                                    onCheckedChange = { next ->
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                        if (scopedUser != null) {
+                                                                            settingsManager.setTargetEventKeyEnabled(scopedUser, leaf, next)
+                                                                        } else {
+                                                                            settingsManager.setEventKeyEnabled(leaf, next)
+                                                                        }
+                                                                    },
+                                                                    colors = SwitchDefaults.colors(
+                                                                        checkedThumbColor = Color.White,
+                                                                        checkedTrackColor = groupColor
+                                                                    )
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -487,29 +774,27 @@ fun NotificationSettingsBottomSheet(
 
                                     Spacer(modifier = Modifier.height(12.dp))
 
-                                    // 4-Column Uniform Mode Selector Row (Zero wrapping jumps!)
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        val modes = listOf(
-                                            FollowerPoolMode.OFF to stringResource(R.string.pool_mode_off),
-                                            FollowerPoolMode.FIXED_COUNT to stringResource(R.string.pool_mode_fixed),
-                                            FollowerPoolMode.PERCENTAGE to stringResource(R.string.pool_mode_percent),
-                                            FollowerPoolMode.AUTO_ADAPTIVE to stringResource(R.string.pool_mode_auto)
+                                    // Smooth 120 FPS Gliding Pill Mode Selector
+                                    val modes = remember {
+                                        listOf(
+                                            FollowerPoolMode.OFF,
+                                            FollowerPoolMode.FIXED_COUNT,
+                                            FollowerPoolMode.PERCENTAGE,
+                                            FollowerPoolMode.AUTO_ADAPTIVE
                                         )
-                                        modes.forEach { (mode, label) ->
-                                            SelectableOptionChip(
-                                                label = label,
-                                                selected = poolMode == mode,
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    settingsManager.setPoolMode(mode)
-                                                },
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        }
                                     }
+                                    val modeOptions = listOf(
+                                        SegmentedOption(stringResource(R.string.pool_mode_off)),
+                                        SegmentedOption(stringResource(R.string.pool_mode_fixed)),
+                                        SegmentedOption(stringResource(R.string.pool_mode_percent)),
+                                        SegmentedOption(stringResource(R.string.pool_mode_auto))
+                                    )
+                                    AnimatedSegmentedSelector(
+                                        options = modeOptions,
+                                        selectedIndex = modes.indexOf(poolMode).coerceAtLeast(0),
+                                        onSelected = { idx -> settingsManager.setPoolMode(modes[idx]) },
+                                        height = 40.dp
+                                    )
 
                                     AnimatedVisibility(visible = poolMode == FollowerPoolMode.FIXED_COUNT) {
                                         Column(
@@ -698,6 +983,77 @@ fun NotificationSettingsBottomSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProfileScopeChip(
+    label: String,
+    isSelected: Boolean,
+    hasCustomOverride: Boolean,
+    isMuted: Boolean,
+    isGlobal: Boolean,
+    onClick: () -> Unit
+) {
+    val bg by animateColorAsState(
+        targetValue = if (isSelected) AccentBlue.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerHigh,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "scope_chip_bg"
+    )
+    val border by animateColorAsState(
+        targetValue = if (isSelected) AccentBlue else MaterialTheme.colorScheme.outlineVariant,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "scope_chip_bdr"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) AccentBlue else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "scope_chip_txt"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = bg,
+        border = BorderStroke(if (isSelected) 1.25.dp else 0.75.dp, border),
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            if (isGlobal) {
+                Icon(
+                    imageVector = Icons.Default.Public,
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(14.dp)
+                )
+            } else if (isMuted) {
+                Icon(
+                    imageVector = Icons.Default.NotificationsOff,
+                    contentDescription = null,
+                    tint = com.instalogger.app.ui.theme.StatusRed,
+                    modifier = Modifier.size(13.dp)
+                )
+            } else if (hasCustomOverride) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(AccentBlue)
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = textColor,
+                maxLines = 1
+            )
         }
     }
 }

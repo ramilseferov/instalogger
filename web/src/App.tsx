@@ -24,10 +24,14 @@ export const App: React.FC = () => {
   const [wsConnected, setWsConnected] = useState(false);
   const [toast, setToast] = useState<{ kind: 'info' | 'err'; text: string } | null>(null);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('instalogger_theme');
-    if (saved === 'dark') return true;
-    if (saved === 'light') return false;
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+    try {
+      const saved = localStorage.getItem('instalogger_theme');
+      if (saved === 'dark') return true;
+      if (saved === 'light') return false;
+      return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
@@ -35,11 +39,11 @@ export const App: React.FC = () => {
     if (darkMode) {
       root.classList.add('dark');
       root.style.colorScheme = 'dark';
-      localStorage.setItem('instalogger_theme', 'dark');
+      try { localStorage.setItem('instalogger_theme', 'dark'); } catch {}
     } else {
       root.classList.remove('dark');
       root.style.colorScheme = 'light';
-      localStorage.setItem('instalogger_theme', 'light');
+      try { localStorage.setItem('instalogger_theme', 'light'); } catch {}
     }
   }, [darkMode]);
 
@@ -62,27 +66,33 @@ export const App: React.FC = () => {
   useEffect(() => {
     fetchTargets();
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => setWsConnected(true);
-    ws.onclose = () => setWsConnected(false);
-    ws.onerror = () => setWsConnected(false);
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'change_detected') {
-          showToast('info', `@${msg.username}: ${msg.event} (${msg.old} -> ${msg.new})`);
-          fetchTargets();
-        }
-      } catch {
-        // Ignore malformed WS frame
+    let ws: WebSocket | null = null;
+    try {
+      if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/ws`;
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => setWsConnected(true);
+        ws.onclose = () => setWsConnected(false);
+        ws.onerror = () => setWsConnected(false);
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'change_detected') {
+              showToast('info', `@${msg.username}: ${msg.event} (${msg.old} -> ${msg.new})`);
+              fetchTargets();
+            }
+          } catch {
+            // Ignore malformed WS frame
+          }
+        };
       }
-    };
+    } catch {
+      setWsConnected(false);
+    }
 
     return () => {
-      ws.close();
+      try { ws?.close(); } catch {}
     };
   }, []);
 
@@ -91,8 +101,8 @@ export const App: React.FC = () => {
     if (!q) return targets;
     return targets.filter(
       (item) =>
-        item.username.toLowerCase().includes(q) ||
-        item.full_name.toLowerCase().includes(q)
+        (item.username || '').toLowerCase().includes(q) ||
+        (item.full_name || '').toLowerCase().includes(q)
     );
   }, [targets, searchQuery]);
 

@@ -1,13 +1,17 @@
-<p align="left">
-  <img src="instalogger-logo.svg" alt="InstaLogger" height="44" />
+<p align="center">
+  <img src="instalogger-logo.svg" alt="InstaLogger" width="320" />
 </p>
 
-**Local-first Instagram profile monitoring, change auditing, and encrypted media archival across Android, Linux, macOS, and Windows.**
+<p align="center">
+  <strong>Local-first Instagram profile monitoring, change auditing, and encrypted media archival across Android, Linux, macOS, and Windows.</strong>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-1f2937?style=flat-square)](LICENSE)
-[![Android](https://img.shields.io/badge/android-Kotlin%20%7C%20Compose%20%7C%20Room%20v9-1f2937?style=flat-square)](#android-application)
-[![Daemon](https://img.shields.io/badge/daemon-Rust%20%7C%20Axum%20%7C%20SQLite%20WAL-1f2937?style=flat-square)](#rust-daemon--web-console)
-[![Engine](https://img.shields.io/badge/engine-Python%203.11%20%7C%20yt--dlp%20%7C%20gallery--dl-1f2937?style=flat-square)](#python-extraction-engine)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1f2937?style=flat-square" alt="License: MIT" /></a>
+  <a href="#android-application"><img src="https://img.shields.io/badge/android-Kotlin%20%7C%20Compose%20%7C%20Room%20v10-1f2937?style=flat-square" alt="Android" /></a>
+  <a href="#rust-daemon--web-console"><img src="https://img.shields.io/badge/daemon-Rust%20%7C%20Axum%20%7C%20SQLite%20WAL-1f2937?style=flat-square" alt="Daemon" /></a>
+  <a href="#python-extraction-engine"><img src="https://img.shields.io/badge/engine-Python%203.11%20%7C%20yt--dlp%20%7C%20gallery--dl-1f2937?style=flat-square" alt="Engine" /></a>
+</p>
 
 ---
 

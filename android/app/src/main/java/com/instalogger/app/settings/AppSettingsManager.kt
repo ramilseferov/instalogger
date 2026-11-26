@@ -118,6 +118,135 @@ enum class NotificationCategory(
     }
 }
 
+/**
+ * Top-level tree branches for the hierarchical Notification Settings Tree.
+ */
+enum class NotificationTreeGroup(
+    val id: String,
+    @StringRes val titleRes: Int,
+    @StringRes val descRes: Int,
+) {
+    FOLLOWERS(
+        id = "followers",
+        titleRes = R.string.notif_tree_group_followers,
+        descRes = R.string.notif_tree_group_followers_desc,
+    ),
+    CONTENT(
+        id = "content",
+        titleRes = R.string.notif_tree_group_content,
+        descRes = R.string.notif_tree_group_content_desc,
+    ),
+    PROFILE(
+        id = "profile",
+        titleRes = R.string.notif_tree_group_profile,
+        descRes = R.string.notif_tree_group_profile_desc,
+    ),
+}
+
+/**
+ * Granular leaf notification event types controllable both globally and per tracked Instagram profile.
+ */
+enum class NotificationEventKey(
+    val id: String,
+    val group: NotificationTreeGroup,
+    val legacyCategory: NotificationCategory,
+    @StringRes val titleRes: Int,
+    @StringRes val descRes: Int,
+    val defaultEnabled: Boolean = true,
+) {
+    FOLLOWERS_GAINED(
+        id = "followers_gained",
+        group = NotificationTreeGroup.FOLLOWERS,
+        legacyCategory = NotificationCategory.ACTIVITY_UPDATES,
+        titleRes = R.string.notif_leaf_followers_gained,
+        descRes = R.string.notif_leaf_followers_gained_desc,
+    ),
+    FOLLOWERS_LOST(
+        id = "followers_lost",
+        group = NotificationTreeGroup.FOLLOWERS,
+        legacyCategory = NotificationCategory.ACTIVITY_UPDATES,
+        titleRes = R.string.notif_leaf_followers_lost,
+        descRes = R.string.notif_leaf_followers_lost_desc,
+    ),
+    FOLLOWING_CHANGED(
+        id = "following_changed",
+        group = NotificationTreeGroup.FOLLOWERS,
+        legacyCategory = NotificationCategory.ACTIVITY_UPDATES,
+        titleRes = R.string.notif_leaf_following_changed,
+        descRes = R.string.notif_leaf_following_changed_desc,
+    ),
+    FOLLOWER_SPIKE(
+        id = "follower_spike",
+        group = NotificationTreeGroup.FOLLOWERS,
+        legacyCategory = NotificationCategory.ACTIVITY_UPDATES,
+        titleRes = R.string.notif_leaf_follower_spike,
+        descRes = R.string.notif_leaf_follower_spike_desc,
+    ),
+    NEW_POSTS(
+        id = "new_posts",
+        group = NotificationTreeGroup.CONTENT,
+        legacyCategory = NotificationCategory.ACTIVITY_UPDATES,
+        titleRes = R.string.notif_leaf_new_posts,
+        descRes = R.string.notif_leaf_new_posts_desc,
+    ),
+    STORIES_ARCHIVED(
+        id = "stories_archived",
+        group = NotificationTreeGroup.CONTENT,
+        legacyCategory = NotificationCategory.ACTIVITY_UPDATES,
+        titleRes = R.string.notif_leaf_stories,
+        descRes = R.string.notif_leaf_stories_desc,
+    ),
+    AVATAR_CHANGED(
+        id = "avatar_changed",
+        group = NotificationTreeGroup.PROFILE,
+        legacyCategory = NotificationCategory.PROFILE_CHANGES,
+        titleRes = R.string.notif_leaf_avatar,
+        descRes = R.string.notif_leaf_avatar_desc,
+    ),
+    BIO_CHANGED(
+        id = "bio_changed",
+        group = NotificationTreeGroup.PROFILE,
+        legacyCategory = NotificationCategory.PROFILE_CHANGES,
+        titleRes = R.string.notif_leaf_bio,
+        descRes = R.string.notif_leaf_bio_desc,
+    ),
+    NAME_CHANGED(
+        id = "name_changed",
+        group = NotificationTreeGroup.PROFILE,
+        legacyCategory = NotificationCategory.PROFILE_CHANGES,
+        titleRes = R.string.notif_leaf_name,
+        descRes = R.string.notif_leaf_name_desc,
+    ),
+    PRIVACY_CHANGED(
+        id = "privacy_changed",
+        group = NotificationTreeGroup.PROFILE,
+        legacyCategory = NotificationCategory.PRIVACY_ALERTS,
+        titleRes = R.string.notif_leaf_privacy,
+        descRes = R.string.notif_leaf_privacy_desc,
+    );
+
+    companion object {
+        fun forGroup(group: NotificationTreeGroup): List<NotificationEventKey> =
+            entries.filter { it.group == group }
+
+        fun fromEventType(eventType: String?): NotificationEventKey? {
+            return when (eventType?.lowercase()) {
+                "follower_gained", "follower_count_change", "followers_change", "follower_pool_flush" -> FOLLOWERS_GAINED
+                "follower_lost" -> FOLLOWERS_LOST
+                "following_gained", "following_lost", "following_count_change", "following_change", "following_pool_flush" -> FOLLOWING_CHANGED
+                "follower_spike" -> FOLLOWER_SPIKE
+                "post_count_change", "new_post", "post_deleted" -> NEW_POSTS
+                "story_posted", "highlight_archived" -> STORIES_ARCHIVED
+                "avatar_change" -> AVATAR_CHANGED
+                "bio_change" -> BIO_CHANGED
+                "name_change" -> NAME_CHANGED
+                "privacy_change" -> PRIVACY_CHANGED
+                else -> null
+            }
+        }
+    }
+}
+
 class AppSettingsManager(private val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("instalogger_app_settings", Context.MODE_PRIVATE)
@@ -229,6 +358,10 @@ class AppSettingsManager(private val context: Context) {
             MutableStateFlow(prefs.getBoolean(cat.prefKey, cat.defaultEnabled))
         }
 
+    // Reactive revision counter bumped whenever any tree leaf or per-profile notification override changes
+    private val _notifTreeRevision = MutableStateFlow(0)
+    val notifTreeRevision: StateFlow<Int> = _notifTreeRevision.asStateFlow()
+
     fun getCategoryFlow(category: NotificationCategory): StateFlow<Boolean> {
         return _categoryStates[category] ?: MutableStateFlow(category.defaultEnabled)
     }
@@ -240,6 +373,140 @@ class AppSettingsManager(private val context: Context) {
     fun setCategoryEnabled(category: NotificationCategory, enabled: Boolean) {
         _categoryStates[category]?.value = enabled
         prefs.edit().putBoolean(category.prefKey, enabled).apply()
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
+    }
+
+    private fun normalizeUserKey(username: String): String =
+        username.trim().trimStart('@').lowercase()
+
+    fun isEventKeyEnabled(key: NotificationEventKey): Boolean {
+        val prefKey = "notif_leaf_${key.id}"
+        if (prefs.contains(prefKey)) {
+            return prefs.getBoolean(prefKey, key.defaultEnabled)
+        }
+        return isCategoryEnabled(key.legacyCategory)
+    }
+
+    fun setEventKeyEnabled(key: NotificationEventKey, enabled: Boolean) {
+        prefs.edit().putBoolean("notif_leaf_${key.id}", enabled).apply()
+        // Keep legacy category enabled if at least one leaf under it is enabled
+        val anyEnabled = NotificationEventKey.entries
+            .filter { it.legacyCategory == key.legacyCategory }
+            .any { isEventKeyEnabled(it) }
+        _categoryStates[key.legacyCategory]?.value = anyEnabled
+        prefs.edit().putBoolean(key.legacyCategory.prefKey, anyEnabled).apply()
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
+    }
+
+    fun setTreeGroupEnabled(group: NotificationTreeGroup, enabled: Boolean) {
+        val editor = prefs.edit()
+        val leaves = NotificationEventKey.forGroup(group)
+        leaves.forEach { leaf ->
+            editor.putBoolean("notif_leaf_${leaf.id}", enabled)
+        }
+        editor.apply()
+        leaves.map { it.legacyCategory }.distinct().forEach { cat ->
+            val anyEnabled = NotificationEventKey.entries
+                .filter { it.legacyCategory == cat }
+                .any { isEventKeyEnabled(it) }
+            _categoryStates[cat]?.value = anyEnabled
+            prefs.edit().putBoolean(cat.prefKey, anyEnabled).apply()
+        }
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
+    }
+
+    fun hasTargetNotificationOverride(username: String): Boolean {
+        val u = normalizeUserKey(username)
+        return prefs.getBoolean("notif_user_${u}_custom", false)
+    }
+
+    fun setTargetNotificationOverrideEnabled(username: String, enabled: Boolean) {
+        val u = normalizeUserKey(username)
+        val editor = prefs.edit().putBoolean("notif_user_${u}_custom", enabled)
+        if (enabled) {
+            // Seed target custom leaves from current global defaults if never customized before
+            NotificationEventKey.entries.forEach { leaf ->
+                val k = "notif_user_${u}_leaf_${leaf.id}"
+                if (!prefs.contains(k)) {
+                    editor.putBoolean(k, isEventKeyEnabled(leaf))
+                }
+            }
+        }
+        editor.apply()
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
+    }
+
+    fun isTargetNotificationsMuted(username: String): Boolean {
+        val u = normalizeUserKey(username)
+        return prefs.getBoolean("notif_user_${u}_muted", false)
+    }
+
+    fun setTargetNotificationsMuted(username: String, muted: Boolean) {
+        val u = normalizeUserKey(username)
+        prefs.edit().putBoolean("notif_user_${u}_muted", muted).apply()
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
+    }
+
+    fun isTargetEventKeyEnabled(username: String, key: NotificationEventKey): Boolean {
+        val u = normalizeUserKey(username)
+        if (isTargetNotificationsMuted(u)) return false
+        if (!hasTargetNotificationOverride(u)) return isEventKeyEnabled(key)
+        val prefKey = "notif_user_${u}_leaf_${key.id}"
+        return prefs.getBoolean(prefKey, isEventKeyEnabled(key))
+    }
+
+    fun setTargetEventKeyEnabled(username: String, key: NotificationEventKey, enabled: Boolean) {
+        val u = normalizeUserKey(username)
+        val editor = prefs.edit()
+        if (!hasTargetNotificationOverride(u)) {
+            editor.putBoolean("notif_user_${u}_custom", true)
+            NotificationEventKey.entries.forEach { leaf ->
+                val k = "notif_user_${u}_leaf_${leaf.id}"
+                if (!prefs.contains(k)) {
+                    editor.putBoolean(k, isEventKeyEnabled(leaf))
+                }
+            }
+        }
+        editor.putBoolean("notif_user_${u}_leaf_${key.id}", enabled)
+        if (enabled) {
+            editor.putBoolean("notif_user_${u}_muted", false)
+        }
+        editor.apply()
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
+    }
+
+    fun setTargetTreeGroupEnabled(username: String, group: NotificationTreeGroup, enabled: Boolean) {
+        val u = normalizeUserKey(username)
+        val editor = prefs.edit()
+        if (!hasTargetNotificationOverride(u)) {
+            editor.putBoolean("notif_user_${u}_custom", true)
+            NotificationEventKey.entries.forEach { leaf ->
+                val k = "notif_user_${u}_leaf_${leaf.id}"
+                if (!prefs.contains(k)) {
+                    editor.putBoolean(k, isEventKeyEnabled(leaf))
+                }
+            }
+        }
+        NotificationEventKey.forGroup(group).forEach { leaf ->
+            editor.putBoolean("notif_user_${u}_leaf_${leaf.id}", enabled)
+        }
+        if (enabled) {
+            editor.putBoolean("notif_user_${u}_muted", false)
+        }
+        editor.apply()
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
+    }
+
+    fun resetTargetNotificationOverrides(username: String) {
+        val u = normalizeUserKey(username)
+        val editor = prefs.edit()
+            .remove("notif_user_${u}_custom")
+            .remove("notif_user_${u}_muted")
+        NotificationEventKey.entries.forEach { leaf ->
+            editor.remove("notif_user_${u}_leaf_${leaf.id}")
+        }
+        editor.apply()
+        _notifTreeRevision.value = _notifTreeRevision.value + 1
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -430,8 +697,24 @@ class AppSettingsManager(private val context: Context) {
         )
     }
 
-    fun isNotificationAllowed(eventType: String?): Boolean {
+    fun isNotificationAllowed(eventType: String?, username: String? = null): Boolean {
         if (!_statusBarNotifications.value) return false
+        return isEventAllowedForTarget(eventType, username)
+    }
+
+    fun isInAppNotificationAllowed(eventType: String?, username: String? = null): Boolean {
+        if (!_inAppNotifications.value) return false
+        return isEventAllowedForTarget(eventType, username)
+    }
+
+    fun isEventAllowedForTarget(eventType: String?, username: String? = null): Boolean {
+        val leaf = NotificationEventKey.fromEventType(eventType)
+        if (!username.isNullOrBlank()) {
+            val u = normalizeUserKey(username)
+            if (isTargetNotificationsMuted(u)) return false
+            if (leaf != null) return isTargetEventKeyEnabled(u, leaf)
+        }
+        if (leaf != null) return isEventKeyEnabled(leaf)
         val cat = NotificationCategory.fromEventType(eventType)
         return isCategoryEnabled(cat)
     }

@@ -105,7 +105,16 @@ object LanguageManager {
     }
 
     suspend fun changeLanguageWithAnimation(context: Context, languageCode: String) {
-        setLanguage(context, languageCode)
+        val normalized = normalizeLanguageCode(languageCode) ?: return
+        if (_currentLanguage.value == normalized) return
+        try {
+            _isTransitioning.value = true
+            kotlinx.coroutines.delay(150)
+            setLanguage(context, normalized)
+            kotlinx.coroutines.delay(190)
+        } finally {
+            _isTransitioning.value = false
+        }
     }
 
     fun resetTransition() {

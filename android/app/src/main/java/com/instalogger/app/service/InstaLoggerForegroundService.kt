@@ -234,11 +234,17 @@ class InstaLoggerForegroundService : Service() {
         }
     }
 
-    fun showAlertNotification(id: Long, title: String, message: String, eventType: String? = null) {
+    fun showAlertNotification(
+        id: Long,
+        title: String,
+        message: String,
+        eventType: String? = null,
+        targetUsername: String? = null
+    ) {
         val app = application as InstaLoggerApp
         val settings = app.settingsManager
 
-        if (!settings.isNotificationAllowed(eventType)) return
+        if (!settings.isNotificationAllowed(eventType, targetUsername)) return
 
         val cat = NotificationCategory.fromEventType(eventType)
         val channelId = cat.channelId

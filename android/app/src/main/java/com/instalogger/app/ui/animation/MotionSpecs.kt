@@ -16,8 +16,8 @@ import androidx.compose.animation.slideOutHorizontally
  * Screen transition specifications and spring physics curves.
  */
 object MotionSpecs {
-    private const val TAB_SLIDE_DURATION_MS = 280
-    private const val DETAIL_SLIDE_DURATION_MS = 300
+    private const val TAB_TRANSITION_MS = 185
+    private const val DETAIL_SLIDE_DURATION_MS = 230
 
     // Spring specifications
     val SpringBouncy = spring<Float>(
@@ -43,97 +43,77 @@ object MotionSpecs {
     // Fluid Spring Physics
     val FluidSpring = spring<androidx.compose.ui.unit.IntOffset>(
         dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = 420f
+        stiffness = 460f
     )
 
-    // Bottom Navigation Peer Tab Transitions (aligned with left-to-right tab layout):
-    // Navigating right (toIdx > fromIdx, e.g., Dashboard -> Settings):
-    // new screen enters from the RIGHT (+fullWidth -> 0), old screen exits to the LEFT (0 -> -fullWidth).
+    // Bottom Navigation Peer Tab Transitions:
+    // GPU-friendly subtle directional micro-shift (±6%) + silky crossfade (zero full-width double overdraw)
     val TabFlowRightEnter: EnterTransition = slideInHorizontally(
-        initialOffsetX = { fullWidth -> fullWidth },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
+        initialOffsetX = { fullWidth -> (fullWidth * 0.06f).toInt() },
+        animationSpec = tween(durationMillis = TAB_TRANSITION_MS, easing = FastOutSlowInEasing)
     ) + fadeIn(
-        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing),
-        initialAlpha = 0.88f
+        animationSpec = tween(durationMillis = TAB_TRANSITION_MS, easing = LinearOutSlowInEasing),
+        initialAlpha = 0f
     )
 
     val TabFlowRightExit: ExitTransition = slideOutHorizontally(
-        targetOffsetX = { fullWidth -> -fullWidth },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
+        targetOffsetX = { fullWidth -> -(fullWidth * 0.05f).toInt() },
+        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
     ) + fadeOut(
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing),
-        targetAlpha = 0.88f
+        animationSpec = tween(durationMillis = 130, easing = FastOutSlowInEasing),
+        targetAlpha = 0f
     )
 
-    // Navigating left (toIdx < fromIdx, e.g., Settings -> Dashboard):
-    // new screen enters from the LEFT (-fullWidth -> 0), old screen exits to the RIGHT (0 -> +fullWidth).
     val TabFlowLeftEnter: EnterTransition = slideInHorizontally(
-        initialOffsetX = { fullWidth -> -fullWidth },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
+        initialOffsetX = { fullWidth -> -(fullWidth * 0.06f).toInt() },
+        animationSpec = tween(durationMillis = TAB_TRANSITION_MS, easing = FastOutSlowInEasing)
     ) + fadeIn(
-        animationSpec = tween(durationMillis = 220, easing = LinearOutSlowInEasing),
-        initialAlpha = 0.88f
+        animationSpec = tween(durationMillis = TAB_TRANSITION_MS, easing = LinearOutSlowInEasing),
+        initialAlpha = 0f
     )
 
     val TabFlowLeftExit: ExitTransition = slideOutHorizontally(
-        targetOffsetX = { fullWidth -> fullWidth },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
+        targetOffsetX = { fullWidth -> (fullWidth * 0.05f).toInt() },
+        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing)
     ) + fadeOut(
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing),
-        targetAlpha = 0.88f
+        animationSpec = tween(durationMillis = 130, easing = FastOutSlowInEasing),
+        targetAlpha = 0f
     )
 
     // Hierarchical Push & Pop Transitions (Detail Screen)
     val PushEnter: EnterTransition = slideInHorizontally(
-        initialOffsetX = { fullWidth -> fullWidth },
+        initialOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() },
         animationSpec = tween(durationMillis = DETAIL_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
+    ) + fadeIn(
+        animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing)
     )
 
     val PushExit: ExitTransition = slideOutHorizontally(
-        targetOffsetX = { fullWidth -> -((fullWidth * 0.28f).toInt()) },
-        animationSpec = tween(durationMillis = DETAIL_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
+        targetOffsetX = { fullWidth -> -(fullWidth * 0.08f).toInt() },
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
     ) + fadeOut(
-        animationSpec = tween(durationMillis = DETAIL_SLIDE_DURATION_MS, easing = FastOutSlowInEasing),
-        targetAlpha = 0.72f
+        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+        targetAlpha = 0.85f
     )
 
     val PopEnter: EnterTransition = slideInHorizontally(
-        initialOffsetX = { fullWidth -> -((fullWidth * 0.28f).toInt()) },
+        initialOffsetX = { fullWidth -> -(fullWidth * 0.08f).toInt() },
         animationSpec = tween(durationMillis = DETAIL_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
     ) + fadeIn(
-        animationSpec = tween(durationMillis = DETAIL_SLIDE_DURATION_MS, easing = FastOutSlowInEasing),
-        initialAlpha = 0.72f
+        animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing),
+        initialAlpha = 0.85f
     )
 
     val PopExit: ExitTransition = slideOutHorizontally(
-        targetOffsetX = { fullWidth -> fullWidth },
-        animationSpec = tween(durationMillis = DETAIL_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
+        targetOffsetX = { fullWidth -> (fullWidth * 0.16f).toInt() },
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+    ) + fadeOut(
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
     )
 
     // Standard fallback transitions
-    val NavEnterTransition: EnterTransition = slideInHorizontally(
-        initialOffsetX = { fullWidth -> fullWidth },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
-    )
-
-    val NavExitTransition: ExitTransition = slideOutHorizontally(
-        targetOffsetX = { fullWidth -> -((fullWidth * 0.28f).toInt()) },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
-    ) + fadeOut(
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing),
-        targetAlpha = 0.75f
-    )
-
-    val NavPopEnterTransition: EnterTransition = slideInHorizontally(
-        initialOffsetX = { fullWidth -> -((fullWidth * 0.28f).toInt()) },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
-    ) + fadeIn(
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing),
-        initialAlpha = 0.75f
-    )
-
-    val NavPopExitTransition: ExitTransition = slideOutHorizontally(
-        targetOffsetX = { fullWidth -> fullWidth },
-        animationSpec = tween(durationMillis = TAB_SLIDE_DURATION_MS, easing = FastOutSlowInEasing)
-    )
+    val NavEnterTransition: EnterTransition = PushEnter
+    val NavExitTransition: ExitTransition = PushExit
+    val NavPopEnterTransition: EnterTransition = PopEnter
+    val NavPopExitTransition: ExitTransition = PopExit
 }

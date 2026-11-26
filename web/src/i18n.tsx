@@ -176,12 +176,16 @@ const I18nContext = createContext<I18nContextType>({
 
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
-    const saved = localStorage.getItem('instalogger_lang') as Language;
-    return saved && translations[saved] ? saved : 'en';
+    try {
+      const saved = localStorage.getItem('instalogger_lang') as Language;
+      return saved && translations[saved] ? saved : 'en';
+    } catch {
+      return 'en';
+    }
   });
 
   const setLanguage = (lang: Language) => {
-    localStorage.setItem('instalogger_lang', lang);
+    try { localStorage.setItem('instalogger_lang', lang); } catch {}
     setLanguageState(lang);
   };
 

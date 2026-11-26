@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.VpnKey
@@ -54,6 +55,7 @@ fun InstagramSessionScreen() {
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var hasSession by remember { mutableStateOf(app.sessionManager.hasSession()) }
+    var showClearSessionDialog by remember { mutableStateOf(false) }
     var manualCookieText by remember { mutableStateOf("") }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var isLoadingWeb by remember { mutableStateOf(true) }
@@ -376,27 +378,39 @@ fun InstagramSessionScreen() {
                                                 }
                                             }
                                         },
-                                        shape = ShapeTokens.SmallShape,
-                                        modifier = Modifier.weight(1f)
+                                        enabled = manualCookieText.isNotBlank(),
+                                        shape = ShapeTokens.MediumShape,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(46.dp)
                                     ) {
-                                        Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text(stringResource(R.string.btn_save_cookie))
+                                        Text(
+                                            text = stringResource(R.string.btn_save_cookie),
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
                                     }
 
                                     OutlinedButton(
-                                        onClick = {
-                                            app.sessionManager.clearSession()
-                                            hasSession = false
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar(clearedMsg)
-                                            }
-                                        },
+                                        onClick = { showClearSessionDialog = true },
                                         enabled = hasSession,
-                                        shape = ShapeTokens.SmallShape,
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                        shape = ShapeTokens.MediumShape,
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(46.dp)
                                     ) {
-                                        Text(stringResource(R.string.btn_clear_session))
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = stringResource(R.string.btn_clear_session),
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
@@ -405,6 +419,45 @@ fun InstagramSessionScreen() {
                 }
             }
         }
+    }
+
+    if (showClearSessionDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearSessionDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.session_clear_confirm_title),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.session_clear_confirm_desc),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearSessionDialog = false
+                        app.sessionManager.clearSession()
+                        hasSession = false
+                        scope.launch { snackbarHostState.showSnackbar(clearedMsg) }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(stringResource(R.string.btn_clear_session))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearSessionDialog = false }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
     }
 }
 
