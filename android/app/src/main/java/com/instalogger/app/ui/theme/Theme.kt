@@ -1,15 +1,28 @@
 package com.instalogger.app.ui.theme
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.instalogger.app.settings.ThemeMode
+
+private fun Context.findActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return ctx as? Activity
+}
 
 private val DarkColorScheme = darkColorScheme(
     primary = AccentBlue,
@@ -68,10 +81,17 @@ fun InstaLoggerTheme(
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     val view = LocalView.current
+    val context = LocalContext.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as? Activity)?.window
+            val activity = view.context.findActivity() ?: context.findActivity()
+            val window = activity?.window
             if (window != null) {
+                val barColorArgb = colorScheme.background.toArgb()
+                @Suppress("DEPRECATION")
+                window.statusBarColor = barColorArgb
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = barColorArgb
                 val insetsController = WindowCompat.getInsetsController(window, view)
                 insetsController.isAppearanceLightStatusBars = !darkTheme
                 insetsController.isAppearanceLightNavigationBars = !darkTheme
