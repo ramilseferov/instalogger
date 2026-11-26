@@ -143,7 +143,7 @@ fun NotificationCenterScreen(
                     }
                 },
                 actions = {
-                    // Fixed 3-button slot layout: buttons NEVER disappear or teleport when unread/list changes!
+                    // Fixed 3-button slot layout: buttons NEVER disappear or teleport when unread/list changes
                     HeaderActionButton(onClick = { showSettingsSheet = true }) {
                         Icon(
                             imageVector = Icons.Default.Tune,

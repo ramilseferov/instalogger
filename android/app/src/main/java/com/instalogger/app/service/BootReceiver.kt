@@ -5,10 +5,6 @@ import android.content.Context
 import android.content.Intent
 import com.instalogger.app.util.AppLogger
 
-/**
- * Restarts InstaLoggerForegroundService automatically after device reboot or app upgrade
- * so background monitoring and archiving never stall permanently.
- */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return

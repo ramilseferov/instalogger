@@ -47,11 +47,7 @@ data class DevLogEntry(
     }
 }
 
-/**
- * Encrypted, redacted, live-streaming developer console logger.
- * Persists logs encrypted on disk via VaultStorageManager (AES-256-GCM hardware KeyStore)
- * while exposing a live StateFlow for the Termux-style Developer Logs terminal UI.
- */
+// Encrypted, redacted, live-streaming developer console logger.
 object AppLogger {
     private const val MAX_ENTRIES = 1500
     private const val LOG_CATEGORY = "_system"

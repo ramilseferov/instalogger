@@ -5,14 +5,6 @@ import java.text.DecimalFormatSymbols
 import java.util.Locale
 
 object FormatUtils {
-    /**
-     * Formats large follower, following, or post numbers into concise, ergonomic labels:
-     * e.g., 950 -> "950"
-     * 1,450 -> "1.45K"
-     * 25,000 -> "25K"
-     * 1,250,000 -> "1.25M"
-     * Prevents multi-line stat wrapping on narrow mobile screens.
-     */
     fun formatCompactNumber(count: Long): String {
         if (count < 1000) return count.toString()
         val symbols = DecimalFormatSymbols(Locale.US)

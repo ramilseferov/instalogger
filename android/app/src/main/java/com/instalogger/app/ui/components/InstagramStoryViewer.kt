@@ -84,7 +84,6 @@ fun InstagramStoryViewer(
             currentMedia.localPath.contains(".mp4", ignoreCase = true) ||
             currentMedia.localPath.contains(".webm", ignoreCase = true)
 
-        // Reset duration to default 5s for images; videos override with real duration onPrepared
         LaunchedEffect(currentMedia.id) {
             activeDurationMs = if (isVideo) 15_000L else 5_000L
         }
@@ -116,7 +115,6 @@ fun InstagramStoryViewer(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // Media Render Area
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -203,7 +201,6 @@ fun InstagramStoryViewer(
                 }
             }
 
-            // Top Overlay: Segmented Progress Bars & Header
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -283,7 +280,6 @@ fun InstagramStoryViewer(
                         )
                     }
 
-                    // Export / Share Archived Story Media (decrypted from Vault via VaultPlaybackBridge)
                     if (localFile.exists() && localFile.length() > 0L) {
                         IconButton(
                             onClick = {

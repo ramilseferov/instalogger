@@ -79,7 +79,6 @@ fun InstagramSessionScreen() {
                         break
                     }
                 } catch (e: Exception) {
-                    // Ignore background polling error
                 }
             }
         }
@@ -110,7 +109,6 @@ fun InstagramSessionScreen() {
                 .padding(padding)
                 .padding(bottom = 12.dp)
         ) {
-            // Status Header Card
             val statusCardShape = ShapeTokens.LargeShape
             Surface(
                 modifier = Modifier
@@ -164,7 +162,6 @@ fun InstagramSessionScreen() {
                 }
             }
 
-            // Standardized Sliding Pill Tab Selector
             SlidingPillTabRow(
                 tabs = listOf(
                     TabItem(title = stringResource(R.string.tab_webview_login)),
@@ -183,7 +180,6 @@ fun InstagramSessionScreen() {
                             .fillMaxSize()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
                     ) {
-                        // Mini action bar for WebView
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

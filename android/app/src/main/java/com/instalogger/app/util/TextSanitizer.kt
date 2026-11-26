@@ -1,9 +1,5 @@
 package com.instalogger.app.util
 
-/**
- * Robust string sanitizer to eliminate raw JSON escape sequences (\n, \r, \t, \", \'),
- * erroneous `/n` markers, HTML entities (&amp;, &quot;, &#39;), and normalize line breaks.
- */
 fun String?.cleanDisplayText(): String {
     if (this == null) return ""
     var text = this

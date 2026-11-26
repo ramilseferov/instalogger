@@ -63,7 +63,6 @@ class VaultStorageManager private constructor(context: Context) {
 
     fun encryptBytes(plaintext: ByteArray): ByteArray {
         val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-        // Android KeyStore enforces randomizedEncryptionRequired=true and generates the 12-byte GCM IV itself
         cipher.init(Cipher.ENCRYPT_MODE, getSecretKey())
         val iv = cipher.iv
         require(iv != null && iv.size == GCM_IV_LENGTH) {
@@ -130,11 +129,7 @@ class VaultStorageManager private constructor(context: Context) {
         return cipher.doFinal(encryptedData, ciphertextOffset, ciphertextSize)
     }
 
-    /**
-     * Memory-safe chunked VLT2 streaming file encryption (512 KB frames).
-     * Peak heap usage stays under ~2 MB even for 100+ MB HD videos, completely eliminating
-     * KeyStoreCryptoOperationChunkedStreamer OutOfMemoryError crashes!
-     */
+    // Memory-safe chunked VLT2 streaming file encryption (512 KB frames).
     fun saveEncryptedFile(
         targetUsername: String,
         category: String,
@@ -237,10 +232,6 @@ class VaultStorageManager private constructor(context: Context) {
         return destFile
     }
 
-    /**
-     * Memory-safe streaming decryption from Vault (.enc VLT1 or VLT2) directly to a destination file.
-     * Used for video playback, sharing, and public export without loading large videos into heap.
-     */
     fun decryptFileToFile(sourceEncryptedFile: File, destFile: File): Boolean {
         if (!sourceEncryptedFile.exists() || sourceEncryptedFile.length() == 0L) return false
         return try {

@@ -2,11 +2,7 @@ package com.instalogger.app.engine.pool
 
 import kotlin.math.ceil
 
-/**
- * Explicit completeness status for follower/following list fetches.
- * Prevents partial 47-50 item API slices or empty error responses from
- * triggering false "unfollowed" alerts.
- */
+// Explicit completeness status for follower/following list fetches.
 enum class ListCompletenessStatus {
     COMPLETE,
     PARTIAL,

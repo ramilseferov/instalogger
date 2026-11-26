@@ -28,9 +28,6 @@ import com.instalogger.app.R
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 
-/**
- * Reusable animated shimmer effect modifier for skeleton placeholders.
- */
 fun Modifier.shimmerEffect(durationMillis: Int = 1300): Modifier = composed {
     val transition = rememberInfiniteTransition(label = "shimmer_transition")
     val translateAnim by transition.animateFloat(
@@ -58,9 +55,6 @@ fun Modifier.shimmerEffect(durationMillis: Int = 1300): Modifier = composed {
     this.background(brush)
 }
 
-/**
- * Skeleton placeholder that exactly mirrors the layout of TargetCard during profile addition or initial sync.
- */
 @Composable
 fun SkeletonTargetCard(
     username: String? = null,
@@ -87,7 +81,6 @@ fun SkeletonTargetCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Avatar placeholder
                 Box(
                     modifier = Modifier
                         .size(54.dp)
@@ -127,7 +120,6 @@ fun SkeletonTargetCard(
                             }
                         }
                     } else {
-                        // Title shimmer placeholder
                         Box(
                             modifier = Modifier
                                 .width(130.dp)
@@ -136,7 +128,6 @@ fun SkeletonTargetCard(
                                 .shimmerEffect()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        // Subtitle shimmer placeholder
                         Box(
                             modifier = Modifier
                                 .width(85.dp)
@@ -150,7 +141,6 @@ fun SkeletonTargetCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Bottom action row placeholder
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -183,9 +173,6 @@ fun SkeletonTargetCard(
     }
 }
 
-/**
- * Skeleton placeholder for the Profile Detail Hero section.
- */
 @Composable
 fun SkeletonProfileHero(
     modifier: Modifier = Modifier
@@ -298,11 +285,6 @@ fun SkeletonProfileHero(
     }
 }
 
-/**
- * Dynamic grid skeleton shimmer for posts tab while posts are fetching/archiving.
- * Renders cascading 3-column square tiles matching [count] (or at least 3).
- * Shows a status card with live sync feedback and refresh action.
- */
 @Composable
 fun SkeletonPostGrid(
     modifier: Modifier = Modifier,

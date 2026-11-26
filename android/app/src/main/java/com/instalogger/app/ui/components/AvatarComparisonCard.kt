@@ -55,7 +55,6 @@ fun AvatarComparisonCard(
                 .fillMaxWidth()
                 .padding(18.dp)
         ) {
-            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -114,7 +113,6 @@ fun AvatarComparisonCard(
                     )
                 }
 
-                // Center Transition Icon Pod
                 val arrowPodShape = CircleShape
                 Box(
                     modifier = Modifier
@@ -157,7 +155,6 @@ fun AvatarComparisonCard(
         }
     }
 
-    // Standardized full screen image preview dialog
     previewImagePath?.let { path ->
         ImagePreviewDialog(
             imagePath = path,

@@ -28,10 +28,7 @@ import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.ShapeTokens
 import kotlin.math.roundToInt
 
-/**
- * Navigation dock with sliding active indicator.
- * Comfortably elevated above Android system navigation insets, preventing edge overflows.
- */
+// Navigation dock with sliding active indicator.
 @Composable
 fun AnimatedBottomBar(
     items: List<Screen>,
@@ -77,7 +74,6 @@ fun AnimatedBottomBar(
                     )
                 }
 
-                // Smooth sliding active pill indicator across tabs
                 val pillOffsetAnim = remember { Animatable(selectedIndex.toFloat()) }
 
                 LaunchedEffect(selectedIndex) {

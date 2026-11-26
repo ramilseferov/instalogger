@@ -250,8 +250,6 @@ class InstagramEngine(context: Context? = null) {
         val nowMs = System.currentTimeMillis()
 
         // 1. First attempt: ZERO-LOGIN Anonymous Desktop SSR HTML (NEVER sends session cookie,
-        //    so logged-in viewer metadata can NEVER poison tracked targets' names, IDs, or avatars).
-        //    Automatically skips for 5 min if Instagram just returned HTTP 302 is_from_rle AND we have a session.
         AppLogger.i(TAG, "fetchProfile(@$cleanUsername) start (hasSession=$hasSession)")
         var bestSnapshot: InstagramProfileSnapshot? = null
         val skipAnonSsr = hasSession && nowMs < anonymousSsrRleUntilMs
@@ -280,7 +278,6 @@ class InstagramEngine(context: Context? = null) {
             AppLogger.d(TAG, "fetchProfile(@$cleanUsername) skipping Tier1-ZeroLoginSSR (is_from_rle cooldown active)")
         }
 
-        // 2. Authenticated Mobile API (i.instagram.com/api/v1/users/{username}/usernameinfo/) — fast & works during anonymous RLE
         if (hasSession && nowMs >= mobileApiBlockedUntilMs) {
             try {
                 val mobileSnap = fetchViaMobileUsernameInfo(cleanUsername, cookieString!!)
@@ -294,7 +291,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // 3. Authenticated WebView Profile Interceptor — runs Instagram's live GraphQL client, 100% immune to anonymous RLE & deprecated REST paths
         if (hasSession && headlessScraper != null) {
             try {
                 val wvSnap = runBlocking { headlessScraper.scrapeProfile(cleanUsername, cookieString) }
@@ -400,10 +396,6 @@ class InstagramEngine(context: Context? = null) {
         }
     }
 
-    /**
-     * Parses structured <script type="application/json"> Desktop SSR user payload strictly matching
-     * the requested target username, preferring numeric REST `pk` over 17-digit GraphQL `id`.
-     */
     internal fun parseProfileFromSsrHtml(html: String, targetUsername: String): InstagramProfileSnapshot? {
         val cleanTarget = targetUsername.trim().trimStart('@').lowercase()
         var matchedUser: JsonObject? = null
@@ -505,7 +497,7 @@ class InstagramEngine(context: Context? = null) {
             .header("Sec-Fetch-Mode", "navigate")
             .header("Sec-Fetch-Site", "none")
 
-        // Strictly zero-login: NEVER attach logged-in user cookies to HTML profile scraping!
+        // Strictly zero-login: NEVER attach logged-in user cookies to HTML profile scraping
         client.newCall(requestBuilder.build()).execute().use { response ->
             if (response.code != 200) {
                 val loc = response.header("Location") ?: "-"
@@ -1192,7 +1184,7 @@ class InstagramEngine(context: Context? = null) {
         val hasSession = !cookieString.isNullOrBlank()
 
         // Tier 1 (Public Zero-Login First): Desktop SSR Polaris lox_highlights_connection
-        // Strictly WITHOUT session cookie so Instagram returns SSR highlight trays reliably!
+        // Strictly WITHOUT session cookie so Instagram returns SSR highlight trays reliably
         val nowMs = System.currentTimeMillis()
         if (!isPrivate && cleanUser.isNotBlank() && !(hasSession && nowMs < anonymousSsrRleUntilMs)) {
             try {
@@ -1218,7 +1210,7 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Tier 2: Authenticated Instagram v1 REST Highlights Tray API (required for private profiles & fallback)
+        // Tier 2: Authenticated Instagram v1 REST Highlights Tray API
         if (!userId.isNullOrBlank() && hasSession) {
             val trayUrl = "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/"
             val referer = if (cleanUser.isNotBlank()) "https://www.instagram.com/$cleanUser/" else "https://www.instagram.com/"
@@ -1270,7 +1262,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Tier 3: Legacy GraphQL query_hash fallback (when userId is available and endpoint is not in HTML cooldown)
         if (userId.isNullOrBlank() || System.currentTimeMillis() < highlightsGraphqlDeadUntilMs) return emptyList()
         val url = "https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables=%7B%22user_id%22%3A%22$userId%22%2C%22include_highlight_reels%22%3Atrue%7D"
         val requestBuilder = Request.Builder().url(url)
@@ -1324,10 +1315,6 @@ class InstagramEngine(context: Context? = null) {
         return list
     }
 
-    /**
-     * Parses Instagram Desktop SSR <script type="application/json"> payloads for
-     * lox_highlights_connection / edge_highlight_reels (XIGHighlightReel).
-     */
     internal fun parseHighlightsFromSsrHtml(html: String): List<InstagramHighlight> {
         val list = mutableListOf<InstagramHighlight>()
         val seenIds = hashSetOf<String>()
@@ -1400,7 +1387,6 @@ class InstagramEngine(context: Context? = null) {
         AppLogger.i(TAG, "fetchHighlightStories($highlightId) start (hasSession=$hasSession)")
 
         // Tier 1: Mobile Private API (i.instagram.com) + Web v1 REST reels_media
-        // Adaptive circuit breaker: if Instagram returns HTTP 500 or empty reels:{}, skip directly to WebView for 30m
         val nowMs = System.currentTimeMillis()
         val tryRestTier1 = !hasSession || headlessScraper == null || nowMs >= reelsMediaApiCooldownUntilMs
         if (tryRestTier1) {
@@ -1456,7 +1442,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Tier 2 (Authenticated WebView Network Interceptor): executes Instagram's OWN live GraphQL/doc_id inside Chromium!
         if (hasSession && headlessScraper != null) {
             try {
                 val wvItems = runBlocking {
@@ -1566,7 +1551,7 @@ class InstagramEngine(context: Context? = null) {
         }
         if (list.isNotEmpty()) return list
 
-        // Format C: { "reel": { "items": [...] } } (returned by /api/v1/feed/user/{userId}/story/)
+        // Format C: { "reel": { "items": [...] } }
         root.getAsJsonObject("reel")?.getAsJsonArray("items")?.forEach { el ->
             el.asJsonObject?.let { parseSingleStoryNode(it, highlightId)?.let(list::add) }
         }
@@ -1651,12 +1636,6 @@ class InstagramEngine(context: Context? = null) {
         )
     }
 
-    /**
-     * Fetches active 24-hour stories for a target user via:
-     * 1) Modern v1 REST feed/reels_media/?reel_ids=<userId> (when authenticated)
-     * 2) Desktop SSR on https://www.instagram.com/stories/<username>/
-     * 3) Legacy GraphQL query_hash fallback
-     */
     fun fetchActiveUserStories(
         userId: String?,
         username: String,
@@ -1679,7 +1658,7 @@ class InstagramEngine(context: Context? = null) {
 
         AppLogger.i(TAG, "fetchActiveUserStories(@$cleanUser, uid=$resolvedUserId) start (hasSession=$hasSession)")
 
-        // Tier 1A & 1B: Mobile API (i.instagram.com) + Web v1 REST endpoints (respects reels_media cooldown)
+        // Tier 1A & 1B: Mobile API (i.instagram.com) + Web v1 REST endpoints
         val tryStoryRest = headlessScraper == null || System.currentTimeMillis() >= reelsMediaApiCooldownUntilMs
         if (!resolvedUserId.isNullOrBlank() && hasSession && tryStoryRest) {
             val encodedId = URLEncoder.encode(resolvedUserId, "UTF-8")
@@ -1717,7 +1696,7 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Tier 2 (Authenticated WebView Network Interceptor): executes Instagram's live web player
+        // Tier 2: executes Instagram's live web player
         if (hasSession && headlessScraper != null) {
             try {
                 val wvItems = runBlocking {
@@ -1814,8 +1793,7 @@ class InstagramEngine(context: Context? = null) {
         val list = mutableListOf<InstagramPostItem>()
         var sawRateLimit = false
 
-        // 0. Public Zero-Login First: Desktop SSR Relay JSON Extraction (NEVER sends logged-in session cookie!)
-        // Logged-in cookies cause Instagram to serve a client SPA shell without polaris_ordered_timeline_connection.
+        // Public Zero-Login First: Desktop SSR Relay JSON Extraction
         if (!isPrivate) {
             try {
                 val ssrPosts = fetchPostsViaDesktopSsr(cleanUser, cookieString = null, limit = limit)
@@ -1827,7 +1805,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // 1. Tier A: Web Profile Info API (Guest cookie first for public profiles; session cookie for private/fallback)
         val webApiCookies = if (!isPrivate) {
             listOfNotNull(getOrFetchGuestCookies(), cookieString?.takeIf { it.isNotBlank() }).distinct()
         } else {
@@ -1917,7 +1894,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // 1.5. Tier A2: Modern v1 REST User Feed API (authenticated private profiles & public fallback)
         if (hasRealSession) {
             try {
                 val feedUrl = "https://www.instagram.com/api/v1/feed/user/$cleanUser/username/?count=$limit"
@@ -2052,7 +2028,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // 4. Tier D: Direct Public Profile Structured SSR Fallback (Strictly Anonymous Desktop UA, zero blind regex!)
         if (!isPrivate && !(hasRealSession && System.currentTimeMillis() < anonymousSsrRleUntilMs)) {
             try {
                 val htmlUrl = "https://www.instagram.com/$cleanUser/"
@@ -2088,11 +2063,6 @@ class InstagramEngine(context: Context? = null) {
         return PostFetchResult.Error("No posts returned")
     }
 
-    /**
-     * Parses Instagram's Desktop SSR Relay JSON payloads (<script type="application/json">)
-     * to extract public profile posts (polaris_ordered_timeline_connection / xdt_api / edge_owner_to_timeline_media)
-     * without requiring a login session.
-     */
     private fun fetchPostsViaDesktopSsr(
         username: String,
         cookieString: String?,
@@ -2121,10 +2091,6 @@ class InstagramEngine(context: Context? = null) {
         return parsePostsFromSsrHtml(html, limit, targetUsername = username)
     }
 
-    /**
-     * Strictly rejects Instagram Sponsored/Ad nodes and posts belonging to a different user
-     * (unless the target user is listed in `coauthor_producers`).
-     */
     internal fun isSponsoredOrForeignPostNode(node: JsonObject, targetUsername: String?): Boolean {
         val adKeys = listOf(
             "ad_id", "ad_action", "is_ad", "injected", "dr_ad_type",
@@ -2330,11 +2296,6 @@ class InstagramEngine(context: Context? = null) {
         return slides
     }
 
-    /**
-     * Parses a single post's Desktop SSR HTML (<script type="application/json">) for
-     * xig_polaris_media (full multi-slide carousel_media, HD image_versions2, video_versions,
-     * like_count, comment_count, taken_at).
-     */
     internal fun parsePostDetailsFromSsrHtml(html: String, shortcode: String): PostMediaDetails? {
         val scriptPattern = Pattern.compile("<script[^>]*type=\"application/json\"[^>]*>(.*?)</script>", Pattern.DOTALL)
         val matcher = scriptPattern.matcher(html)
@@ -2425,9 +2386,7 @@ class InstagramEngine(context: Context? = null) {
         )
     }
 
-    /**
-     * Extracts ordered carousel slides from an Instagram timeline/post GraphQL node.
-     */
+    // Extracts ordered carousel slides from an Instagram timeline/post GraphQL node.
     private fun extractSidecarSlides(node: JsonObject): List<CarouselSlideHint> {
         val edges = node.getAsJsonObject("edge_sidecar_to_children")?.getAsJsonArray("edges") ?: return emptyList()
         val slides = mutableListOf<CarouselSlideHint>()
@@ -2455,10 +2414,6 @@ class InstagramEngine(context: Context? = null) {
         return slides
     }
 
-    /**
-     * Fetches full post media details (including all Carousel slides and HD URLs)
-     * for a given shortcode using Instagram JSON/GraphQL endpoints with Embed fallback.
-     */
     fun fetchPostMediaDetails(
         shortcode: String,
         cookieString: String?,
@@ -2469,7 +2424,7 @@ class InstagramEngine(context: Context? = null) {
         val cleanCode = shortcode.trim()
 
         // 0. Zero-Login First: Desktop SSR HTML on /p/<shortcode>/ (NEVER sends session cookie,
-        //    returns full Carousel slides, HD URLs, likes, comments & taken_at for public posts!)
+        // returns full Carousel slides, HD URLs, likes, comments & taken_at for public posts)
         try {
             val postPageUrl = "https://www.instagram.com/p/$cleanCode/"
             val req = Request.Builder()
@@ -2496,7 +2451,7 @@ class InstagramEngine(context: Context? = null) {
 
         val effectiveCookie = cookieString?.takeIf { it.isNotBlank() } ?: getOrFetchGuestCookies()
 
-        // 1. Try Instagram post JSON endpoint (?__a=1&__d=dis) — mainly for private posts / fallback
+        // Try Instagram post JSON endpoint (?__a=1&__d=dis) — mainly for private posts / fallback
         try {
             val url = "https://www.instagram.com/p/$cleanCode/?__a=1&__d=dis"
             val req = Request.Builder().url(url)
@@ -2623,7 +2578,6 @@ class InstagramEngine(context: Context? = null) {
             Log.d(TAG, "Post JSON detail fetch skipped for $cleanCode: ${e.message}")
         }
 
-        // 1.5. Try Desktop SSR HTML on /p/<shortcode>/ (Zero-login full Carousel slides & HD URLs!)
         try {
             val postPageUrl = "https://www.instagram.com/p/$cleanCode/"
             val req = Request.Builder()
@@ -2683,10 +2637,6 @@ class InstagramEngine(context: Context? = null) {
         } else null
     }
 
-    /**
-     * Enriches a newly discovered public post using official Instagram Embed / OEmbed endpoints
-     * to recover HD media URLs, video stream URLs, full caption, timestamp, and engagement counts.
-     */
     fun enrichPostViaEmbed(post: InstagramPostItem): InstagramPostItem {
         var displayUrl = post.displayUrl
         var videoUrl = post.videoUrl
@@ -2816,7 +2766,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Fallback to official OEmbed API if caption or displayUrl is still missing
         if (caption.isBlank() || displayUrl.isBlank() || displayUrl.contains("/media/?size=")) {
             try {
                 val encodedPostUrl = URLEncoder.encode("https://www.instagram.com/p/${post.shortcode}/", "UTF-8")
@@ -2919,13 +2868,6 @@ class InstagramEngine(context: Context? = null) {
         }
     }
 
-    /**
-     * Full multi-page paginated post fetcher (supports 300, 1000+ posts instead of stopping at page 1's 12 items).
-     * Streams each page immediately through [onPageDiscovered] so Room DB and parallel downloaders start at once:
-     * 1) Zero-Login Desktop SSR Page 1 (instant 12 posts in ~300ms for public profiles)
-     * 2) Fast Authenticated v1 Feed Pagination (33 posts/page via max_id cursor on i.instagram.com & www.instagram.com)
-     * 3) Headless Chromium Infinite Scroll Network Interceptor (captures remaining pages even when GraphQL doc_ids rotate)
-     */
     suspend fun fetchAllPostsPaginated(
         userId: String?,
         username: String,
@@ -2989,7 +2931,7 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // If we already captured all expected posts (e.g., small profile <= 12 posts), stop immediately!
+        // If we already captured all expected posts, stop immediately
         if (expectedTotal > 0L && allByCode.size.toLong() >= expectedTotal) {
             return PostFetchResult.Success(allByCode.values.toList())
         }
@@ -3108,7 +3050,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Stage 3: Headless Chromium Infinite Scroll Pagination (Zero-Login OR fallback when Stage 2 didn't cover all posts!)
         val stillMissingPages = allByCode.size < targetLimit &&
             (expectedTotal == 0L || allByCode.size.toLong() < expectedTotal) &&
             (allByCode.size <= 12 || expectedTotal > allByCode.size.toLong())
@@ -3140,12 +3081,6 @@ class InstagramEngine(context: Context? = null) {
         return PostFetchResult.Success(allByCode.values.toList())
     }
 
-    /**
-     * Multi-tier Post & Reel Comments + Threaded Replies Extractor:
-     * 1) Authenticated REST `/api/v1/media/{mediaId}/comments/` + `/child_comments/` pagination (respects Retry-After)
-     * 2) Public Zero-Login Desktop SSR Relay JSON extraction (top-level + inline preview replies)
-     * 3) Headless Chromium WebView GraphQL/REST network interceptor with auto-expand replies
-     */
     suspend fun fetchPostComments(
         shortcode: String,
         cookieString: String?,
@@ -3352,7 +3287,6 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Tier 2: Public Zero-Login Desktop SSR Relay JSON extraction (fast fallback when unauthenticated or REST blocked)
         if (byId.isEmpty() && !(hasSession && System.currentTimeMillis() < anonymousSsrRleUntilMs)) {
             try {
                 val req = Request.Builder()
@@ -3376,7 +3310,7 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // Tier 3: Headless Chromium WebView Comment & Reply Interceptor (live GraphQL + auto-expand replies)
+        // Tier 3: Headless Chromium WebView Comment & Reply Interceptor
         val needWebViewFallback = byId.isEmpty() ||
             (reportedTotalCount > 0 && byId.size < minOf(reportedTotalCount, maxComments) && source != "rest_v1")
         if (needWebViewFallback && headlessScraper != null) {

@@ -204,7 +204,6 @@ fun PostCommentsBottomSheet(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Refresh / Sync button
                     Surface(
                         shape = CircleShape,
                         color = AccentBlue.copy(alpha = 0.12f),
@@ -222,7 +221,6 @@ fun PostCommentsBottomSheet(
                         }
                     }
 
-                    // Export button
                     Surface(
                         shape = CircleShape,
                         color = if (allComments.isNotEmpty()) StatusGreen.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -241,7 +239,6 @@ fun PostCommentsBottomSheet(
                         }
                     }
 
-                    // Close button
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -298,7 +295,6 @@ fun PostCommentsBottomSheet(
                 }
             }
 
-            // Live Syncing Banner
             AnimatedVisibility(visible = isSyncing) {
                 Row(
                     modifier = Modifier
@@ -324,7 +320,6 @@ fun PostCommentsBottomSheet(
                 }
             }
 
-            // Optional Status/Warning Banner
             if (!lastSyncNotice.isNullOrBlank() && !isSyncing) {
                 Row(
                     modifier = Modifier
@@ -760,7 +755,6 @@ private fun CommentThreadCard(
                 }
             }
 
-            // Nested Tree Replies with Left Vertical Thread Guide Line (drawBehind avoids IntrinsicSize Subcompose issues)
             AnimatedVisibility(
                 visible = isExpanded && node.replies.isNotEmpty(),
                 enter = expandVertically() + fadeIn(),
@@ -824,7 +818,6 @@ private fun CommentRowContent(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Avatar or Initials Monogram
         Box(
             modifier = Modifier
                 .size(avatarSize)

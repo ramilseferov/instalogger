@@ -37,16 +37,11 @@ sealed class HeadlessScrapeResult {
     data class Failed(val reason: String) : HeadlessScrapeResult()
 }
 
-/**
- * On-device headless Chromium WebView scraper that extracts public Instagram profile posts
- * directly from the rendered DOM without requiring a user login session.
- */
 class HeadlessInstagramScraper(context: Context) {
 
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gson = Gson()
-    // Separate pools so profile checks, highlight scraping, post pagination, and comment scraping never block one another
     private val postScrapeMutex = Mutex()
     private val storySemaphore = Semaphore(2)
     private val profileSemaphore = Semaphore(2)
@@ -107,7 +102,6 @@ class HeadlessInstagramScraper(context: Context) {
                     val wv = WebView(appContext).apply {
                         visibility = View.INVISIBLE
                         layoutParams = ViewGroup.LayoutParams(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
-                        // Layout off-screen with realistic viewport bounds so React intersection observers load grid images
                         measure(
                             View.MeasureSpec.makeMeasureSpec(VIEWPORT_WIDTH, View.MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(VIEWPORT_HEIGHT, View.MeasureSpec.EXACTLY)
@@ -262,11 +256,6 @@ class HeadlessInstagramScraper(context: Context) {
             }
         }
 
-    /**
-     * Loads a story or highlight URL inside an off-screen authenticated Chromium WebView,
-     * hooking Instagram's own live GraphQL/REST fetch/XHR calls (with real fb_dtsg, lsd, doc_id)
-     * plus SSR JSON & rendered media DOM to extract full-resolution story photos and videos.
-     */
     suspend fun scrapeStoriesOrHighlight(
         targetUrl: String,
         highlightId: String,
@@ -399,7 +388,7 @@ class HeadlessInstagramScraper(context: Context) {
                             }
                             val source = obj.get("source")?.asString ?: "unknown"
                             if (collected.isNotEmpty() && source == "network_json") {
-                                // Structured network JSON gives the entire reel at once — finish cleanly!
+                                // Structured network JSON gives the entire reel at once — finish cleanly
                                 finish(collected.values.toList(), "network_json")
                             }
                         } catch (e: Exception) {
@@ -467,11 +456,6 @@ class HeadlessInstagramScraper(context: Context) {
         }
     }
 
-    /**
-     * Loads a profile page in an off-screen authenticated Chromium WebView and intercepts
-     * Instagram's own live GraphQL/REST & SSR payloads strictly matching [username].
-     * Works reliably even when anonymous SSR hits HTTP 302 (is_from_rle) rate-limit walls.
-     */
     suspend fun scrapeProfile(
         username: String,
         cookieString: String?
@@ -676,11 +660,6 @@ class HeadlessInstagramScraper(context: Context) {
         }
     }
 
-    /**
-     * Scrolls through a profile in an off-screen Chromium WebView while intercepting Instagram's
-     * live GraphQL/REST timeline pagination responses, streaming every page batch via [onBatch].
-     * Enables loading 300+ posts even when Instagram rotates GraphQL doc_ids.
-     */
     suspend fun scrapePaginatedPosts(
         username: String,
         maxPosts: Int,
@@ -923,11 +902,7 @@ class HeadlessInstagramScraper(context: Context) {
         }
     }
 
-    /**
-     * Headless WebView Post/Reel Comments & Threaded Replies Network Interceptor.
-     * Captures Instagram's live GraphQL/REST comment + child_comment payloads while automatically
-     * scrolling the comment list and expanding "View replies" buttons.
-     */
+    // Headless WebView Post/Reel Comments & Threaded Replies Network Interceptor.
     suspend fun scrapePostComments(
         shortcode: String,
         cookieString: String?,

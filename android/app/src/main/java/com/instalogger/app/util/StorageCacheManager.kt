@@ -16,14 +16,6 @@ import java.io.File
 import java.util.Locale
 import kotlin.coroutines.resume
 
-/**
- * Storage categories shown in the Telegram-inspired Data & Storage Management menu
- * (adapted from TourJet's StorageCacheManager for InstaLogger's real architecture).
- *
- * - Safe cache categories (`selectedByDefault = true`) are pre-selected automatically.
- * - Protected archived Vault / history categories (`selectedByDefault = false`, `isProtectedCategory = true`)
- *   remain unselected by default; selecting any triggers a spring-animated warning banner and confirmation.
- */
 enum class StorageCategoryType(
     val id: String,
     val colorHex: Long,
@@ -123,10 +115,6 @@ object StorageCacheManager {
     private const val DB_NAME = "instalogger_standalone.db"
     private const val SYSTEM_VAULT_DIR = "_system"
 
-    /**
-     * Scans all real local cache directories, Coil caches, WebView storage, encrypted AES-256 Vault
-     * folders, exported archives, and Room SQLite tables to compute 100% authentic byte sizes.
-     */
     @OptIn(ExperimentalCoilApi::class)
     suspend fun analyzeStorage(context: Context): DeviceStorageSnapshot = withContext(Dispatchers.IO) {
         val appCtx = context.applicationContext
@@ -291,9 +279,6 @@ object StorageCacheManager {
         )
     }
 
-    /**
-     * Purges all user-selected storage categories and returns Pair(freedBytes, refreshedSnapshot).
-     */
     @OptIn(ExperimentalCoilApi::class)
     suspend fun clearSelectedCategories(
         context: Context,
@@ -426,10 +411,6 @@ object StorageCacheManager {
         Pair(freedBytes, afterSnapshot)
     }
 
-    /**
-     * Clears archived media and JSON files belonging to a single tracked target while keeping
-     * the target account itself tracked.
-     */
     suspend fun clearTargetMedia(
         context: Context,
         username: String,
@@ -478,9 +459,7 @@ object StorageCacheManager {
         Pair(freed, afterSnapshot)
     }
 
-    /**
-     * Dedicated 1-tap WebView Cookies & DOM Storage purge.
-     */
+    // Dedicated 1-tap WebView Cookies & DOM Storage purge.
     suspend fun clearOnlyWebViewCookies(context: Context): Pair<Long, DeviceStorageSnapshot> {
         val appCtx = context.applicationContext
         val dataRoot = appCtx.applicationInfo.dataDir?.let { File(it) }
@@ -522,11 +501,6 @@ object StorageCacheManager {
         return freedAndSnapshot
     }
 
-    /**
-     * Complete local data reset invoked only after explicit user confirmation from Android's
-     * Manage Space screen (`ManageSpaceActivity`). Clears all storage categories, WebView cookies,
-     * and tracked target database records.
-     */
     suspend fun clearAllAppData(context: Context): Pair<Long, DeviceStorageSnapshot> {
         val appCtx = context.applicationContext
         val beforeTotal = analyzeStorage(appCtx).totalAppCacheBytes

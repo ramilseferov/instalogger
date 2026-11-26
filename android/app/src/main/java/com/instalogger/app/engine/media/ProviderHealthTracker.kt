@@ -5,11 +5,7 @@ import com.instalogger.app.data.local.ProviderHealthEntity
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Circuit-breaker health tracker for pluggable media providers.
- * Prevents hammering rate-limited (HTTP 429) or failing extractors while automatically
- * recovering once cooldown expires.
- */
+// Circuit-breaker health tracker for pluggable media providers.
 class ProviderHealthTracker(
     private val dao: ProviderHealthDao
 ) {

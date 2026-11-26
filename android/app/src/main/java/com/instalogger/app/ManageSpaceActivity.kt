@@ -68,13 +68,7 @@ import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.StorageCacheManager
 import kotlinx.coroutines.launch
 
-/**
- * Registered as `android:manageSpaceActivity` in AndroidManifest.xml.
- *
- * When the user opens Android System Settings -> Apps -> InstaLogger -> Storage & cache,
- * Android replaces the destructive "Clear storage / Clear data" button with "Manage space",
- * which launches this Activity directly into InstaLogger's Data & Storage Management hub.
- */
+// Registered as `android:manageSpaceActivity` in AndroidManifest.xml.
 class ManageSpaceActivity : FragmentActivity() {
 
     override fun attachBaseContext(newBase: Context) {

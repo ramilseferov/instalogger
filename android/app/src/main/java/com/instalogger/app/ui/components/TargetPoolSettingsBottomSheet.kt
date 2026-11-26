@@ -162,7 +162,6 @@ fun TargetPoolSettingsBottomSheet(
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -222,7 +221,6 @@ fun TargetPoolSettingsBottomSheet(
                 }
             }
 
-            // Live Pool Status Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = ShapeTokens.LargeShape,

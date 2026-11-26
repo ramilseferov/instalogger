@@ -358,7 +358,6 @@ fun InstagramPostViewerDialog(
                     .systemBarsPadding()
                     .displayCutoutPadding()
             ) {
-                // Top Header Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -525,7 +524,6 @@ fun InstagramPostViewerDialog(
                     }
                 }
 
-                // Live Download Progress Telemetry Strip
                 if (downloadState !is PostDownloadState.Idle) {
                     DownloadStatusStrip(
                         state = downloadState,
@@ -533,7 +531,6 @@ fun InstagramPostViewerDialog(
                     )
                 }
 
-                // Bottom Content & Actions Area
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

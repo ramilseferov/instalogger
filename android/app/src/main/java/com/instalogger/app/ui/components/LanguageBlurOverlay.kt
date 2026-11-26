@@ -17,11 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 
-/**
- * High-performance hardware-accelerated frosted blur modifier for language transitions.
- * Smoothly interpolates blur radius and alpha with FastOutSlowInEasing.
- * Completely detaches RenderEffect when idle to guarantee zero residual GPU overhead.
- */
 fun Modifier.languageTransitionBlur(
     isBlurActive: Boolean,
     maxBlurRadius: Float = 22f,
@@ -64,9 +59,6 @@ fun Modifier.languageTransitionBlur(
     }
 }
 
-/**
- * Frosted dark veil overlay for seamless language transition unveil.
- */
 @Composable
 fun LanguageBlurOverlay(
     isBlurActive: Boolean,

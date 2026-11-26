@@ -88,16 +88,6 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
-/**
- * High-performance LazyColumn Settings Hub modeled after TourJet's categorized settings layout:
- * - Instant 120 FPS tab switching (no monolithic upfront Column composition)
- * - TourJet-style live 3-phone Theme Appearance bottom sheet
- * - Restored frosted-blur language transition animation
- * - Tree + per-profile Notification settings hub
- * - Integrated Telegram-style Data & Storage Management hub
- * - Clean breadcrumb Archive Folder path viewer & symmetrical action buttons
- * - 120 FPS gliding pill selectors for Speed, Limit, Quality & Update Channel
- */
 @Composable
 fun SettingsScreen(
     onOpenDeveloperLogs: () -> Unit = {}
@@ -210,15 +200,11 @@ fun SettingsScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // =================================================================
-            // GROUP 1: APPEARANCE & LANGUAGE (TourJet Hub Style)
-            // =================================================================
             item(key = "sec_appearance") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsSectionHeader(text = stringResource(R.string.settings_hub_sec_appearance))
 
                     SettingsHubCard {
-                        // Theme Row -> Opens TourJet-style 3-Phone-Preview Bottom Sheet
                         SettingsHubRow(
                             icon = Icons.Default.Palette,
                             iconTint = Color(0xFF818CF8),
@@ -235,7 +221,6 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
                         )
 
-                        // Language Inline Selector with Restored Smooth Blur Transition
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -304,15 +289,11 @@ fun SettingsScreen(
                 }
             }
 
-            // =================================================================
-            // GROUP 2: SECURITY & NOTIFICATIONS
-            // =================================================================
             item(key = "sec_security") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsSectionHeader(text = stringResource(R.string.settings_hub_sec_security))
 
                     SettingsHubCard {
-                        // Tree + Per-Profile Notification Center Row
                         SettingsHubRow(
                             icon = Icons.Default.NotificationsActive,
                             iconTint = StatusAmber,
@@ -457,9 +438,6 @@ fun SettingsScreen(
                 }
             }
 
-            // =================================================================
-            // GROUP 3: DATA & STORAGE MANAGEMENT + ARCHIVE FOLDER
-            // =================================================================
             item(key = "sec_storage") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsSectionHeader(text = stringResource(R.string.settings_hub_sec_storage))
@@ -557,7 +535,6 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
                         )
 
-                        // Archive Folder, Audit Logs & Daemon Sync Expandable Row
                         SettingsHubExpandableRow(
                             icon = Icons.Default.Folder,
                             iconTint = Color(0xFFF59E0B),
@@ -574,7 +551,6 @@ fun SettingsScreen(
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // Clean Visual Breadcrumb Path Card (replaces ugly raw monospace box)
                                 ArchivePathBreadcrumbCard(
                                     rawPath = currentDisplayPath,
                                     onCopyPath = {
@@ -631,7 +607,6 @@ fun SettingsScreen(
 
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                                // Audit Logs Symmetrical 50/50 Buttons
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -736,7 +711,6 @@ fun SettingsScreen(
 
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                                // Optional Local Daemon Sync
                                 SettingSwitchRow(
                                     title = stringResource(R.string.daemon_sync_enabled),
                                     description = stringResource(R.string.daemon_sync_desc),
@@ -812,9 +786,6 @@ fun SettingsScreen(
                 }
             }
 
-            // =================================================================
-            // GROUP 4: ENGINE, PERFORMANCE & DEVELOPER DIAGNOSTICS
-            // =================================================================
             item(key = "sec_engine") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SettingsSectionHeader(text = stringResource(R.string.settings_hub_sec_engine))
@@ -833,7 +804,6 @@ fun SettingsScreen(
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
 
-                        // Media Engine, Speed, Quality & Battery Expandable Row (Zero title/badge overlap!)
                         SettingsHubExpandableRow(
                             icon = Icons.Default.Movie,
                             iconTint = Color(0xFF9B59B6),
@@ -850,7 +820,6 @@ fun SettingsScreen(
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // Clean Dedicated Engine Status Strip (never overlaps title!)
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(14.dp),
@@ -896,7 +865,6 @@ fun SettingsScreen(
                                     }
                                 }
 
-                                // Smooth Gliding Pill: Video Quality Preset
                                 Text(
                                     text = stringResource(R.string.ytdlp_quality_label),
                                     style = MaterialTheme.typography.labelLarge,
@@ -923,7 +891,6 @@ fun SettingsScreen(
                                     onSelected = { idx -> app.settingsManager.setYtDlpQualityPreset(qualityPresets[idx]) }
                                 )
 
-                                // Smooth Gliding Pill: Update Channel + Update Button
                                 val channels = remember { YtDlpUpdateChannel.entries.toList() }
                                 AnimatedSegmentedSelector(
                                     options = channels.map { SegmentedOption(it.key) },
@@ -989,7 +956,6 @@ fun SettingsScreen(
 
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                                // Smooth Gliding Pill: Parallel Speed Preset
                                 Text(
                                     text = stringResource(R.string.speed_preset_label),
                                     style = MaterialTheme.typography.labelLarge,
@@ -1017,7 +983,6 @@ fun SettingsScreen(
                                     height = 46.dp
                                 )
 
-                                // Smooth Gliding Pill: Max Posts Sync Limit
                                 Text(
                                     text = stringResource(R.string.max_posts_limit_label),
                                     style = MaterialTheme.typography.labelLarge,
@@ -1495,9 +1460,6 @@ private fun SettingsHubExpandableRow(
     }
 }
 
-/**
- * Clean visual breadcrumb representation of the archive folder path (replaces ugly raw monospace dump).
- */
 @Composable
 private fun ArchivePathBreadcrumbCard(
     rawPath: String,

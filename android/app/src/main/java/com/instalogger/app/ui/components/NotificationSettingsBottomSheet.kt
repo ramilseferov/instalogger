@@ -141,7 +141,6 @@ fun NotificationSettingsBottomSheet(
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -199,7 +198,6 @@ fun NotificationSettingsBottomSheet(
                 }
             }
 
-            // Live Compact Status Summary Strip
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -241,7 +239,6 @@ fun NotificationSettingsBottomSheet(
                 }
             }
 
-            // 3-Tab Segmented Navigation (Eliminates endless chaotic wall of settings)
             SlidingPillTabRow(
                 tabs = listOf(
                     TabItem(title = stringResource(R.string.notif_tab_general), icon = Icons.Default.Tune),
@@ -255,7 +252,6 @@ fun NotificationSettingsBottomSheet(
                 }
             )
 
-            // Tab Body (Scrollable, smooth AnimatedContent crossfade)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -271,7 +267,6 @@ fun NotificationSettingsBottomSheet(
                 ) { section ->
                     when (section) {
                         0 -> {
-                            // TAB 0: General Delivery Channels & System Settings
                             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 SettingsSectionBox {
                                     SettingSwitchRow(
@@ -411,9 +406,7 @@ fun NotificationSettingsBottomSheet(
                         }
 
                         1 -> {
-                            // TAB 1: Tree-Structured Notification Categories + Per-Profile Granular Controls
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                // Profile Scope Selector Strip (Global + every tracked @username)
                                 SettingsSectionBox {
                                     Text(
                                         text = stringResource(R.string.notif_scope_profiles_label),
@@ -561,7 +554,6 @@ fun NotificationSettingsBottomSheet(
                                                 .fillMaxWidth()
                                                 .alpha(if (isScopeMuted) 0.45f else 1f)
                                         ) {
-                                            // Parent Tree Node Header
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -677,7 +669,6 @@ fun NotificationSettingsBottomSheet(
                                                                 .height(IntrinsicSize.Min),
                                                             verticalAlignment = Alignment.CenterVertically
                                                         ) {
-                                                            // Tree Connector Branch Canvas (vertical trunk + horizontal branch)
                                                             Canvas(
                                                                 modifier = Modifier
                                                                     .width(26.dp)
@@ -756,7 +747,6 @@ fun NotificationSettingsBottomSheet(
                         }
 
                         else -> {
-                            // TAB 2: Follower Change Pool & High-Velocity Account Protection
                             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                 SettingsSectionBox {
                                     Text(
@@ -774,7 +764,6 @@ fun NotificationSettingsBottomSheet(
 
                                     Spacer(modifier = Modifier.height(12.dp))
 
-                                    // Smooth 120 FPS Gliding Pill Mode Selector
                                     val modes = remember {
                                         listOf(
                                             FollowerPoolMode.OFF,

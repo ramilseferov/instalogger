@@ -45,11 +45,6 @@ data class SegmentedOption(
     val subtitle: String? = null
 )
 
-/**
- * Hardware-friendly segmented tab row with a real gliding pill indicator.
- * Uses a single animated offset (`animateDpAsState` spring) so switching tabs
- * glides smoothly at 120 FPS without layout thrashing.
- */
 @Composable
 fun SlidingPillTabRow(
     tabs: List<TabItem>,
@@ -88,7 +83,6 @@ fun SlidingPillTabRow(
                 label = "sliding_tab_pill_x"
             )
 
-            // Gliding Pill Indicator
             Box(
                 modifier = Modifier
                     .offset(x = indicatorOffset)
@@ -103,7 +97,6 @@ fun SlidingPillTabRow(
                     )
             )
 
-            // Tab Labels Row
             Row(modifier = Modifier.fillMaxSize()) {
                 tabs.forEachIndexed { index, tab ->
                     val isSelected = safeIndex == index
@@ -161,10 +154,6 @@ fun SlidingPillTabRow(
     }
 }
 
-/**
- * Reusable 120 FPS gliding pill selector for option groups (video quality, speed presets,
- * post sync limits, update channels, etc.). Smooth, calm, and eye-friendly.
- */
 @Composable
 fun AnimatedSegmentedSelector(
     options: List<SegmentedOption>,

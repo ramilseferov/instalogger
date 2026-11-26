@@ -81,7 +81,6 @@ class SessionManager(context: Context) {
             val ctBase64 = Base64.encodeToString(cipherText, Base64.NO_WRAP)
             "$ENCRYPTED_PREFIX$ivBase64:$ctBase64"
         } catch (e: Exception) {
-            // Fallback in catastrophic KeyStore failure to avoid total login lockout
             plaintext
         }
     }

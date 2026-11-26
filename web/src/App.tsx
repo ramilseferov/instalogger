@@ -83,7 +83,6 @@ export const App: React.FC = () => {
               fetchTargets();
             }
           } catch {
-            // Ignore malformed WS frame
           }
         };
       }

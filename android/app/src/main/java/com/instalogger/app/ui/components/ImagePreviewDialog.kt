@@ -20,9 +20,6 @@ import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.ShapeTokens
 import java.io.File
 
-/**
- * Standardized full-screen/modal image preview dialog across the application.
- */
 @Composable
 fun ImagePreviewDialog(
     imagePath: String,

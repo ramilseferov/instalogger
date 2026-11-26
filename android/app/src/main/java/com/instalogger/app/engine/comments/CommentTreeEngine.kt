@@ -50,10 +50,6 @@ object CommentTreeEngine {
     private const val IG_SHORTCODE_ALPHABET =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
-    /**
-     * Deterministically converts an Instagram post/reel shortcode into its numeric 64-bit media ID
-     * without requiring a network round-trip.
-     */
     fun shortcodeToMediaId(shortcode: String): String? {
         val clean = shortcode.trim().substringBefore('/').substringBefore('?')
         if (clean.isBlank()) return null
@@ -69,10 +65,6 @@ object CommentTreeEngine {
         return if (id > BigInteger.ZERO) id.toString() else null
     }
 
-    /**
-     * Groups flat [PostCommentEntity] records into a parent -> replies tree keyed by comment_id.
-     * Orphan replies whose parent was not fetched yet are safely preserved as root nodes so no data is dropped.
-     */
     fun buildCommentTree(comments: List<PostCommentEntity>): List<CommentThreadNode> {
         if (comments.isEmpty()) return emptyList()
 
@@ -93,7 +85,6 @@ object CommentTreeEngine {
             }
         }
 
-        // Flatten multi-level replies (reply to a reply) under their root parent while preserving chronological order
         val resolvedNodes = roots.map { root ->
             val collected = mutableListOf<PostCommentEntity>()
             val queue = ArrayDeque<String>()
@@ -162,11 +153,6 @@ object CommentTreeEngine {
         )
     }
 
-    /**
-     * Tree-aware search, filtering, and sorting:
-     * - If a nested reply matches the search query / author filter / minLikes, the parent thread stays visible
-     *   with matching replies kept and [CommentThreadNode.matchedReplyCount] set so the UI can auto-expand it.
-     */
     fun queryTree(
         comments: List<PostCommentEntity>,
         options: CommentQueryOptions
@@ -224,7 +210,6 @@ object CommentTreeEngine {
                 options.filterMode == CommentFilterMode.TOP_LEVEL_ONLY -> emptyList()
                 !anyConstraint -> candidateReplies
                 parentMatches && !hasAuthorFilter && options.minLikes == 0 && options.filterMode != CommentFilterMode.VERIFIED_ONLY -> {
-                    // Parent matched search text: keep all replies accessible while marking how many also matched
                     candidateReplies
                 }
                 matchingReplies.isNotEmpty() -> matchingReplies

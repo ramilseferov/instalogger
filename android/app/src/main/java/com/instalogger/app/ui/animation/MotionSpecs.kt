@@ -12,9 +12,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 
-/**
- * Screen transition specifications and spring physics curves.
- */
 object MotionSpecs {
     private const val TAB_TRANSITION_MS = 185
     private const val DETAIL_SLIDE_DURATION_MS = 230
@@ -40,14 +37,12 @@ object MotionSpecs {
         stiffness = Spring.StiffnessLow
     )
 
-    // Fluid Spring Physics
     val FluidSpring = spring<androidx.compose.ui.unit.IntOffset>(
         dampingRatio = Spring.DampingRatioNoBouncy,
         stiffness = 460f
     )
 
-    // Bottom Navigation Peer Tab Transitions:
-    // GPU-friendly subtle directional micro-shift (±6%) + silky crossfade (zero full-width double overdraw)
+    // GPU-friendly subtle directional micro-shift (±6%) + silky crossfade
     val TabFlowRightEnter: EnterTransition = slideInHorizontally(
         initialOffsetX = { fullWidth -> (fullWidth * 0.06f).toInt() },
         animationSpec = tween(durationMillis = TAB_TRANSITION_MS, easing = FastOutSlowInEasing)

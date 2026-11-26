@@ -4,10 +4,6 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 
-/**
- * Operating mode for the Follower/Following Change Pool.
- * OFF preserves classic instant notifications on every delta.
- */
 enum class FollowerPoolMode(val key: String) {
     OFF("OFF"),
     FIXED_COUNT("FIXED_COUNT"),
@@ -21,10 +17,6 @@ enum class FollowerPoolMode(val key: String) {
     }
 }
 
-/**
- * Per-target override wrapper. GLOBAL inherits AppSettingsManager defaults;
- * OFF forces classic instant mode for that target regardless of global policy.
- */
 enum class TargetPoolOverride(val key: String) {
     GLOBAL("GLOBAL"),
     OFF("OFF"),
@@ -39,9 +31,6 @@ enum class TargetPoolOverride(val key: String) {
     }
 }
 
-/**
- * Effective policy resolved from Global Defaults + Per-Target Overrides.
- */
 data class FollowerPoolPolicy(
     val mode: FollowerPoolMode = FollowerPoolMode.OFF,
     val fixedThreshold: Long = 50L,
@@ -54,9 +43,6 @@ data class FollowerPoolPolicy(
     val suppressMinorAuditLogs: Boolean = true
 )
 
-/**
- * Persistent per-metric accumulator state stored on TargetEntity.
- */
 data class PoolMetricState(
     val baseline: Long = 0L,
     val startedAt: Long = 0L,
@@ -92,10 +78,7 @@ data class PoolEvaluationResult(
     val shouldDispatchNotification: Boolean
 )
 
-/**
- * Pure, deterministic accumulator engine for high-velocity follower/following changes.
- * Zero Android dependencies so every branch is exhaustively unit-testable.
- */
+// Pure, deterministic accumulator engine for high-velocity follower/following changes.
 object FollowerPoolEngine {
 
     private const val FLICKER_MAX_DELTA = 2L
@@ -245,7 +228,6 @@ object FollowerPoolEngine {
         val netDelta = newCount - initialBaseline
         val windowDurationMs = max(0L, nowMs - initialStartedAt)
 
-        // If CDN oscillation returned count exactly to baseline, quietly reset gross counters if anti-flicker is ON
         if (netDelta == 0L) {
             val resetState = PoolMetricState(
                 baseline = initialBaseline,
@@ -409,9 +391,6 @@ object FollowerPoolEngine {
         )
     }
 
-    /**
-     * Resets the pool baseline to currentCount and returns the accumulated delta for optional logging.
-     */
     fun manualFlush(
         state: PoolMetricState,
         currentCount: Long,

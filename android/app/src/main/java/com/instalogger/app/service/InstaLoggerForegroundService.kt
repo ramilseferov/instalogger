@@ -115,7 +115,6 @@ class InstaLoggerForegroundService : Service() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.notify(NOTIFICATION_ID, buildForegroundNotification(customStatus))
         } catch (_: Exception) {
-            // Non-fatal
         }
     }
 

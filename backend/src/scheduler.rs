@@ -295,7 +295,6 @@ impl Scheduler {
         });
         std::fs::write(&blitz_json_path, blitz_payload.to_string())?;
 
-        // Background hydration
         let worker_clone = Arc::clone(&self.worker);
         let target_id_owned = target_id.to_string();
         let out_dir_owned = out_dir.clone();

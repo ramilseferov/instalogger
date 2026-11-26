@@ -190,7 +190,6 @@ fun FollowerAuditBottomSheet(
                 .imePadding()
                 .padding(bottom = 16.dp)
         ) {
-            // Sheet Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -313,7 +312,6 @@ private fun UserListTabContent(
     context: Context
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Search Field
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchChange,
@@ -523,7 +521,6 @@ private fun AuditDiffsTabContent(
     context: Context
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Filter Tabs (Horizontal scrolling chips)
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -666,7 +663,6 @@ private fun FollowerAuditItemCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Avatar with event badge
             Box(
                 modifier = Modifier.size(52.dp),
                 contentAlignment = Alignment.BottomEnd

@@ -36,7 +36,6 @@ async fn main() -> Result<()> {
     let (scheduler_raw, _) = Scheduler::new(db.clone(), notify, worker);
     let scheduler = Arc::new(scheduler_raw);
 
-    // Background scheduler
     scheduler.clone().start_loop();
 
     // Axum router

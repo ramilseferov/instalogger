@@ -41,7 +41,6 @@ object ArchiveDirectoryManager {
                 }
                 return uri.path ?: uriStr
             } catch (e: Exception) {
-                // Ignore parse error
             }
         }
 
@@ -99,10 +98,6 @@ object ArchiveDirectoryManager {
         _displayPathFlow.value = getDisplayPath(context)
     }
 
-    /**
-     * Preserves an encrypted copy of the avatar in the hardware-backed vault.
-     * Completely isolated from Gallery and decrypted directly in RAM by Coil.
-     */
     fun copyToInternalAvatar(context: Context, username: String, sourceFile: File): File? {
         return try {
             if (!sourceFile.exists() || sourceFile.length() == 0L) return null

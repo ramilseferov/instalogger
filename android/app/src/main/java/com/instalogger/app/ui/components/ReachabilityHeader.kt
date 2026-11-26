@@ -19,11 +19,6 @@ import com.instalogger.app.R
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.ShapeTokens
 
-/**
- * Ergonomic reachability header for top viewing area.
- * Anchors badge content permanently on the start slot and action buttons permanently on the end slot
- * so action buttons NEVER shift or teleport when badges appear or disappear.
- */
 @Composable
 fun ReachabilityHeader(
     title: String,
@@ -99,10 +94,6 @@ fun ReachabilityHeader(
     }
 }
 
-/**
- * Modern squircle action button container with bouncy spring touch feedback and 44dp accessibility bounds.
- * Supports disabled state with smooth dimming while preserving exact layout position.
- */
 @Composable
 fun HeaderActionButton(
     onClick: () -> Unit,

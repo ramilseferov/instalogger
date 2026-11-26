@@ -90,7 +90,6 @@ fun TargetCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Profile Avatar Thumbnail with resilient fallback and loading state
                     val context = LocalContext.current
                     val localFile = target.localAvatarPath?.let { File(it) }
                     val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, target.username)
@@ -118,7 +117,7 @@ fun TargetCard(
                         )
                     )
 
-                    // Fixed 60dp avatar container so toggling active story ring NEVER shifts username/badges!
+                    // Fixed 60dp avatar container so toggling active story ring NEVER shifts username/badges
                     Box(
                         modifier = Modifier
                             .size(60.dp)
@@ -239,7 +238,6 @@ fun TargetCard(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Ergonomic Grouped Stats Container
                 val statsShape = ShapeTokens.MediumShape
                 Row(
                     modifier = Modifier
@@ -259,7 +257,6 @@ fun TargetCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Bottom Action & Status Row (Completely isolated from card body click)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -277,7 +274,6 @@ fun TargetCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     val actionButtonShape = ShapeTokens.SmallShape
 
-                    // Refresh Button Pod (single clean clickable surface, no nested IconButton double-fire)
                     Box(
                         modifier = Modifier
                             .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
@@ -371,7 +367,6 @@ fun TargetCard(
                         }
                     }
 
-                    // Delete Pod (with 44dp min touch bounds)
                     Box(
                         modifier = Modifier
                             .sizeIn(minWidth = 44.dp, minHeight = 44.dp)

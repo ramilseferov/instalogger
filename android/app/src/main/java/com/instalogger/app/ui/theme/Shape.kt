@@ -5,10 +5,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
-/**
- * Standardized design tokens for InstaLogger.
- * Eliminates arbitrary corner radii and establishes a predictable visual hierarchy.
- */
 object ShapeTokens {
     // Corner Radii
     val CornerSmall = 12.dp      // Action buttons, chips, mini badges, item action pods

@@ -52,7 +52,6 @@ class AppLockManager private constructor(context: Context) {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            // Fallback to private preferences if device keystore fails initialization
             appContext.getSharedPreferences(FALLBACK_PREFS_NAME, Context.MODE_PRIVATE)
         }
 
@@ -60,7 +59,6 @@ class AppLockManager private constructor(context: Context) {
         _isSecureScreenEnabled.value = prefs.getBoolean(KEY_SECURE_SCREEN, true)
         _autoLockTimeoutSeconds.value = prefs.getInt(KEY_AUTOLOCK_TIMEOUT, 0)
 
-        // Lock on cold start if lock is configured
         if (isLockConfigured()) {
             _isAppLocked.value = true
         }

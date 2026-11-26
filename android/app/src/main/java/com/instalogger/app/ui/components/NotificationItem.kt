@@ -154,7 +154,6 @@ fun NotificationItem(
         label = "notif_unread_strip"
     )
 
-    // Animated Read button colors & spring bounce (fixed slot width -> ZERO layout jump!)
     val readBtnBg by animateColorAsState(
         targetValue = if (isUnread) AccentBlue.copy(alpha = 0.14f) else StatusGreen.copy(alpha = 0.10f),
         animationSpec = tween(240),
@@ -208,7 +207,6 @@ fun NotificationItem(
                     .padding(horizontal = 14.dp, vertical = 13.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Top Meta Row: Category Icon + @username Pill + Category Tag + Timestamp
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -282,7 +280,7 @@ fun NotificationItem(
                         )
                     }
 
-                    // Fixed-width Action Slot: Animated Read Morph Button + Delete Button (ZERO position shift!)
+                    // Fixed-width Action Slot: Animated Read Morph Button + Delete Button
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically

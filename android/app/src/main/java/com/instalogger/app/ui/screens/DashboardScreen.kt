@@ -100,7 +100,6 @@ fun DashboardScreen(
                 try {
                     app.profileInspector.inspectTarget(t.username)
                 } catch (e: Exception) {
-                    // Ignore background sync errors
                 }
             }
         }
@@ -234,7 +233,6 @@ fun DashboardScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // 1. Shimmer Skeleton Cards for Pending additions (Instant zero-delay feedback, auto-filtered against active targets)
                     items(visiblePendingTargets, key = { "pending_$it" }) { pendingUser ->
                         SkeletonTargetCard(
                             username = pendingUser,
@@ -341,12 +339,10 @@ fun DashboardScreen(
                         pendingTargets.remove(cleanUser)
                     }
 
-                    // Fire-and-forget post & highlight extraction in background so it never hangs or freezes dashboard
                     scope.launch(Dispatchers.IO) {
                         try {
                             app.profileInspector.inspectHighlightsAndPosts(cleanUser)
                         } catch (e: Exception) {
-                            // Non-fatal background sync
                         }
                     }
                 }
@@ -354,7 +350,6 @@ fun DashboardScreen(
         )
     }
 
-    // Delete Confirmation Dialog
     targetToDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { targetToDelete = null },

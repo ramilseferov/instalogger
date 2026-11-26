@@ -5,11 +5,7 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.UUID
 
-/**
- * Ephemeral Netscape HTTP Cookie File bridge for yt-dlp.
- * Converts encrypted SessionManager cookie headers into an owner-only (0600) temporary
- * Netscape cookie file for the exact duration of a single job, then zero-fills and deletes it.
- */
+// Ephemeral Netscape HTTP Cookie File bridge for yt-dlp.
 object NetscapeCookieBridge {
     private const val COOKIE_DIR_NAME = "ytdlp_cookies"
     private const val DEFAULT_EXPIRY_EPOCH = 2147483647L // Safe far-future epoch (2038)
@@ -79,7 +75,6 @@ object NetscapeCookieBridge {
             val dir = File(context.noBackupFilesDir, COOKIE_DIR_NAME)
             dir.listFiles()?.forEach { secureWipeAndDelete(it) }
         } catch (_: Exception) {
-            // Non-fatal
         }
     }
 

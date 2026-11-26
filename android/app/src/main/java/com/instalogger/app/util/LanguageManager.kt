@@ -100,7 +100,6 @@ object LanguageManager {
             (appCtx as? InstaLoggerApp)?.refreshNotificationChannels()
             InstaLoggerForegroundService.refreshLanguageNotification()
         } catch (_: Exception) {
-            // Non-fatal
         }
     }
 
@@ -121,11 +120,6 @@ object LanguageManager {
         _isTransitioning.value = false
     }
 
-    /**
-     * Builds an immutable localized Activity-backed Context without ever calling the deprecated
-     * Resources.updateConfiguration(), which mutates shared ResourcesImpl entries in Android's
-     * ResourcesManager cache and causes stale/previous-language desynchronization on rapid switches.
-     */
     fun getLocalizedContext(
         activity: ComponentActivity,
         languageCode: String,
@@ -139,9 +133,6 @@ object LanguageManager {
         return LocalizedActivityContext(activity, localizedResources)
     }
 
-    /**
-     * Returns an immutable localized Context for Application, Services, and background inspectors.
-     */
     fun getLocalizedAppContext(
         context: Context,
         languageCode: String = _currentLanguage.value
@@ -185,11 +176,6 @@ object LanguageManager {
     }
 }
 
-/**
- * Wraps the host ComponentActivity (preserving startActivity, FragmentActivity unwrapping,
- * Window tokens, and ActivityResultRegistryOwner) while routing Resources/Assets/Theme
- * strictly to an immutable configuration-scoped Resources instance.
- */
 private class LocalizedActivityContext(
     private val activity: ComponentActivity,
     private val localizedResources: Resources

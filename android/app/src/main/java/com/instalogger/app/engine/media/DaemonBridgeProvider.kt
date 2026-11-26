@@ -13,11 +13,6 @@ import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/**
- * Optional Bridge Provider connecting Android to the local/remote InstaLogger Daemon
- * (which can execute Python gallery-dl / yt-dlp / Instaloader providers).
- * Automatically bypassed when daemonSyncEnabled == false.
- */
 class DaemonBridgeProvider(
     private val settingsManager: AppSettingsManager
 ) : InstagramMediaProvider {

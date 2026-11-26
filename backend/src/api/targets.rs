@@ -92,7 +92,6 @@ pub async fn add_target(
         Ok(s) => s,
         Err(e) => {
             error!("Initial profile fetch failed for @{}: {}", clean_username, e);
-            // Fallback ID
             crate::scheduler::ProfileSnapshot {
                 id: format!("usr_{}", clean_username),
                 username: clean_username.clone(),

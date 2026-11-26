@@ -2,14 +2,12 @@ package com.instalogger.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Accents
 val AccentBlue = Color(0xFF0C7FF2)
 val AccentBlueDark = Color(0xFF0960B6)
 val AccentBlueLight = Color(0xFFE8F2FD)
 val AccentBlueSubtleLight = Color(0xFFEEF5FF)
 val AccentBlueSubtleDark = Color(0xFF14243C)
 
-// Light Theme Ergonomic Surfaces & Tonal Containers
 val BackgroundLight = Color(0xFFF4F5F8)
 val SurfaceLight = Color(0xFFFFFFFF)
 val SurfaceVariantLight = Color(0xFFECEFF3)
@@ -23,7 +21,6 @@ val TextSecondaryLight = Color(0xFF6B7280)
 val BorderLight = Color(0xFFE2E5E9)
 val HairlineBorderLight = Color(0x1F000000)
 
-// Dark Theme Ergonomic Surfaces & Tonal Containers
 val BackgroundDark = Color(0xFF0D0E12)
 val SurfaceDark = Color(0xFF15171C)
 val SurfaceVariantDark = Color(0xFF22252C)
@@ -37,7 +34,6 @@ val TextSecondaryDark = Color(0xFF9CA3AF)
 val BorderDark = Color(0xFF272A32)
 val HairlineBorderDark = Color(0x29FFFFFF)
 
-// Status & Indicator Colors
 val StatusGreen = Color(0xFF10B981)
 val StatusGreenLight = Color(0xFFE6F4EA)
 val StatusGreenDark = Color(0xFF064E3B)

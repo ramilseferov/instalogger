@@ -15,9 +15,6 @@ import androidx.compose.ui.unit.dp
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.ShapeTokens
 
-/**
- * Standardized clean empty state card matching the application's ergonomic design language.
- */
 @Composable
 fun UnifiedEmptyState(
     icon: ImageVector,

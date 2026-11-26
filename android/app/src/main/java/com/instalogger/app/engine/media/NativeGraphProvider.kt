@@ -7,12 +7,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Native Kotlin/OkHttp Instagram Provider.
- * Handles single HD Photos, Multi-Slide Carousels (edge_sidecar_to_children),
- * Official Embed/OEmbed enrichment, and serves as a zero-overhead fallback when
- * yt-dlp reports "no video in post" or is rate-limited.
- */
+// Native Kotlin/OkHttp Instagram Provider.
 class NativeGraphProvider(
     private val instagramEngine: InstagramEngine
 ) : InstagramMediaProvider {
@@ -43,7 +38,7 @@ class NativeGraphProvider(
             return@withContext ProviderOutcome.Cancelled
         }
 
-        // 1. Resolve slides (use hints if already parsed from timeline API, otherwise enrich via GraphQL/Embed)
+        // Resolve slides
         var slides = request.slideHints
         var extractedMetadata: ExtractedPostMetadata? = null
 

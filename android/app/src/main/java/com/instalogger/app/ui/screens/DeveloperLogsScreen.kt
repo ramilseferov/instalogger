@@ -116,7 +116,6 @@ fun DeveloperLogsScreen(
         }
     }
 
-    // Muted, refined semantic colors (no harsh neon AI slop)
     val infoTint = if (isDark) Color(0xFF34D399) else Color(0xFF059669)
     val debugTint = if (isDark) Color(0xFF60A5FA) else AccentBlue
     val warnTint = if (isDark) Color(0xFFFBBF24) else Color(0xFFD97706)
@@ -224,7 +223,6 @@ fun DeveloperLogsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Clean Controls Card
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -364,7 +362,6 @@ fun DeveloperLogsScreen(
                 }
             }
 
-            // Animated Body (Smooth transition between list & empty state)
             AnimatedContent(
                 targetState = filteredLogs.isEmpty(),
                 transitionSpec = {

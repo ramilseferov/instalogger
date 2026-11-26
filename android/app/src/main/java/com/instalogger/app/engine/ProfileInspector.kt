@@ -88,7 +88,7 @@ class ProfileInspector(
         val app = context.applicationContext as? InstaLoggerApp
         val settings = app?.settingsManager
 
-        // Deduplication guard: ignore identical message for the same event and target within 60 seconds
+        // Deduplication guard
         val latestNotif = database.notificationDao().getLatestNotificationForEvent(targetUsername, eventType)
         if (latestNotif != null && latestNotif.message == message && (timestamp - latestNotif.timestamp) < 60_000L) {
             return
@@ -127,8 +127,6 @@ class ProfileInspector(
             return Result.failure(Exception("Target was deleted"))
         }
 
-        // Deduplicate concurrent inspections for the same target and detach from UI composition scope
-        // so navigating away NEVER cancels an active profile check, and callers ALWAYS receive the real outcome.
         val deferred = inFlightInspections.computeIfAbsent(cleanUser) {
             appBackgroundScope.async {
                 try {
@@ -194,7 +192,7 @@ class ProfileInspector(
         var localAvatarPath = existing?.localAvatarPath
         var currentAvatarHash = existing?.avatarHash
 
-        // Verify both internal Vault avatar AND localAvatarPath actually exist & decrypt cleanly!
+        // Verify both internal Vault avatar AND localAvatarPath actually exist & decrypt cleanly
         val existingInternalVault = ArchiveDirectoryManager.getInternalAvatar(context, cleanUser)
         val hasValidInternalAvatar = existingInternalVault != null && vaultManager.readEncryptedFile(existingInternalVault) != null
         if (!hasValidInternalAvatar) {
@@ -212,7 +210,7 @@ class ProfileInspector(
             currentAvatarHash = computeFileSha256(File(localAvatarPath))
         }
 
-        // 1. Check avatar change (Vault-First atomic save so external SAF restrictions NEVER drop avatars!)
+        // Check avatar change
         val avatarUrl = snapshot.profilePicUrl
         if (!avatarUrl.isNullOrBlank()) {
             if (avatarUrl.startsWith("/")) {
@@ -253,7 +251,7 @@ class ProfileInspector(
                             if (isDuplicateAvatar && localAvatarPath != null && File(localAvatarPath).exists()) {
                                 AppLogger.d("ProfileInspector", "Avatar for @$cleanUser unchanged (hash/dHash match)")
                             } else {
-                                // Genuinely NEW or healed avatar -> encrypt directly into internal hardware Vault FIRST!
+                                // Genuinely NEW or healed avatar -> encrypt directly into internal hardware Vault FIRST
                                 val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US)
                                 val timestamp = dateFormat.format(Date(now))
                                 val fileName = "avatar_${timestamp}.jpg"
@@ -261,7 +259,6 @@ class ProfileInspector(
                                 val vaultCurrent = vaultManager.saveEncryptedFile(cleanUser, "profile", "avatar_current.jpg", plainBytes)
                                 val vaultHistory = vaultManager.saveEncryptedFile(cleanUser, "profile", fileName, plainBytes)
 
-                                // Optional best-effort mirror to external archive folder (never blocks Vault save)
                                 try {
                                     val targetDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/profile")
                                     targetDir.mkdirs()
@@ -402,7 +399,7 @@ class ProfileInspector(
             }
         }
 
-        // 5. Check followers count change via FollowerPoolEngine (Classic Instant OR Pooled + Protections)
+        // Check followers count change via FollowerPoolEngine
         val settingsManager = (context.applicationContext as? InstaLoggerApp)?.settingsManager
             ?: AppSettingsManager.getInstance(context)
         val followerPolicy = settingsManager.resolvePoolPolicy(existing, isFollowing = false)
@@ -544,7 +541,7 @@ class ProfileInspector(
             nextFollowerPoolState = nextFollowerPoolState.copy(baseline = snapshot.followersCount, startedAt = now)
         }
 
-        // 6. Check following count change (Classic Instant OR Pooled when user enables poolApplyToFollowing)
+        // Check following count change
         val followingPolicy = settingsManager.resolvePoolPolicy(existing, isFollowing = true)
         var nextFollowingPoolState = existing?.followingPoolState() ?: PoolMetricState(
             baseline = snapshot.followingCount,
@@ -748,10 +745,10 @@ class ProfileInspector(
             return@withContext Result.failure(Exception("Target was deleted"))
         }
 
-        // IMMEDIATE DATABASE COMMIT: Guarantees that any concurrent/subsequent check reads fresh state
+        // IMMEDIATE DATABASE COMMIT
         targetDao.insertTarget(updatedTarget)
 
-        // 7. Check and archive followers & following lists in background (protected by ListCompletenessGuard)
+        // Check and archive followers & following lists in background
         val targetId = snapshot.instagramId ?: existing?.instagramId
         if (!targetId.isNullOrBlank()) {
             if (!cookie.isNullOrBlank() || wasPrivateToPublic || !snapshot.isPrivate) {
@@ -838,7 +835,6 @@ class ProfileInspector(
                                     .build()
                                 httpClient.newCall(checkReq).execute().close()
                             } catch (e: Exception) {
-                                // Ignore check trigger error
                             }
                         }
 
@@ -1096,7 +1092,7 @@ class ProfileInspector(
         val targetEntity = database.targetDao().getTarget(cleanUser)
         val idToDelete = instagramId ?: targetEntity?.instagramId
 
-        // 1. Record in persistent tombstones immediately to prevent resurrection under race conditions
+        // Record in persistent tombstones immediately to prevent resurrection under race conditions
         val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
         val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
         current.add(cleanUser)
@@ -1144,7 +1140,6 @@ class ProfileInspector(
                         .build()
                     fastClient.newCall(req).execute().close()
                 } catch (_: Exception) {
-                    // Ignore if daemon is offline
                 }
             }
         }
@@ -1228,7 +1223,6 @@ class ProfileInspector(
         try {
             database.avatarHistoryDao().cleanCurrentAvatarDuplicates()
         } catch (e: Exception) {
-            // Ignore
         }
 
         val dirs = mutableListOf<File>()
@@ -1259,7 +1253,7 @@ class ProfileInspector(
                     val isDupHash = hash != null && existingHashes.contains(hash)
                     val isDupVisual = dHash != null && existingList.any { isVisuallyDuplicateAvatar(dHash, File(it.localPath)) }
                     if (isDupHash || isDupVisual) {
-                        // Redundant duplicate avatar file! Delete duplicate from disk if not already registered
+                        // Redundant duplicate avatar file Delete duplicate from disk if not already registered
                         if (!existingNames.contains(file.name)) {
                             try { file.delete() } catch (_: Exception) {}
                         }
@@ -1377,10 +1371,6 @@ class ProfileInspector(
         }
     }
 
-    /**
-     * Computes SHA-256 over the PLAINTEXT media bytes (automatically decrypting Vault .enc files first)
-     * so encrypted random-IV files never cause false-positive hash mismatches.
-     */
     private fun computeFileSha256(file: File): String? {
         val bytes = readPlaintextBytes(file) ?: return null
         return try {
@@ -1391,10 +1381,7 @@ class ProfileInspector(
         }
     }
 
-    /**
-     * Computes a 64-bit perceptual difference hash (dHash) over a 9x8 grayscale thumbnail.
-     * Catches visually identical avatars re-encoded or resized by Instagram CDN edges.
-     */
+    // Computes a 64-bit perceptual difference hash (dHash) over a 9x8 grayscale thumbnail.
     private fun computePerceptualDHash(file: File): Long? {
         val bytes = readPlaintextBytes(file) ?: return null
         return try {
@@ -1451,10 +1438,6 @@ class ProfileInspector(
         return md.digest(raw.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 
-    /**
-     * Manually flushes and resets a target's follower/following change pool.
-     * Returns the flushed net follower delta (0 if no accumulated difference).
-     */
     suspend fun flushTargetPool(username: String, writeSummaryLog: Boolean = true): Long = withContext(Dispatchers.IO) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val target = database.targetDao().getTarget(cleanUser) ?: return@withContext 0L
@@ -1589,7 +1572,6 @@ class ProfileInspector(
                 }
             }
 
-            // Save updated followers list archive
             val newJson = gson.toJson(freshUsers)
             ArchiveDirectoryManager.saveUserArchiveJson(context, username, "followers.json", newJson)
         } catch (e: Exception) {
@@ -1685,7 +1667,6 @@ class ProfileInspector(
                 }
             }
 
-            // Save updated following list archive
             val newJson = gson.toJson(freshUsers)
             ArchiveDirectoryManager.saveUserArchiveJson(context, username, "following.json", newJson)
         } catch (e: Exception) {
@@ -1774,7 +1755,6 @@ class ProfileInspector(
         forceFullPagination: Boolean = false
     ) {
         val cleanUser = username.trim().trimStart('@').lowercase()
-        // Run on application-lifetime background scope so leaving ProfileDetailScreen NEVER cancels pagination/archiving!
         val job = appBackgroundScope.async {
             archiveHighlightsAndPostsInternal(
                 cleanUser = cleanUser,
@@ -1788,7 +1768,7 @@ class ProfileInspector(
         try {
             job.await()
         } catch (_: kotlinx.coroutines.CancellationException) {
-            // Caller (e.g., Compose LaunchedEffect) left composition; background archive continues uninterrupted!
+            // Caller left composition; background archive continues uninterrupted
         }
     }
 
@@ -1825,7 +1805,7 @@ class ProfileInspector(
                 return@withContext
             }
 
-            // 2. Run Highlights archiving AND Multi-Page Post pagination IN PARALLEL!
+            // Run Highlights archiving AND Multi-Page Post pagination IN PARALLEL
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.SYNCING)
             val expectedTotal = targetRecord?.mediaCount ?: 0L
             val existingPostsCount = database.postDao().getPostsCountForUser(cleanUser)
@@ -1916,7 +1896,7 @@ class ProfileInspector(
                         }
 
                         if (highlightEntities.isNotEmpty()) {
-                            // Phase B: Archive stories ONLY for highlights that are empty, grew, or have missing Vault files!
+                            // Phase B
                             val highlightsNeedingArchive = highlightEntities.filter { hlEntity ->
                                 val cachedMedia = highlightDao.getMediaListForHighlight(hlEntity.id)
                                 if (cachedMedia.isEmpty()) return@filter true
@@ -2053,11 +2033,6 @@ class ProfileInspector(
         }
     }
 
-    /**
-     * Background self-healing backfill: checks if a target has unarchived posts,
-     * incomplete media downloads, empty highlights, or highlights with 0 archived stories,
-     * and triggers parallel archiving automatically.
-     */
     suspend fun backfillUnarchivedContent(target: TargetEntity): Boolean = withContext(Dispatchers.IO) {
         val cleanUser = target.username.trim().trimStart('@').lowercase()
         if (isTargetDeleted(cleanUser)) return@withContext false
@@ -2112,9 +2087,6 @@ class ProfileInspector(
         pendingDownloads > 0
     }
 
-    /**
-     * Explicit user-triggered full multi-page post & highlight archive sync.
-     */
     suspend fun syncAllPostsNow(username: String): PostSyncStatus = withContext(Dispatchers.IO) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val target = database.targetDao().getTarget(cleanUser)
@@ -2210,7 +2182,6 @@ class ProfileInspector(
         val cookie = sessionManager.getCookieString().takeIf { it.isNotBlank() }
         val viewerDsUserId = instagramEngine.extractDsUserId(cookie)
 
-        // Auto-heal target instagramId if missing or previously poisoned with logged-in viewer's ds_user_id
         var resolvedTargetId = target.instagramId?.takeIf { it.isNotBlank() }
         if (resolvedTargetId == null || (viewerDsUserId != null && resolvedTargetId == viewerDsUserId)) {
             val fresh = instagramEngine.fetchProfile(cleanUser, cookieString = null).getOrNull()
@@ -2294,10 +2265,7 @@ class ProfileInspector(
         _postSyncState.value[cleanUser] ?: PostSyncStatus.FAILED
     }
 
-    /**
-     * Fetches and archives Post/Reel comments + threaded replies into Room DB and sidecar JSON.
-     * Runs on application-lifetime background scope so closing the modal never aborts an active sync.
-     */
+    // Fetches and archives Post/Reel comments + threaded replies into Room DB and sidecar JSON.
     suspend fun syncPostComments(
         post: PostEntity,
         maxComments: Int = 500
@@ -2371,7 +2339,7 @@ class ProfileInspector(
                     _commentSyncProgress.value = _commentSyncProgress.value + (cleanCode to discoveredTotal)
                 }
 
-                // Final pass with finalized collectionStatus ("complete" vs "partial") + sidecar _comments.json archive
+                // Final pass with finalized collectionStatus + sidecar _comments.json archive
                 if (result.comments.isNotEmpty()) {
                     val now = System.currentTimeMillis()
                     val finalEntities = result.comments.map { item ->
@@ -2401,7 +2369,6 @@ class ProfileInspector(
                     if (allStored.size > post.commentCount) {
                         database.postDao().insertPosts(listOf(post.copy(commentCount = allStored.size)))
                     }
-                    // Save sidecar structured JSON archive alongside media (insta-dl pattern)
                     try {
                         val tree = com.instalogger.app.engine.comments.CommentTreeEngine.buildCommentTree(allStored)
                         val stats = com.instalogger.app.engine.comments.CommentTreeEngine.computeStats(allStored, post.commentCount)

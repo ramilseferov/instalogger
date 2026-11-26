@@ -24,11 +24,7 @@ import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Embedded yt-dlp + FFmpeg Media Provider (powered by youtubedl-android).
- * Specializes in Instagram Reels, Video posts, DASH audio+video muxing, mixed-carousel videos,
- * rich info.json metadata extraction, real-time progress telemetry, and runtime self-updates.
- */
+// Embedded yt-dlp + FFmpeg Media Provider (powered by youtubedl-android).
 class YtDlpEmbeddedProvider(
     context: Context
 ) : InstagramMediaProvider {
@@ -146,7 +142,6 @@ class YtDlpEmbeddedProvider(
                     return@withEphemeralCookieFile ProviderOutcome.Cancelled
                 }
 
-                // Clear staging dir between candidate URL attempts
                 stagingDir.listFiles()?.forEach { it.deleteRecursively() }
 
                 val ytRequest = buildYoutubeDlRequest(

@@ -30,9 +30,6 @@ enum class ThemeMode {
     DARK
 }
 
-/**
- * User-configurable parallelism and speed profile for background monitoring & media archiving.
- */
 enum class ArchiverSpeedPreset(
     val key: String,
     val downloadWorkers: Int,
@@ -118,9 +115,6 @@ enum class NotificationCategory(
     }
 }
 
-/**
- * Top-level tree branches for the hierarchical Notification Settings Tree.
- */
 enum class NotificationTreeGroup(
     val id: String,
     @StringRes val titleRes: Int,
@@ -143,9 +137,6 @@ enum class NotificationTreeGroup(
     ),
 }
 
-/**
- * Granular leaf notification event types controllable both globally and per tracked Instagram profile.
- */
 enum class NotificationEventKey(
     val id: String,
     val group: NotificationTreeGroup,
@@ -337,7 +328,6 @@ class AppSettingsManager(private val context: Context) {
     private val _listCompletenessGuardEnabled = MutableStateFlow(loadBoolean(KEY_LIST_COMPLETENESS_GUARD, true))
     val listCompletenessGuardEnabled: StateFlow<Boolean> = _listCompletenessGuardEnabled.asStateFlow()
 
-    // Background Engine & Parallel Speed Controls
     private val _archiverSpeedPreset = MutableStateFlow(
         ArchiverSpeedPreset.fromKey(prefs.getString(KEY_ARCHIVER_SPEED, ArchiverSpeedPreset.BALANCED.key))
     )
@@ -358,7 +348,6 @@ class AppSettingsManager(private val context: Context) {
             MutableStateFlow(prefs.getBoolean(cat.prefKey, cat.defaultEnabled))
         }
 
-    // Reactive revision counter bumped whenever any tree leaf or per-profile notification override changes
     private val _notifTreeRevision = MutableStateFlow(0)
     val notifTreeRevision: StateFlow<Int> = _notifTreeRevision.asStateFlow()
 
@@ -658,9 +647,6 @@ class AppSettingsManager(private val context: Context) {
         prefs.edit().putInt(KEY_MAX_POSTS_SYNC_LIMIT, safe).apply()
     }
 
-    /**
-     * Resolves the effective FollowerPoolPolicy by combining global defaults with per-target overrides.
-     */
     fun resolvePoolPolicy(target: TargetEntity?, isFollowing: Boolean = false): FollowerPoolPolicy {
         val override = TargetPoolOverride.fromKey(target?.poolOverrideMode)
         val applyToFollowing = when (target?.poolApplyToFollowing ?: -1) {
@@ -800,7 +786,6 @@ class AppSettingsManager(private val context: Context) {
                     }
                     context.startActivity(fallback)
                 } catch (_: Exception) {
-                    // Safe fallback
                 }
             }
         }

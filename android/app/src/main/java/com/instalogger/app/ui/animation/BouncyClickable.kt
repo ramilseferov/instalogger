@@ -27,11 +27,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 
-/**
- * Tactile spring press feedback modifier for interactive cards, buttons, and containers.
- * Uses official Compose interaction source with zero-overshoot spring physics,
- * ensuring flawless responsiveness without dropping taps or conflicting in LazyLists.
- */
 fun Modifier.bouncyClickable(
     enabled: Boolean = true,
     pressScale: Float = 0.96f,
@@ -69,9 +64,6 @@ fun Modifier.bouncyClickable(
         )
 }
 
-/**
- * Lightweight spring bounce for elements that have internal click handling or buttons.
- */
 fun Modifier.bouncyScale(
     isPressed: Boolean,
     pressScale: Float = 0.95f
@@ -87,9 +79,6 @@ fun Modifier.bouncyScale(
     }
 }
 
-/**
- * Smooth shimmer loading effect for placeholders, fully adaptive to Dark and Light modes.
- */
 fun Modifier.shimmerLoading(
     isLoading: Boolean,
     durationMillis: Int = 1100

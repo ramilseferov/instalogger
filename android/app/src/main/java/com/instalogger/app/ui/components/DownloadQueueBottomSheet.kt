@@ -71,13 +71,6 @@ import com.instalogger.app.ui.theme.StatusRed
 import java.io.File
 import kotlin.math.roundToInt
 
-/**
- * Main-menu header button showing live download queue state with:
- * - Animated circular progress ring around the button when downloads are active
- * - Subtle bobbing download arrow during active transfers
- * - Spring-animated count badge for active/queued or paused items
- * - Fixed 44dp accessibility slot so neighboring top-bar buttons never shift
- */
 @Composable
 fun DownloadQueueHeaderButton(
     onClick: () -> Unit,
@@ -535,7 +528,7 @@ fun DownloadQueueBottomSheet(
         }
     }
 
-    // Confirmation 1: Cancel ALL downloads (always asks confirmation!)
+    // Confirmation 1: Cancel ALL downloads (always asks confirmation)
     if (showCancelAllDialog) {
         AlertDialog(
             onDismissRequest = { showCancelAllDialog = false },
@@ -595,7 +588,7 @@ fun DownloadQueueBottomSheet(
         )
     }
 
-    // Confirmation 3: Delete downloaded / finished item (offers List-Only OR Delete Vault File from device!)
+    // Confirmation 3: Delete downloaded / finished item
     itemToDelete?.let { target ->
         val isCompletedFile = target.state is PostDownloadState.Completed
         AlertDialog(

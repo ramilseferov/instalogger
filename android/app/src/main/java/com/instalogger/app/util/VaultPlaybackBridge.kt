@@ -6,11 +6,6 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
 
-/**
- * Safely decrypts AES-256-GCM Vault media files (.enc) into an app-private cache subdirectory
- * exposed strictly via FileProvider so external video players and Android Share sheets work
- * seamlessly without leaving permanent plaintext files in public storage.
- */
 object VaultPlaybackBridge {
     private const val PLAYBACK_DIR = "playback_tmp"
     private const val STALE_AGE_MS = 30 * 60 * 1000L
@@ -63,7 +58,6 @@ object VaultPlaybackBridge {
                 }
             }
         } catch (_: Exception) {
-            // Non-fatal
         }
     }
 }

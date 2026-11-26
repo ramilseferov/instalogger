@@ -339,7 +339,6 @@ fun ProfileDetailScreen(
                 // 5. Selected Tab Content Items
                 when (selectedTab) {
                     0 -> {
-                        // Audit Logs Tab
                         if (logs.isEmpty()) {
                             item(key = "empty_logs") {
                                 Box(
@@ -568,7 +567,6 @@ fun ProfileDetailScreen(
                                     )
                                 }
                             } else {
-                                // Sync failed or ended with 0 posts
                                 item(key = "sync_failed_card") {
                                     Surface(
                                         modifier = Modifier
@@ -736,7 +734,6 @@ fun ProfileDetailScreen(
                         }
                     }
                     2 -> {
-                        // Avatar History Tab
                         if (avatars.isEmpty()) {
                             item(key = "empty_avatars") {
                                 Box(
@@ -779,7 +776,6 @@ fun ProfileDetailScreen(
         )
     }
 
-    // Standardized full screen image preview dialog
     previewImagePath?.let { path ->
         ImagePreviewDialog(
             imagePath = path,
@@ -843,7 +839,6 @@ fun ProfileDetailScreen(
         )
     }
 
-    // Delete Target Confirmation Dialog
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -888,7 +883,6 @@ fun ProfileDetailScreen(
         )
     }
 
-    // Delete Historical Avatar Confirmation Dialog
     avatarToDelete?.let { avatarItem ->
         AlertDialog(
             onDismissRequest = { avatarToDelete = null },
@@ -1104,7 +1098,6 @@ private fun ProfileHeroSection(
                         }
                     }
 
-                    // Live Pool Status / Quick Opt-In Chip
                     val showActivePoolPill = effectivePoolMode != FollowerPoolMode.OFF
                     val showLargeAccountHint = effectivePoolMode == FollowerPoolMode.OFF && target.followersCount >= 10_000L
                     if (showActivePoolPill || showLargeAccountHint) {

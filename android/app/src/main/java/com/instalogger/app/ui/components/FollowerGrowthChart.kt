@@ -70,7 +70,6 @@ fun FollowerGrowthChart(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Header: Title and Legend
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

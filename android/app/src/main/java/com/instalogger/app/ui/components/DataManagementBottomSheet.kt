@@ -138,10 +138,6 @@ private data class ProtectedWarningToastData(
     val triggerId: Int,
 )
 
-/**
- * Telegram-inspired Data & Storage Management Bottom Sheet integrated from TourJet
- * and tailored 100% natively to InstaLogger's AES-256 Vault, caches, and Room database.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DataManagementBottomSheet(
@@ -186,10 +182,6 @@ fun DataManagementBottomSheet(
     }
 }
 
-/**
- * Reusable Data & Storage Management content body used both inside [DataManagementBottomSheet]
- * (in-app Settings) and [com.instalogger.app.ManageSpaceActivity] (Android System Settings -> Manage Space).
- */
 @Composable
 fun DataManagementContent(
     showHeaderBar: Boolean,
@@ -216,7 +208,7 @@ fun DataManagementContent(
     var showConfirmClearCookies by remember { mutableStateOf(false) }
     var targetPendingClear by remember { mutableStateOf<TargetStorageMetric?>(null) }
 
-    // Selection map: safe caches pre-selected, encrypted Vault / archive categories protected by default
+    // Selection map
     val selectedMap = remember {
         mutableStateMapOf<StorageCategoryType, Boolean>().apply {
             StorageCategoryType.entries.forEach { type ->
@@ -293,7 +285,6 @@ fun DataManagementContent(
 
     Column(modifier = modifier) {
         if (showHeaderBar) {
-            // Top Sheet Header Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -373,9 +364,6 @@ fun DataManagementContent(
                     .padding(bottom = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // =================================================================
-                // 1. TELEGRAM-STYLE SEGMENTED DONUT CHART
-                // =================================================================
                 Spacer(modifier = Modifier.height(6.dp))
 
                 StorageSegmentedDonutChart(
@@ -388,9 +376,7 @@ fun DataManagementContent(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // =================================================================
                 // 2. DEVICE STORAGE SHARE & HORIZONTAL BAR (StatFs)
-                // =================================================================
                 Text(
                     text = stringResource(R.string.storage_usage_heading),
                     fontSize = 20.sp,
@@ -485,9 +471,7 @@ fun DataManagementContent(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // =================================================================
                 // 3. SPRING-ANIMATED PROTECTED CATEGORY WARNING TOAST
-                // =================================================================
                 val currentWarning = activeWarningToast
                 AnimatedVisibility(
                     visible = currentWarning != null,
@@ -513,9 +497,7 @@ fun DataManagementContent(
                     }
                 }
 
-                // =================================================================
                 // 4. ANIMATED SUCCESS BANNER AFTER PURGE
-                // =================================================================
                 val currentSuccess = clearedBannerText
                 AnimatedVisibility(
                     visible = currentSuccess != null,
@@ -566,9 +548,7 @@ fun DataManagementContent(
                     }
                 }
 
-                // =================================================================
                 // 5. TELEGRAM CATEGORY CHECKLIST CARD + ACTIONS
-                // =================================================================
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -647,7 +627,6 @@ fun DataManagementContent(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Primary Telegram Pill Action Button: "Keşi təmizləyin X,XX MB"
                         val canClearCache = !isClearingCache && !isAnalyzing && selectedCount > 0
                         val hasProtectedSelected = selectedProtectedTypes.isNotEmpty()
                         val targetBtnColor = when {
@@ -802,9 +781,7 @@ fun DataManagementContent(
                     }
                 }
 
-                // =================================================================
                 // 6. PER-TARGET STORAGE BREAKDOWN CARD
-                // =================================================================
                 val targets = snapshot?.targetBreakdown.orEmpty()
                 if (targets.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -880,9 +857,7 @@ fun DataManagementContent(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // =================================================================
                 // 7. FOOTER PRIVACY & VAULT NOTICE
-                // =================================================================
                 Text(
                     text = stringResource(R.string.storage_footer_notice),
                     fontSize = 12.sp,
@@ -947,7 +922,6 @@ fun DataManagementContent(
                             )
                             snapshot = newSnapshot
                             onStorageChanged(newSnapshot)
-                            // Reset protected categories back to unselected after clearing
                             StorageCategoryType.entries
                                 .filter { it.isProtectedCategory }
                                 .forEach { selectedMap[it] = false }

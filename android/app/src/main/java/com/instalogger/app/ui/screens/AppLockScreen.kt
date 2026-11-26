@@ -156,7 +156,6 @@ fun AppLockScreen(
         }
     }
 
-    // Full-screen impenetrable shield
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -174,7 +173,6 @@ fun AppLockScreen(
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Header Icon & Title
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -221,7 +219,6 @@ fun AppLockScreen(
                 )
             }
 
-            // PIN Indicator Bubbles
             Row(
                 modifier = Modifier
                     .graphicsLayer { translationX = shakeOffset.value }

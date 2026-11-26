@@ -28,14 +28,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * Production-grade Multi-Provider Media Download Orchestrator.
- * - Bounded concurrency (max 2 parallel workers) to avoid OOM/throttling
- * - Capability-aware routing (yt-dlp for Videos/Reels, NativeGraph for Photos/Carousels, automatic fallback)
- * - Circuit-breaker ProviderHealth tracking
- * - Strict Magic-Byte validation, SHA-256 deduplication, and atomic AES-256-GCM Vault ingestion
- * - Real-time StateFlow progress telemetry and deterministic process cancellation
- */
 class MediaDownloadOrchestrator(
     context: Context,
     private val database: AppDatabase,
@@ -126,10 +118,7 @@ class MediaDownloadOrchestrator(
 
     private class PausedSignalException : CancellationException("Download paused by user")
 
-    /**
-     * Resumes any unarchived/pending/failed posts in Room DB for a given user.
-     * Respects global pause & cancel-all suppression so cancelled downloads NEVER restart automatically.
-     */
+    // Resumes any unarchived/pending/failed posts in Room DB for a given user.
     suspend fun enqueuePendingForUser(username: String): Int {
         if (isAutoQueueSuppressed()) return 0
         val cleanUser = username.trim().trimStart('@').lowercase()
@@ -151,10 +140,6 @@ class MediaDownloadOrchestrator(
         return _downloadStates.value[postId] ?: PostDownloadState.Idle
     }
 
-    /**
-     * Enqueues a batch of posts discovered during profile sync.
-     * Respects auto-download, Wi-Fi-only, global pause, and user cancellation suppression.
-     */
     fun enqueueBatch(
         username: String,
         items: List<Pair<PostEntity, List<CarouselSlideHint>>>
@@ -176,7 +161,6 @@ class MediaDownloadOrchestrator(
 
             if (alreadyComplete) continue
 
-            // Background video download guards (user-initiated clicks always bypass these)
             if (post.isVideo) {
                 if (!autoDownloadVideos) continue
                 if (wifiOnly && !onWifi) continue
@@ -191,9 +175,7 @@ class MediaDownloadOrchestrator(
         }
     }
 
-    /**
-     * Enqueues a single post for download/redownload with generation-guarded state transitions.
-     */
+    // Enqueues a single post for download/redownload with generation-guarded state transitions.
     fun enqueuePost(
         post: PostEntity,
         slideHints: List<CarouselSlideHint> = emptyList(),
@@ -202,7 +184,6 @@ class MediaDownloadOrchestrator(
     ) {
         val postId = post.id
 
-        // Background enqueue must NEVER override user pause or user cancel!
         if (!userInitiated) {
             if (_isAutoEnqueueSuppressed.value || userCancelledPostIds.contains(postId)) {
                 return
@@ -413,7 +394,6 @@ class MediaDownloadOrchestrator(
     }
 
     fun cancelAll() {
-        // Suppress automatic background re-enqueueing so cancelled downloads NEVER restart on their own!
         _isAutoEnqueueSuppressed.value = true
         _isQueuePaused.value = false
         val ids = (activeJobs.keys + pausedPostIds + queueMap.values.filter { it.state.isActive || it.state.isPaused }.map { it.postId }).distinct()
@@ -448,10 +428,6 @@ class MediaDownloadOrchestrator(
         publishQueueSnapshot()
     }
 
-    /**
-     * Deletes a queue item and optionally removes its encrypted Vault files from device storage
-     * while suppressing automatic re-download of that post.
-     */
     fun deleteDownloadedMedia(postId: String, deleteVaultFiles: Boolean) {
         userCancelledPostIds.add(postId)
         pausedPostIds.remove(postId)
@@ -631,7 +607,6 @@ class MediaDownloadOrchestrator(
             chain.add(nativeGraphProvider)
         } else {
             chain.add(nativeGraphProvider)
-            // If user explicitly requests redownload on an unknown/photo post that may actually be a reel
             if (userInitiated) {
                 chain.add(ytDlpProvider)
             }
@@ -655,7 +630,7 @@ class MediaDownloadOrchestrator(
         for ((idx, staged) in success.assets.withIndex()) {
             val validated = MediaFileValidator.validateAndHash(staged.mediaFile) ?: continue
 
-            // SHA-256 deduplication: reuse existing encrypted Vault file if identical binary already archived
+            // SHA-256 deduplication
             val existingDup = assetDao.findByHash(post.username, validated.sha256)
             val existingFile = existingDup?.localVaultPath?.let { File(it) }
             val vaultPath = if (existingFile != null && existingFile.exists() && existingFile.length() > 0L) {

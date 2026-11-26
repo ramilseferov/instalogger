@@ -52,10 +52,6 @@ import com.instalogger.app.R
 import com.instalogger.app.settings.ThemeMode
 import com.instalogger.app.ui.theme.AccentBlue
 
-/**
- * TourJet-style Theme & Appearance Bottom Sheet featuring 3 side-by-side live mini-phone
- * preview tiles (Light, Dark, System split), spring press scale, and animated active summary.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThemeAppearanceBottomSheet(
@@ -93,7 +89,6 @@ fun ThemeAppearanceBottomSheet(
                 .padding(bottom = 26.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -150,7 +145,6 @@ fun ThemeAppearanceBottomSheet(
                 }
             }
 
-            // 3 Side-by-Side Live Mini-Phone Preview Cards (TourJet standard)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -204,7 +198,6 @@ fun ThemeAppearanceBottomSheet(
                 )
             }
 
-            // Animated summary card for the active theme mode
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
