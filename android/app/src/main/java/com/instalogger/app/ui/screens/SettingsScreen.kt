@@ -49,6 +49,7 @@ import com.instalogger.app.settings.ArchiverSpeedPreset
 import com.instalogger.app.settings.ThemeMode
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.animation.bouncyClickable
+import com.instalogger.app.ui.components.DataManagementBottomSheet
 import com.instalogger.app.ui.components.NotificationSettingsBottomSheet
 import com.instalogger.app.ui.components.ReachabilityHeader
 import com.instalogger.app.ui.components.SettingSwitchRow
@@ -57,8 +58,10 @@ import com.instalogger.app.ui.theme.*
 import com.instalogger.app.util.AppLockManager
 import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.ArchiveDirectoryManager
+import com.instalogger.app.util.DeviceStorageSnapshot
 import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.LogLevel
+import com.instalogger.app.util.StorageCacheManager
 import com.instalogger.app.util.VaultStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -101,6 +104,11 @@ fun SettingsScreen(
     var daemonPingStatus by remember { mutableStateOf<Boolean?>(null) }
 
     var showNotifSettingsSheet by remember { mutableStateOf(false) }
+    var showDataManagementSheet by remember { mutableStateOf(false) }
+    var storageSnapshot by remember { mutableStateOf<DeviceStorageSnapshot?>(null) }
+    LaunchedEffect(Unit) {
+        storageSnapshot = runCatching { StorageCacheManager.analyzeStorage(context) }.getOrNull()
+    }
     var isBatteryIgnored by remember { mutableStateOf(BatteryHelper.isBatteryOptimizationIgnored(context)) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -518,6 +526,72 @@ fun SettingsScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                }
+            }
+
+            // 4.5. Data & Storage Management Card (Telegram-inspired TourJet integration)
+            SettingsGroupCard(
+                icon = Icons.Default.Storage,
+                title = stringResource(R.string.storage_mgmt_title),
+                description = stringResource(R.string.storage_mgmt_desc),
+                headerTrailing = {
+                    val badgeText = storageSnapshot?.let {
+                        StorageCacheManager.formatBytes(it.totalAppCacheBytes)
+                    } ?: "..."
+                    StatusBadge(
+                        text = badgeText,
+                        icon = Icons.Default.Storage,
+                        containerColor = Color(0xFF32ADE6).copy(alpha = 0.14f),
+                        contentColor = Color(0xFF32ADE6)
+                    )
+                }
+            ) {
+                val activeSegments = remember(storageSnapshot) {
+                    storageSnapshot?.categories?.filter { it.sizeBytes > 0L }.orEmpty()
+                }
+                val totalSegBytes = remember(activeSegments) {
+                    activeSegments.sumOf { it.sizeBytes }.coerceAtLeast(1L)
+                }
+
+                if (activeSegments.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(ShapeTokens.PillShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        activeSegments.forEach { metric ->
+                            val frac = (metric.sizeBytes.toFloat() / totalSegBytes.toFloat()).coerceAtLeast(0.04f)
+                            Box(
+                                modifier = Modifier
+                                    .weight(frac)
+                                    .fillMaxHeight()
+                                    .clip(ShapeTokens.PillShape)
+                                    .background(Color(metric.type.colorHex))
+                            )
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        showDataManagementSheet = true
+                    },
+                    shape = ShapeTokens.MediumShape,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings_open_data_management_btn")
+                ) {
+                    Icon(Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.storage_mgmt_open_btn),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
@@ -1448,6 +1522,13 @@ fun SettingsScreen(
 
     if (showNotifSettingsSheet) {
         NotificationSettingsBottomSheet(onDismissRequest = { showNotifSettingsSheet = false })
+    }
+
+    if (showDataManagementSheet) {
+        DataManagementBottomSheet(
+            onDismissRequest = { showDataManagementSheet = false },
+            onStorageChanged = { updated -> storageSnapshot = updated }
+        )
     }
 }
 
