@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,6 +48,7 @@ import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.util.AppLockManager
+import com.instalogger.app.util.PinHapticHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -57,6 +59,7 @@ fun AppLockScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
 
@@ -80,7 +83,7 @@ fun AppLockScreen(
 
     fun triggerShake() {
         scope.launch {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            PinHapticHelper.performError(context, view)
             isErrorShake = true
             repeat(3) {
                 shakeOffset.animateTo(20f, tween(50, easing = LinearEasing))
@@ -112,7 +115,7 @@ fun AppLockScreen(
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                             super.onAuthenticationSucceeded(result)
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            PinHapticHelper.performSuccess(context, view)
                             appLockManager.unlockBiometric()
                         }
 
@@ -122,7 +125,7 @@ fun AppLockScreen(
 
                         override fun onAuthenticationFailed() {
                             super.onAuthenticationFailed()
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            PinHapticHelper.performError(context, view)
                         }
                     }
                 )
@@ -282,7 +285,7 @@ fun AppLockScreen(
                                                 .size(72.dp)
                                                 .clip(CircleShape)
                                                 .bouncyClickable(enabled = !isLocked) {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    PinHapticHelper.performKeyTap(context, view)
                                                     promptBiometric()
                                                 },
                                             contentAlignment = Alignment.Center
@@ -305,7 +308,7 @@ fun AppLockScreen(
                                             .clip(CircleShape)
                                             .bouncyClickable(enabled = enteredPin.isNotEmpty() && !isLocked) {
                                             if (enteredPin.isNotEmpty()) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                PinHapticHelper.performBackspace(context, view)
                                                 enteredPin = enteredPin.dropLast(1)
                                             }
                                         },
@@ -328,12 +331,14 @@ fun AppLockScreen(
                                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape)
                                             .bouncyClickable(enabled = !isLocked) {
                                                 if (enteredPin.length < 4 && !isLocked) {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    PinHapticHelper.performKeyTap(context, view)
                                                     enteredPin += key
 
                                                     if (enteredPin.length == 4) {
                                                         val success = appLockManager.unlockWithPin(enteredPin)
-                                                        if (!success) {
+                                                        if (success) {
+                                                            PinHapticHelper.performSuccess(context, view)
+                                                        } else {
                                                             triggerShake()
                                                         }
                                                     }

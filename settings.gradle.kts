@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "InstaLogger"
 include(":app")
+project(":app").projectDir = file("android/app")
+

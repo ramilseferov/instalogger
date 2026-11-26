@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -83,6 +84,7 @@ import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.DeviceStorageSnapshot
 import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.LogLevel
+import com.instalogger.app.util.PinHapticHelper
 import com.instalogger.app.util.StorageCacheManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1843,7 +1845,8 @@ private fun PinSetupDialog(
     var firstPin by remember { mutableStateOf("") }
     var secondPin by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val view = LocalView.current
 
     val currentPin = if (step == 0) firstPin else secondPin
     val title = if (step == 0) stringResource(R.string.lock_enter_pin_title) else stringResource(R.string.lock_confirm_pin_title)
@@ -1851,7 +1854,7 @@ private fun PinSetupDialog(
     val mismatchError = stringResource(R.string.lock_pin_mismatch)
 
     fun onNumber(digit: String) {
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        PinHapticHelper.performKeyTap(context, view)
         errorMessage = null
         if (step == 0) {
             if (firstPin.length < 4) {
@@ -1865,9 +1868,10 @@ private fun PinSetupDialog(
                 secondPin = next
                 if (next.length == 4) {
                     if (next == firstPin) {
+                        PinHapticHelper.performSuccess(context, view)
                         onPinConfirmed(next)
                     } else {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        PinHapticHelper.performError(context, view)
                         errorMessage = mismatchError
                         firstPin = ""
                         secondPin = ""
@@ -1879,7 +1883,7 @@ private fun PinSetupDialog(
     }
 
     fun onBackspace() {
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        PinHapticHelper.performBackspace(context, view)
         errorMessage = null
         if (step == 0) {
             if (firstPin.isNotEmpty()) firstPin = firstPin.dropLast(1)
@@ -1926,7 +1930,8 @@ private fun PinVerifyDialog(
 ) {
     var enteredPin by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val view = LocalView.current
     val wrongPinMsg = stringResource(R.string.lock_pin_incorrect)
 
     AlertDialog(
@@ -1946,16 +1951,17 @@ private fun PinVerifyDialog(
                 message = errorMessage ?: stringResource(R.string.lock_enter_pin_desc),
                 isError = errorMessage != null,
                 onNumber = { digit ->
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    PinHapticHelper.performKeyTap(context, view)
                     errorMessage = null
                     if (enteredPin.length < 4) {
                         val next = enteredPin + digit
                         enteredPin = next
                         if (next.length == 4) {
                             if (appLockManager.verifyPin(next)) {
+                                PinHapticHelper.performSuccess(context, view)
                                 onVerified()
                             } else {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                PinHapticHelper.performError(context, view)
                                 errorMessage = wrongPinMsg
                                 enteredPin = ""
                             }
@@ -1963,7 +1969,7 @@ private fun PinVerifyDialog(
                     }
                 },
                 onBackspace = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    PinHapticHelper.performBackspace(context, view)
                     errorMessage = null
                     if (enteredPin.isNotEmpty()) enteredPin = enteredPin.dropLast(1)
                 }
