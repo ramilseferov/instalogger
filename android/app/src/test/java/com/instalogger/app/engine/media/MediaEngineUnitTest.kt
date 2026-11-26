@@ -314,8 +314,9 @@ class MediaEngineUnitTest {
             <html><body>
             <script type="application/json">{"data":{"xdt_api__v1__feed__user_timeline_graphql_connection":{"edges":[
               {"node":{"code":"AD_BOLT_01","ad_id":"998877","product_type":"ad","user":{"username":"boltfood_az"},"display_uri":"https://scontent.cdninstagram.com/v/ad.jpg","like_count":190}},
+              {"node":{"code":"AD_COMM_01B","commerciality_status":"ads","user":{"username":"rashdaliyev"},"display_uri":"https://scontent.cdninstagram.com/v/ad2.jpg","like_count":40}},
               {"node":{"code":"FOREIGN_02","user":{"username":"some_other_account"},"display_uri":"https://scontent.cdninstagram.com/v/other.jpg","like_count":50}},
-              {"node":{"code":"REAL_POST_03","user":{"username":"rashdaliyev"},"display_uri":"https://scontent.cdninstagram.com/v/real.jpg","like_count":12}},
+              {"node":{"code":"REAL_POST_03","boosted_status":"not_boosted","commerciality_status":"not_commercial","iab_autofill_optout_info":{"is_iab_autofill_optout":false},"injected":{},"user":{"username":"rashdaliyev"},"display_uri":"https://scontent.cdninstagram.com/v/real.jpg","like_count":12}},
               {"node":{"code":"COLLAB_04","user":{"username":"friend_user"},"coauthor_producers":[{"username":"rashdaliyev"}],"display_uri":"https://scontent.cdninstagram.com/v/collab.jpg","like_count":33}}
             ]}}}</script>
             </body></html>

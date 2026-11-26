@@ -295,7 +295,7 @@ class InstagramEngine(context: Context? = null) {
             try {
                 val wvSnap = runBlocking { headlessScraper.scrapeProfile(cleanUsername, cookieString) }
                 if (wvSnap != null) {
-                    AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier3-WebView OK: pk=${wvSnap.instagramId} followers=${wvSnap.followersCount} posts=${wvSnap.mediaCount}")
+                    AppLogger.i(TAG, "fetchProfile(@$cleanUsername) Tier3-WebView OK: pk=${wvSnap.instagramId} private=${wvSnap.isPrivate} followers=${wvSnap.followersCount} posts=${wvSnap.mediaCount}")
                     return Result.success(wvSnap)
                 }
             } catch (e: Exception) {
@@ -502,7 +502,7 @@ class InstagramEngine(context: Context? = null) {
             if (response.code != 200) {
                 val loc = response.header("Location") ?: "-"
                 if (response.code == 302 && (loc.contains("is_from_rle") || loc.contains("/accounts/login"))) {
-                    anonymousSsrRleUntilMs = System.currentTimeMillis() + 5L * 60L * 1000L
+                    anonymousSsrRleUntilMs = System.currentTimeMillis() + 30L * 60L * 1000L
                 }
                 AppLogger.w(TAG, "fetchViaHtml(@$username) HTTP ${response.code} location=$loc")
                 return null
@@ -2093,27 +2093,31 @@ class InstagramEngine(context: Context? = null) {
 
     internal fun isSponsoredOrForeignPostNode(node: JsonObject, targetUsername: String?): Boolean {
         val adKeys = listOf(
-            "ad_id", "ad_action", "is_ad", "injected", "dr_ad_type",
+            "ad_id", "fb_ad_id", "ad_action", "is_ad", "injected", "dr_ad_type",
             "ad_link_type", "ad_metadata", "sponsored_label", "is_sponsored",
-            "ad_header_style", "ad_expiry_timestamp_in_millis", "fb_ad_id",
-            "campaign_id", "ad_cta", "cta_text", "link_text",
-            "iab_autofill_optout_info", "click_id", "ad_intent_data", "boosted_status"
+            "ad_header_style", "ad_expiry_timestamp_in_millis", "ad_cta",
+            "click_id", "ad_intent_data"
         )
         for (key in adKeys) {
             val el = node.get(key)
             if (el != null && !el.isJsonNull) {
-                if (el.isJsonPrimitive) {
-                    val p = el.asJsonPrimitive
-                    if ((p.isBoolean && p.asBoolean) || (p.isString && p.asString.isNotBlank()) || (p.isNumber && p.asLong != 0L)) {
-                        return true
+                when {
+                    el.isJsonPrimitive -> {
+                        val p = el.asJsonPrimitive
+                        if ((p.isBoolean && p.asBoolean) || (p.isString && p.asString.isNotBlank()) || (p.isNumber && p.asLong != 0L)) {
+                            return true
+                        }
                     }
-                } else {
-                    return true
+                    el.isJsonObject -> if (el.asJsonObject.size() > 0) return true
+                    el.isJsonArray -> if (el.asJsonArray.size() > 0) return true
                 }
             }
         }
         val productType = node.get("product_type")?.takeIf { !it.isJsonNull }?.asString?.lowercase(Locale.ROOT).orEmpty()
         if (productType == "ad" || productType == "sponsored") return true
+
+        val commerciality = node.get("commerciality_status")?.takeIf { !it.isJsonNull }?.asString?.lowercase(Locale.ROOT).orEmpty()
+        if (commerciality == "ads" || commerciality == "sponsored") return true
 
         val label = node.get("label")?.takeIf { !it.isJsonNull }?.asString?.lowercase(Locale.ROOT).orEmpty()
         if (label.contains("sponsored") || label.contains("reklam") || label.contains("реклама")) return true
@@ -2130,6 +2134,20 @@ class InstagramEngine(context: Context? = null) {
             }
         }
         return false
+    }
+
+    private fun hasNonEmptyField(obj: JsonObject, key: String): Boolean {
+        val el = obj.get(key) ?: return false
+        if (el.isJsonNull) return false
+        return when {
+            el.isJsonPrimitive -> {
+                val p = el.asJsonPrimitive
+                (p.isBoolean && p.asBoolean) || (p.isString && p.asString.isNotBlank()) || (p.isNumber && p.asLong != 0L)
+            }
+            el.isJsonObject -> el.asJsonObject.size() > 0
+            el.isJsonArray -> el.asJsonArray.size() > 0
+            else -> false
+        }
     }
 
     internal fun parsePostsFromSsrHtml(
@@ -2149,7 +2167,7 @@ class InstagramEngine(context: Context? = null) {
             when {
                 elem.isJsonObject -> {
                     val obj = elem.asJsonObject
-                    if (obj.has("ad_id") || obj.has("injected") || obj.has("explore_story")) return
+                    if (hasNonEmptyField(obj, "ad_id") || hasNonEmptyField(obj, "injected") || hasNonEmptyField(obj, "explore_story")) return
                     val connectionKeys = listOf(
                         "polaris_ordered_timeline_connection",
                         "xdt_api__v1__feed__user_timeline_graphql_connection",
@@ -2958,6 +2976,9 @@ class InstagramEngine(context: Context? = null) {
                     if (!resolvedUid.isNullOrBlank() && System.currentTimeMillis() >= mobileApiBlockedUntilMs) {
                         add("https://i.instagram.com/api/v1/feed/user/$resolvedUid/?count=33$cursorQuery" to IG_ANDROID_APP_UA)
                     }
+                    if (!resolvedUid.isNullOrBlank()) {
+                        add("https://www.instagram.com/api/v1/feed/user/$resolvedUid/?count=33$cursorQuery" to DESKTOP_CHROME_UA)
+                    }
                     add("https://www.instagram.com/api/v1/feed/user/$cleanUser/username/?count=33$cursorQuery" to DESKTOP_CHROME_UA)
                 }
 
@@ -3056,16 +3077,33 @@ class InstagramEngine(context: Context? = null) {
         if (stillMissingPages && headlessScraper != null && (!isPrivate || hasRealSession)) {
             try {
                 val scrollDelay = (pageDelayMs * 3L).coerceIn(700L, 1800L)
-                val scrolled = headlessScraper.scrapePaginatedPosts(
-                    username = cleanUser,
-                    maxPosts = targetLimit,
-                    cookieString = if (hasRealSession) cookieString else null,
-                    scrollIntervalMs = scrollDelay
-                ) { batch ->
-                    runBlocking { emitNew(batch) }
-                }
-                if (scrolled.isNotEmpty()) {
-                    emitNew(scrolled)
+                when (
+                    val scrapeResult = headlessScraper.scrapePaginatedPosts(
+                        username = cleanUser,
+                        maxPosts = targetLimit,
+                        cookieString = if (hasRealSession) cookieString else null,
+                        scrollIntervalMs = scrollDelay
+                    ) { batch ->
+                        runBlocking { emitNew(batch) }
+                    }
+                ) {
+                    is HeadlessScrapeResult.Success -> {
+                        if (scrapeResult.posts.isNotEmpty()) {
+                            emitNew(scrapeResult.posts)
+                        } else if (allByCode.isEmpty()) {
+                            return PostFetchResult.Success(emptyList())
+                        }
+                    }
+                    is HeadlessScrapeResult.PrivateAccount -> {
+                        if (allByCode.isEmpty()) return PostFetchResult.RequiresSession
+                    }
+                    is HeadlessScrapeResult.RateLimited -> {
+                        sawRateLimit = true
+                    }
+                    is HeadlessScrapeResult.LoginWall -> {
+                        if (allByCode.isEmpty() && isPrivate) return PostFetchResult.RequiresSession
+                    }
+                    is HeadlessScrapeResult.Failed -> Unit
                 }
             } catch (e: Exception) {
                 AppLogger.w(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage3-WebView error: ${e.message}")
