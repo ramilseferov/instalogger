@@ -554,4 +554,8 @@
     <string name="dl_toast_removed_list">Siyahıdan silindi</string>
     <string name="dl_toast_cleared_done">Bitmiş endirmələr təmizləndi</string>
     <string name="dl_toast_auto_reenabled">Avtomatik endirmə yenidən aktivdir</string>
+    <string name="action_delete_post">Postu sil</string>
+    <string name="dialog_delete_post_title">Postu arxivdən sil?</string>
+    <string name="dialog_delete_post_desc">%1$s postu və arxivlənmiş faylları cihazdan silinəcək.</string>
+    <string name="msg_post_deleted">Post arxivdən silindi</string>
 </resources>

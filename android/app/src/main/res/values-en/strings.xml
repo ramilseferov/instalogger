@@ -484,4 +484,8 @@
     <string name="dl_toast_removed_list">Removed from list</string>
     <string name="dl_toast_cleared_done">Finished items cleared</string>
     <string name="dl_toast_auto_reenabled">Auto-downloads re-enabled</string>
+    <string name="action_delete_post">Delete Post</string>
+    <string name="dialog_delete_post_title">Delete archived post?</string>
+    <string name="dialog_delete_post_desc">Post %1$s and its archived Vault files will be permanently removed.</string>
+    <string name="msg_post_deleted">Post removed from archive</string>
 </resources>

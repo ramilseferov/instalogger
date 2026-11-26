@@ -199,7 +199,7 @@ class HeadlessInstagramScraper(context: Context) {
                         delays.forEach { delayMs ->
                             val r = Runnable {
                                 if (!finished.get()) {
-                                    webViewRef?.evaluateJavascript(EXTRACTION_JS, null)
+                                    webViewRef?.evaluateJavascript(buildExtractionJs(username), null)
                                 }
                             }
                             scheduledCallbacks.add(r)
@@ -883,7 +883,7 @@ class HeadlessInstagramScraper(context: Context) {
                                 finish("end_of_feed")
                                 return
                             }
-                            webViewRef?.evaluateJavascript(POSTS_SCROLL_EXTRACT_JS, null)
+                            webViewRef?.evaluateJavascript(buildPostsScrollExtractJs(username), null)
                             mainHandler.postDelayed(this, scrollIntervalMs.coerceIn(600L, 2500L))
                         }
                     }
@@ -891,6 +891,7 @@ class HeadlessInstagramScraper(context: Context) {
                     mainHandler.postDelayed(stepRunnable, 1100L)
                 }
 
+                val postsHookJs = buildPostsNetworkHookJs(username)
                 wv.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                         val scheme = request?.url?.scheme?.lowercase() ?: return false
@@ -899,7 +900,7 @@ class HeadlessInstagramScraper(context: Context) {
 
                     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                         super.onPageStarted(view, url, favicon)
-                        view?.evaluateJavascript(POSTS_NETWORK_HOOK_JS, null)
+                        view?.evaluateJavascript(postsHookJs, null)
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -909,7 +910,7 @@ class HeadlessInstagramScraper(context: Context) {
                             finish("redirected_to_login")
                             return
                         }
-                        view?.evaluateJavascript(POSTS_NETWORK_HOOK_JS, null)
+                        view?.evaluateJavascript(postsHookJs, null)
                         startScrollLoop()
                     }
                 }
@@ -1307,10 +1308,44 @@ class HeadlessInstagramScraper(context: Context) {
         private const val MOBILE_CHROME_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
-        private val POSTS_NETWORK_HOOK_JS = """
+        private fun buildPostsNetworkHookJs(targetUsername: String): String {
+            val safeTarget = targetUsername.replace("'", "").trim().trimStart('@').lowercase()
+            return """
             (function() {
                 if (window.__igPostsHookInstalled) return;
                 window.__igPostsHookInstalled = true;
+                const TARGET = '$safeTarget';
+
+                function isAdOrSponsored(n) {
+                    if (!n || typeof n !== 'object') return true;
+                    if (n.ad_id || n.ad_action || n.is_ad || n.injected || n.dr_ad_type ||
+                        n.ad_link_type || n.ad_metadata || n.sponsored_label || n.is_sponsored ||
+                        n.ad_header_style || n.ad_expiry_timestamp_in_millis || n.boosted_status) {
+                        return true;
+                    }
+                    const pType = String(n.product_type || '').toLowerCase();
+                    if (pType === 'ad' || pType === 'sponsored') return true;
+                    const label = String(n.label || '').toLowerCase();
+                    if (label.indexOf('sponsored') !== -1 || label.indexOf('reklam') !== -1 || label.indexOf('реклама') !== -1) return true;
+                    return false;
+                }
+
+                function ownerMatchesTarget(n, requireExplicitOwner) {
+                    if (!TARGET) return true;
+                    const u = n.user || n.owner || null;
+                    const ownerName = u && u.username ? String(u.username).trim().toLowerCase() : '';
+                    if (ownerName) {
+                        if (ownerName === TARGET) return true;
+                        if (Array.isArray(n.coauthor_producers)) {
+                            for (let i = 0; i < n.coauthor_producers.length; i++) {
+                                const co = n.coauthor_producers[i];
+                                if (co && co.username && String(co.username).trim().toLowerCase() === TARGET) return true;
+                            }
+                        }
+                        return false;
+                    }
+                    return !requireExplicitOwner;
+                }
 
                 function extractPostsFromText(text) {
                     if (!text || text.length < 60) return;
@@ -1322,8 +1357,10 @@ class HeadlessInstagramScraper(context: Context) {
                         const data = JSON.parse(text);
                         const batch = [];
                         const seen = new Set();
-                        function pushNode(n) {
+                        function pushNode(n, requireExplicitOwner) {
                             if (!n || typeof n !== 'object') return;
+                            if (isAdOrSponsored(n)) return;
+                            if (!ownerMatchesTarget(n, requireExplicitOwner)) return;
                             const sc = n.code || n.shortcode || '';
                             if (!sc || seen.has(sc)) return;
                             seen.add(sc);
@@ -1349,14 +1386,20 @@ class HeadlessInstagramScraper(context: Context) {
                         function walk(node) {
                             if (!node || typeof node !== 'object') return;
                             if (Array.isArray(node)) { node.forEach(walk); return; }
+                            // Skip ad / explore / home feed subtrees completely
+                            if (node.ad || node.injected || node.explore_story || node.ad_id) return;
                             const conn = node.polaris_ordered_timeline_connection || node.xdt_api__v1__feed__user_timeline_graphql_connection || node.edge_owner_to_timeline_media;
                             if (conn && Array.isArray(conn.edges)) {
-                                conn.edges.forEach(function(e) { if (e && e.node) pushNode(e.node); });
+                                conn.edges.forEach(function(e) { if (e && e.node) pushNode(e.node, false); });
                             }
+                            // Generic node.items requires strict owner === TARGET so home-feed ads & suggested posts are NEVER captured!
                             if (Array.isArray(node.items)) {
-                                node.items.forEach(function(it) { if (it && it.code) pushNode(it); });
+                                node.items.forEach(function(it) { if (it && it.code) pushNode(it, true); });
                             }
-                            Object.keys(node).forEach(function(k) { walk(node[k]); });
+                            Object.keys(node).forEach(function(k) {
+                                if (k === 'ad' || k === 'ads' || k === 'injected' || k === 'feed_items' || k === 'xdt_api__v1__feed__timeline__connection') return;
+                                walk(node[k]);
+                            });
                         }
                         walk(data);
                         if (batch.length > 0 && window.PaginatedPostsBridge) {
@@ -1398,16 +1441,29 @@ class HeadlessInstagramScraper(context: Context) {
                     return origSend.apply(this, arguments);
                 };
             })();
-        """.trimIndent()
+            """.trimIndent()
+        }
 
-        private val POSTS_SCROLL_EXTRACT_JS = """
+        private fun buildPostsScrollExtractJs(targetUsername: String): String {
+            val safeTarget = targetUsername.replace("'", "").trim().trimStart('@').lowercase()
+            return """
             (function() {
                 try {
+                    const TARGET = '$safeTarget';
                     const href = window.location.href || '';
+                    const path = (window.location.pathname || '').toLowerCase();
                     if (href.indexOf('/accounts/login') !== -1) {
                         if (window.PaginatedPostsBridge) window.PaginatedPostsBridge.onPostBatch(JSON.stringify({ status: 'login_wall', items: [] }));
                         return;
                     }
+                    // Strictly verify we are on the target profile page, not home/explore/ad landing page
+                    if (TARGET && path.indexOf('/' + TARGET) !== 0) return;
+
+                    const bodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+                    if (/no posts yet|hələ paylaşım yoxdur|публикаций пока нет/i.test(bodyText)) {
+                        return;
+                    }
+
                     // Dismiss login modal overlay if it blocks scrolling on guest mode
                     try {
                         const closeBtns = document.querySelectorAll('div[role="dialog"] button, svg[aria-label="Close"]');
@@ -1419,10 +1475,17 @@ class HeadlessInstagramScraper(context: Context) {
 
                     const batch = [];
                     const seen = new Set();
-                    document.querySelectorAll('main a[href*="/p/"], main a[href*="/reel/"], article a[href*="/p/"], article a[href*="/reel/"]').forEach(function(a) {
+                    document.querySelectorAll('main a[href*="/p/"], main a[href*="/reel/"]').forEach(function(a) {
                         const h = a.getAttribute('href') || '';
+                        // Skip links belonging to another username path (/otheruser/p/...)
+                        const userScoped = h.match(/^\/([A-Za-z0-9._]+)\/(p|reel)\/([A-Za-z0-9_-]+)/i);
+                        if (userScoped && TARGET && userScoped[1].toLowerCase() !== TARGET) return;
                         const m = h.match(/\/(p|reel)\/([A-Za-z0-9_-]+)/);
                         if (!m) return;
+                        // Reject sponsored / ad / suggested cards
+                        const container = a.closest('article, section') || a.parentElement;
+                        const ctxText = container ? (container.innerText || '') : '';
+                        if (/\b(sponsored|reklam|реклама|suggested for you|sizin üçün təklif)\b/i.test(ctxText)) return;
                         const sc = m[2];
                         if (seen.has(sc)) return;
                         seen.add(sc);
@@ -1448,7 +1511,8 @@ class HeadlessInstagramScraper(context: Context) {
                     window.scrollTo(0, document.body.scrollHeight);
                 } catch (_) {}
             })();
-        """.trimIndent()
+            """.trimIndent()
+        }
 
         private val STORY_NETWORK_HOOK_JS = """
             (function() {
@@ -1618,13 +1682,23 @@ class HeadlessInstagramScraper(context: Context) {
             })();
         """.trimIndent()
 
-        private val EXTRACTION_JS = """
+        private fun buildExtractionJs(targetUsername: String): String {
+            val safeTarget = targetUsername.replace("'", "").trim().trimStart('@').lowercase()
+            return """
             (function() {
                 try {
+                    const TARGET = '$safeTarget';
                     const hrefNow = window.location.href || '';
+                    const pathNow = (window.location.pathname || '').toLowerCase();
                     if (hrefNow.includes('/accounts/login')) {
                         if (window.AndroidBridge) {
                             window.AndroidBridge.onExtractionResult(JSON.stringify({ status: 'login_wall', items: [] }));
+                        }
+                        return;
+                    }
+                    if (TARGET && pathNow.indexOf('/' + TARGET) !== 0) {
+                        if (window.AndroidBridge) {
+                            window.AndroidBridge.onExtractionResult(JSON.stringify({ status: 'pending', items: [] }));
                         }
                         return;
                     }
@@ -1632,6 +1706,12 @@ class HeadlessInstagramScraper(context: Context) {
                     if (/this account is private/i.test(bodyText) || /bu hesab gizlidir/i.test(bodyText)) {
                         if (window.AndroidBridge) {
                             window.AndroidBridge.onExtractionResult(JSON.stringify({ status: 'private', items: [] }));
+                        }
+                        return;
+                    }
+                    if (/no posts yet|hələ paylaşım yoxdur|публикаций пока нет/i.test(bodyText)) {
+                        if (window.AndroidBridge) {
+                            window.AndroidBridge.onExtractionResult(JSON.stringify({ status: 'ok', items: [] }));
                         }
                         return;
                     }
@@ -1644,11 +1724,18 @@ class HeadlessInstagramScraper(context: Context) {
                         function walkJson(node) {
                             if (!node || typeof node !== 'object') return;
                             if (Array.isArray(node)) { node.forEach(walkJson); return; }
+                            if (node.ad || node.injected || node.ad_id) return;
                             const conn = node.polaris_ordered_timeline_connection || node.edge_owner_to_timeline_media;
                             if (conn && Array.isArray(conn.edges)) {
                                 conn.edges.forEach(function(e) {
                                     const n = e && e.node;
-                                    if (!n) return;
+                                    if (!n || n.ad_id || n.is_ad || n.injected || n.ad_action || String(n.product_type || '').toLowerCase() === 'ad') return;
+                                    const u = n.user || n.owner || null;
+                                    const ownerName = u && u.username ? String(u.username).trim().toLowerCase() : '';
+                                    if (ownerName && TARGET && ownerName !== TARGET) {
+                                        const isCo = Array.isArray(n.coauthor_producers) && n.coauthor_producers.some(function(c) { return c && c.username && String(c.username).toLowerCase() === TARGET; });
+                                        if (!isCo) return;
+                                    }
                                     const sc = n.code || n.shortcode || '';
                                     if (!sc || seen.has(sc)) return;
                                     seen.add(sc);
@@ -1672,12 +1759,17 @@ class HeadlessInstagramScraper(context: Context) {
                         });
                     } catch (_) {}
 
-                    // 2. Also scan rendered DOM anchor links
-                    const links = document.querySelectorAll('main a[href*="/p/"], main a[href*="/reel/"], article a[href*="/p/"], article a[href*="/reel/"]');
+                    // 2. Also scan rendered DOM anchor links inside profile <main> only
+                    const links = document.querySelectorAll('main a[href*="/p/"], main a[href*="/reel/"]');
                     links.forEach(function(a) {
                         const href = a.getAttribute('href') || '';
+                        const userScoped = href.match(/^\/([A-Za-z0-9._]+)\/(p|reel)\/([A-Za-z0-9_-]+)/i);
+                        if (userScoped && TARGET && userScoped[1].toLowerCase() !== TARGET) return;
                         const m = href.match(/\/(p|reel)\/([A-Za-z0-9_-]+)/);
                         if (!m) return;
+                        const container = a.closest('article, section') || a.parentElement;
+                        const ctxText = container ? (container.innerText || '') : '';
+                        if (/\b(sponsored|reklam|реклама|suggested for you|sizin üçün təklif)\b/i.test(ctxText)) return;
                         const sc = m[2];
                         if (seen.has(sc)) return;
                         seen.add(sc);
@@ -1712,7 +1804,8 @@ class HeadlessInstagramScraper(context: Context) {
                     }
                 }
             })();
-        """.trimIndent()
+            """.trimIndent()
+        }
 
         private val COMMENTS_NETWORK_HOOK_JS = """
             (function() {

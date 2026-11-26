@@ -1937,6 +1937,7 @@ class InstagramEngine(context: Context? = null) {
                                 for (itemEl in items) {
                                     if (list.size >= limit) break
                                     val node = itemEl.asJsonObject ?: continue
+                                    if (isSponsoredOrForeignPostNode(node, cleanUser)) continue
                                     val code = node.get("code")?.takeIf { !it.isJsonNull }?.asString ?: continue
                                     val mediaTypeInt = node.get("media_type")?.takeIf { !it.isJsonNull }?.asInt ?: 1
                                     val slides = extractPolarisCarouselSlides(node)
@@ -2148,10 +2149,57 @@ class InstagramEngine(context: Context? = null) {
         }
         if (html.isBlank()) return emptyList()
 
-        return parsePostsFromSsrHtml(html, limit)
+        return parsePostsFromSsrHtml(html, limit, targetUsername = username)
     }
 
-    internal fun parsePostsFromSsrHtml(html: String, limit: Int = 24): List<InstagramPostItem> {
+    /**
+     * Strictly rejects Instagram Sponsored/Ad nodes and posts belonging to a different user
+     * (unless the target user is listed in `coauthor_producers`).
+     */
+    internal fun isSponsoredOrForeignPostNode(node: JsonObject, targetUsername: String?): Boolean {
+        val adKeys = listOf(
+            "ad_id", "ad_action", "is_ad", "injected", "dr_ad_type",
+            "ad_link_type", "ad_metadata", "sponsored_label", "is_sponsored",
+            "ad_header_style", "ad_expiry_timestamp_in_millis"
+        )
+        for (key in adKeys) {
+            val el = node.get(key)
+            if (el != null && !el.isJsonNull) {
+                if (el.isJsonPrimitive) {
+                    val p = el.asJsonPrimitive
+                    if ((p.isBoolean && p.asBoolean) || (p.isString && p.asString.isNotBlank()) || (p.isNumber && p.asLong != 0L)) {
+                        return true
+                    }
+                } else {
+                    return true
+                }
+            }
+        }
+        val productType = node.get("product_type")?.takeIf { !it.isJsonNull }?.asString?.lowercase(Locale.ROOT).orEmpty()
+        if (productType == "ad" || productType == "sponsored") return true
+
+        val label = node.get("label")?.takeIf { !it.isJsonNull }?.asString?.lowercase(Locale.ROOT).orEmpty()
+        if (label.contains("sponsored") || label.contains("reklam") || label.contains("реклама")) return true
+
+        val cleanTarget = targetUsername?.trim()?.trimStart('@')?.lowercase(Locale.ROOT).orEmpty()
+        if (cleanTarget.isNotBlank()) {
+            val ownerObj = node.getAsJsonObject("user") ?: node.getAsJsonObject("owner")
+            val ownerName = ownerObj?.get("username")?.takeIf { !it.isJsonNull }?.asString?.trim()?.lowercase(Locale.ROOT).orEmpty()
+            if (ownerName.isNotBlank() && ownerName != cleanTarget) {
+                val isCoAuthor = node.getAsJsonArray("coauthor_producers")?.any { coEl ->
+                    coEl.asJsonObject?.get("username")?.takeIf { !it.isJsonNull }?.asString?.trim()?.equals(cleanTarget, ignoreCase = true) == true
+                } == true
+                if (!isCoAuthor) return true
+            }
+        }
+        return false
+    }
+
+    internal fun parsePostsFromSsrHtml(
+        html: String,
+        limit: Int = 24,
+        targetUsername: String? = null
+    ): List<InstagramPostItem> {
         val results = mutableListOf<InstagramPostItem>()
         val seenCodes = hashSetOf<String>()
         val now = System.currentTimeMillis()
@@ -2164,6 +2212,7 @@ class InstagramEngine(context: Context? = null) {
             when {
                 elem.isJsonObject -> {
                     val obj = elem.asJsonObject
+                    if (obj.has("ad_id") || obj.has("injected") || obj.has("explore_story")) return
                     val connectionKeys = listOf(
                         "polaris_ordered_timeline_connection",
                         "xdt_api__v1__feed__user_timeline_graphql_connection",
@@ -2174,6 +2223,7 @@ class InstagramEngine(context: Context? = null) {
                         for (edgeEl in edges) {
                             if (results.size >= limit) break
                             val node = edgeEl.asJsonObject?.getAsJsonObject("node") ?: continue
+                            if (isSponsoredOrForeignPostNode(node, targetUsername)) continue
                             val code = node.get("code")?.takeIf { !it.isJsonNull }?.asString
                                 ?: node.get("shortcode")?.takeIf { !it.isJsonNull }?.asString
                                 ?: continue
@@ -3025,6 +3075,7 @@ class InstagramEngine(context: Context? = null) {
                                         val parsed = mutableListOf<InstagramPostItem>()
                                         for (itemEl in itemsArr) {
                                             val node = itemEl.asJsonObject ?: continue
+                                            if (isSponsoredOrForeignPostNode(node, cleanUser)) continue
                                             val code = node.get("code")?.takeIf { !it.isJsonNull }?.asString ?: continue
                                             val mediaTypeInt = node.get("media_type")?.takeIf { !it.isJsonNull }?.asInt ?: 1
                                             val slides = extractPolarisCarouselSlides(node)

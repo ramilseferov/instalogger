@@ -51,6 +51,7 @@ import com.instalogger.app.ui.theme.StatusRed
 import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.VaultPlaybackBridge
 import com.instalogger.app.util.cleanDisplayText
+import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -286,6 +287,8 @@ fun InstagramPostViewerDialog(
     val downloadStates by app.mediaDownloadOrchestrator.downloadStates.collectAsStateWithLifecycle()
     val downloadState = downloadStates[post.id] ?: PostDownloadState.Idle
     var showCommentsSheet by remember(post.id) { mutableStateOf(false) }
+    var showDeletePostDialog by remember(post.id) { mutableStateOf(false) }
+    val viewerScope = rememberCoroutineScope()
 
     val timeFormat = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
     val formattedDate = timeFormat.format(Date(post.postedAt))
@@ -655,6 +658,18 @@ fun InstagramPostViewerDialog(
                             }
 
                             IconButton(
+                                onClick = { showDeletePostDialog = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = stringResource(R.string.action_delete_post),
+                                    tint = StatusRed,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            IconButton(
                                 onClick = {
                                     val uri = Uri.parse("https://instagram.com/p/${post.id}")
                                     val intent = Intent(Intent.ACTION_VIEW, uri)
@@ -719,6 +734,42 @@ fun InstagramPostViewerDialog(
         PostCommentsBottomSheet(
             post = post,
             onDismiss = { showCommentsSheet = false }
+        )
+    }
+
+    if (showDeletePostDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeletePostDialog = false },
+            title = { Text(stringResource(R.string.dialog_delete_post_title), fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.dialog_delete_post_desc, post.id)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeletePostDialog = false
+                        app.mediaDownloadOrchestrator.deleteDownloadedMedia(post.id, deleteVaultFiles = true)
+                        viewerScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            app.database.postDao().deletePostById(post.id)
+                            app.database.postCommentDao().deleteCommentsForPost(post.id)
+                            val remaining = app.database.postDao().getPostsCountForUser(post.username).toLong()
+                            app.database.targetDao().getTarget(post.username)?.let { cur ->
+                                if (cur.mediaCount > remaining) {
+                                    app.database.targetDao().insertTarget(cur.copy(mediaCount = remaining))
+                                }
+                            }
+                        }
+                        Toast.makeText(context, context.getString(R.string.msg_post_deleted), Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = StatusRed)
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeletePostDialog = false }) {
+                    Text(stringResource(R.string.dialog_cancel))
+                }
+            }
         )
     }
 }

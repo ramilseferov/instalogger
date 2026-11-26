@@ -540,4 +540,8 @@
     <string name="dl_toast_removed_list">Удалено из списка</string>
     <string name="dl_toast_cleared_done">Завершённые записи очищены</string>
     <string name="dl_toast_auto_reenabled">Автозагрузка снова активна</string>
+    <string name="action_delete_post">Удалить пост</string>
+    <string name="dialog_delete_post_title">Удалить пост из архива?</string>
+    <string name="dialog_delete_post_desc">Пост %1$s и его зашифрованные файлы будут удалены с устройства.</string>
+    <string name="msg_post_deleted">Пост удалён из архива</string>
 </resources>

@@ -306,4 +306,22 @@ class MediaEngineUnitTest {
         assertTrue(PostDownloadState.Completed("yt-dlp").isTerminal)
         assertTrue(PostDownloadState.Downloading(42f).isActive)
     }
+
+    @Test
+    fun postParser_rejectsSponsoredAdsAndForeignUserPosts() {
+        val engine = InstagramEngine(null)
+        val html = """
+            <html><body>
+            <script type="application/json">{"data":{"xdt_api__v1__feed__user_timeline_graphql_connection":{"edges":[
+              {"node":{"code":"AD_BOLT_01","ad_id":"998877","product_type":"ad","user":{"username":"boltfood_az"},"display_uri":"https://scontent.cdninstagram.com/v/ad.jpg","like_count":190}},
+              {"node":{"code":"FOREIGN_02","user":{"username":"some_other_account"},"display_uri":"https://scontent.cdninstagram.com/v/other.jpg","like_count":50}},
+              {"node":{"code":"REAL_POST_03","user":{"username":"rashdaliyev"},"display_uri":"https://scontent.cdninstagram.com/v/real.jpg","like_count":12}},
+              {"node":{"code":"COLLAB_04","user":{"username":"friend_user"},"coauthor_producers":[{"username":"rashdaliyev"}],"display_uri":"https://scontent.cdninstagram.com/v/collab.jpg","like_count":33}}
+            ]}}}</script>
+            </body></html>
+        """.trimIndent()
+
+        val posts = engine.parsePostsFromSsrHtml(html, limit = 10, targetUsername = "rashdaliyev")
+        assertEquals(listOf("REAL_POST_03", "COLLAB_04"), posts.map { it.shortcode })
+    }
 }
