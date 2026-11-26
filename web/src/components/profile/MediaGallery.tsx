@@ -15,7 +15,7 @@ interface MediaGalleryProps {
   onSyncMedia?: () => void;
 }
 
-type GalleryTab = 'all' | 'post' | 'reel' | 'highlight' | 'vanished';
+type GalleryTab = 'all' | 'post' | 'reel' | 'story' | 'highlight' | 'vanished';
 
 function getTilePreviewUrl(item: ArchivedMedia): string {
   const raw = item.relative_file_path || '';
@@ -62,6 +62,7 @@ export const MediaGallery: React.FC<MediaGalleryProps> = ({
     { id: 'all', label: t.all, count: media.length },
     { id: 'post', label: t.instagram_posts, count: media.filter((m) => m.media_type === 'post').length },
     { id: 'reel', label: t.reels, count: media.filter((m) => m.media_type === 'reel').length },
+    { id: 'story', label: t.stories, count: media.filter((m) => m.media_type === 'story').length },
     { id: 'highlight', label: t.highlights, count: media.filter((m) => m.media_type === 'highlight').length },
     { id: 'vanished', label: t.vanished, count: media.filter((m) => m.is_vanished).length },
   ];

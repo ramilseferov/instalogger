@@ -110,10 +110,14 @@ def parse_cookie_text(content: str) -> Dict[str, str]:
 
 
 def parse_profile_and_posts_from_ssr_html(html: str, username: str, limit: int = 24) -> Optional[Dict[str, Any]]:
-    """Extract structured user profile + organic posts from Instagram Desktop SSR HTML."""
+    """Extract structured user profile, page_info, and organic posts from Instagram Desktop SSR HTML."""
     clean_target = username.strip().lstrip("@").lower()
     best_user: Optional[Dict[str, Any]] = None
     best_score = -1
+    max_media_count = 0
+    max_followers = 0
+    max_following = 0
+    page_info: Dict[str, Any] = {"has_next_page": False, "end_cursor": None}
     posts_edges: List[Dict[str, Any]] = []
     seen_codes = set()
 
@@ -132,16 +136,25 @@ def parse_profile_and_posts_from_ssr_html(html: str, username: str, limit: int =
         if any(k in obj for k in ("hd_profile_pic_url_info", "profile_pic_url_hd", "profile_pic_url")):
             s += 2
         if "media_count" in obj or "edge_owner_to_timeline_media" in obj:
-            s += 1
+            s += 2
         return s
 
     def walk(elem: Any):
-        nonlocal best_user, best_score
+        nonlocal best_user, best_score, max_media_count, max_followers, max_following
         if isinstance(elem, dict):
             if _has_non_empty_value(elem.get("ad_id")) or _has_non_empty_value(elem.get("injected")) or _has_non_empty_value(elem.get("explore_story")):
                 return
             u_name = str(elem.get("username") or "").strip().lower()
             if u_name == clean_target:
+                mc = int(elem.get("media_count") or (elem.get("edge_owner_to_timeline_media") or {}).get("count") or 0)
+                fc = int(elem.get("follower_count") or (elem.get("edge_followed_by") or {}).get("count") or 0)
+                fg = int(elem.get("following_count") or (elem.get("edge_follow") or {}).get("count") or 0)
+                if mc > max_media_count:
+                    max_media_count = mc
+                if fc > max_followers:
+                    max_followers = fc
+                if fg > max_following:
+                    max_following = fg
                 sc = score_user(elem)
                 if sc > best_score:
                     best_score = sc
@@ -154,6 +167,12 @@ def parse_profile_and_posts_from_ssr_html(html: str, username: str, limit: int =
             ):
                 conn = elem.get(conn_key)
                 if isinstance(conn, dict) and isinstance(conn.get("edges"), list):
+                    pi = conn.get("page_info")
+                    if isinstance(pi, dict) and pi.get("end_cursor") and not page_info.get("end_cursor"):
+                        page_info["has_next_page"] = bool(pi.get("has_next_page", True))
+                        page_info["end_cursor"] = str(pi.get("end_cursor"))
+                    if conn.get("count") and int(conn.get("count") or 0) > max_media_count:
+                        max_media_count = int(conn.get("count") or 0)
                     for edge in conn["edges"]:
                         if len(posts_edges) >= limit:
                             break
@@ -181,22 +200,41 @@ def parse_profile_and_posts_from_ssr_html(html: str, username: str, limit: int =
         except Exception:
             continue
 
+    # Extract og:description counts as fallback for media_count / followers / following when SSR omits them
+    og_desc = re.search(r'<meta[^>]+(?:name|property)="(?:description|og:description)"[^>]+content="([^"]+)"', html, re.I)
+    og_counts = None
+    if og_desc:
+        m = re.search(
+            r"([\d,.]+[KkMmBb]?)\s+(?:Followers|Takipçi|Подписчик|İzləyici)[^,;]*[,;]\s*"
+            r"([\d,.]+[KkMmBb]?)\s+(?:Following|Takip|Подписк|İzlənilən)[^,;]*[,;]\s*"
+            r"([\d,.]+[KkMmBb]?)\s+(?:Posts|Gönderi|Публикац|Paylaşım)",
+            og_desc.group(1),
+            re.I,
+        )
+        if m:
+            og_counts = (
+                _parse_formatted_number(m.group(1)),
+                _parse_formatted_number(m.group(2)),
+                _parse_formatted_number(m.group(3)),
+            )
+
     if best_user is not None:
         uid = str(best_user.get("pk") or best_user.get("id") or "")
-        followers = int(
-            best_user.get("follower_count")
-            or (best_user.get("edge_followed_by") or {}).get("count")
-            or 0
+        followers = max(
+            max_followers,
+            int(best_user.get("follower_count") or (best_user.get("edge_followed_by") or {}).get("count") or 0),
+            og_counts[0] if og_counts else 0,
         )
-        following = int(
-            best_user.get("following_count")
-            or (best_user.get("edge_follow") or {}).get("count")
-            or 0
+        following = max(
+            max_following,
+            int(best_user.get("following_count") or (best_user.get("edge_follow") or {}).get("count") or 0),
+            og_counts[1] if og_counts else 0,
         )
-        media_count = int(
-            best_user.get("media_count")
-            or (best_user.get("edge_owner_to_timeline_media") or {}).get("count")
-            or len(posts_edges)
+        media_count = max(
+            max_media_count,
+            int(best_user.get("media_count") or (best_user.get("edge_owner_to_timeline_media") or {}).get("count") or 0),
+            og_counts[2] if og_counts else 0,
+            len(posts_edges),
         )
         pic_url = (
             (best_user.get("hd_profile_pic_url_info") or {}).get("url")
@@ -214,42 +252,207 @@ def parse_profile_and_posts_from_ssr_html(html: str, username: str, limit: int =
             "followed_by_viewer": bool(best_user.get("followed_by_viewer", False)),
             "edge_followed_by": {"count": followers},
             "edge_follow": {"count": following},
-            "edge_owner_to_timeline_media": {"count": media_count, "edges": posts_edges},
+            "edge_owner_to_timeline_media": {
+                "count": media_count,
+                "edges": posts_edges,
+                "page_info": page_info,
+            },
             "profile_pic_url_hd": pic_url,
             "latest_reel_media": latest_reel,
         }
 
     # Meta og:description fallback for public SSR pages without full Relay JSON
-    og_desc = re.search(r'<meta[^>]+(?:name|property)="(?:description|og:description)"[^>]+content="([^"]+)"', html, re.I)
     og_title = re.search(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"', html, re.I)
     og_img = re.search(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"', html, re.I)
-    if og_desc:
-        desc = og_desc.group(1)
-        m = re.search(
-            r"([\d,.]+[KkMmBb]?)\s+(?:Followers|Takipçi|Подписчик|İzləyici)[^,;]*[,;]\s*"
-            r"([\d,.]+[KkMmBb]?)\s+(?:Following|Takip|Подписк|İzlənilən)[^,;]*[,;]\s*"
-            r"([\d,.]+[KkMmBb]?)\s+(?:Posts|Gönderi|Публикац|Paylaşım)",
-            desc,
-            re.I,
-        )
-        if m:
-            pk_match = re.search(r'"(?:pk|profile_id)"\s*:\s*"?(\d+)"?', html)
-            uid = pk_match.group(1) if pk_match else f"usr_{clean_target}"
-            full_name = og_title.group(1).split("(")[0].strip() if og_title else ""
-            return {
-                "id": uid,
-                "username": clean_target,
-                "full_name": full_name,
-                "biography": "",
-                "is_private": '"is_private":true' in html,
-                "followed_by_viewer": False,
-                "edge_followed_by": {"count": _parse_formatted_number(m.group(1))},
-                "edge_follow": {"count": _parse_formatted_number(m.group(2))},
-                "edge_owner_to_timeline_media": {"count": _parse_formatted_number(m.group(3)), "edges": posts_edges},
-                "profile_pic_url_hd": og_img.group(1).replace("&amp;", "&") if og_img else "",
-                "latest_reel_media": 0,
-            }
+    if og_counts:
+        pk_match = re.search(r'"(?:pk|profile_id)"\s*:\s*"?(\d+)"?', html)
+        uid = pk_match.group(1) if pk_match else f"usr_{clean_target}"
+        full_name = og_title.group(1).split("(")[0].strip() if og_title else ""
+        return {
+            "id": uid,
+            "username": clean_target,
+            "full_name": full_name,
+            "biography": "",
+            "is_private": '"is_private":true' in html,
+            "followed_by_viewer": False,
+            "edge_followed_by": {"count": og_counts[0]},
+            "edge_follow": {"count": og_counts[1]},
+            "edge_owner_to_timeline_media": {
+                "count": max(og_counts[2], len(posts_edges)),
+                "edges": posts_edges,
+                "page_info": page_info,
+            },
+            "profile_pic_url_hd": og_img.group(1).replace("&amp;", "&") if og_img else "",
+            "latest_reel_media": 0,
+        }
     return None
+
+
+def parse_highlights_from_ssr_html(html: str) -> List[Dict[str, Any]]:
+    """Extract highlight trays from Instagram Desktop SSR HTML (lox_highlights_connection / edge_highlight_reels)."""
+    results: List[Dict[str, Any]] = []
+    seen_ids = set()
+
+    def walk(elem: Any):
+        if isinstance(elem, dict):
+            conn = elem.get("lox_highlights_connection") or elem.get("edge_highlight_reels")
+            if isinstance(conn, dict) and isinstance(conn.get("edges"), list):
+                for edge in conn["edges"]:
+                    node = edge.get("node") if isinstance(edge, dict) else None
+                    if not isinstance(node, dict):
+                        continue
+                    raw_id = str(node.get("id") or "").strip()
+                    if not raw_id:
+                        continue
+                    norm_id = raw_id if raw_id.startswith("highlight:") else f"highlight:{raw_id}"
+                    if norm_id in seen_ids:
+                        continue
+                    seen_ids.add(norm_id)
+                    cover_media = node.get("cover_media") if isinstance(node.get("cover_media"), dict) else {}
+                    cover = (
+                        node.get("cover_media_cropped_thumbnail_url")
+                        or cover_media.get("thumbnail_src")
+                        or (cover_media.get("cropped_image_version") or {}).get("url")
+                        or (node.get("cover_media_cropped_thumbnail") or {}).get("url")
+                        or ""
+                    )
+                    results.append({
+                        "id": norm_id,
+                        "title": str(node.get("title") or "Highlight").strip() or "Highlight",
+                        "cover_url": str(cover),
+                        "media_count": int(node.get("media_count") or 0),
+                    })
+            for v in elem.values():
+                walk(v)
+        elif isinstance(elem, list):
+            for child in elem:
+                walk(child)
+
+    for match in re.finditer(r'<script[^>]*type="application/json"[^>]*>(.*?)</script>', html, re.DOTALL):
+        raw = match.group(1)
+        if "lox_highlights_connection" not in raw and "edge_highlight_reels" not in raw:
+            continue
+        try:
+            walk(json.loads(raw))
+        except Exception:
+            continue
+    return results
+
+
+def parse_single_story_node(obj: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Normalize a story or highlight item across Mobile v1, Web SSR, and GraphQL schemas."""
+    if not isinstance(obj, dict):
+        return None
+    item_id = str(obj.get("pk") or obj.get("id") or "").strip()
+    if not item_id:
+        return None
+
+    vids = obj.get("video_versions") or []
+    vid_resources = obj.get("video_resources") or []
+    vid_url = (
+        (vids[0].get("url") if vids and isinstance(vids[0], dict) else "")
+        or (vid_resources[0].get("src") if vid_resources and isinstance(vid_resources[0], dict) else "")
+        or str(obj.get("video_url") or "")
+    )
+    imgs = (obj.get("image_versions2") or {}).get("candidates") or []
+    img_url = (
+        (imgs[0].get("url") if imgs and isinstance(imgs[0], dict) else "")
+        or str(obj.get("display_url") or "")
+        or str(obj.get("display_uri") or "")
+    )
+
+    is_video = bool(vid_url) or bool(obj.get("is_video", False)) or obj.get("media_type") == 2
+    cdn_url = vid_url if (is_video and vid_url) else img_url
+    if not cdn_url:
+        return None
+
+    taken_at = int(obj.get("taken_at") or obj.get("taken_at_timestamp") or int(time.time()))
+    return {
+        "id": item_id,
+        "media_type": "video" if is_video else "image",
+        "cdn_url": cdn_url,
+        "thumb_url": img_url or cdn_url,
+        "taken_at": taken_at,
+        "dimensions": obj.get("dimensions") or {},
+    }
+
+
+def parse_reels_media_json(data: Dict[str, Any], reel_key: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Extract normalized story items from all Instagram reels_media / story JSON formats."""
+    if not isinstance(data, dict):
+        return []
+    results: List[Dict[str, Any]] = []
+    seen = set()
+
+    def collect(items: Any):
+        if not isinstance(items, list):
+            return
+        for raw in items:
+            parsed = parse_single_story_node(raw)
+            if parsed and parsed["id"] not in seen:
+                seen.add(parsed["id"])
+                results.append(parsed)
+
+    # Format A: { "reels": { "<key>": { "items": [...] } } }
+    reels_obj = data.get("reels")
+    if isinstance(reels_obj, dict) and reels_obj:
+        target_reel = reels_obj.get(reel_key) if reel_key else None
+        if not isinstance(target_reel, dict):
+            target_reel = next(iter(reels_obj.values()), None)
+        if isinstance(target_reel, dict):
+            collect(target_reel.get("items"))
+        if results:
+            return results
+
+    # Format B: { "reels_media": [ { "items": [...] } ] }
+    reels_media = data.get("reels_media") or (data.get("data") or {}).get("reels_media")
+    if isinstance(reels_media, list):
+        for reel in reels_media:
+            if isinstance(reel, dict):
+                collect(reel.get("items"))
+        if results:
+            return results
+
+    # Format C: { "reel": { "items": [...] } }
+    reel_single = data.get("reel")
+    if isinstance(reel_single, dict):
+        collect(reel_single.get("items"))
+
+    return results
+
+
+def parse_stories_from_ssr_html(html: str) -> List[Dict[str, Any]]:
+    """Extract active/highlight story items from Desktop SSR HTML (xdt_api__v1__feed__reels_media__connection)."""
+    results: List[Dict[str, Any]] = []
+    seen = set()
+
+    def walk(elem: Any):
+        if isinstance(elem, dict):
+            conn = elem.get("xdt_api__v1__feed__reels_media__connection")
+            if isinstance(conn, dict) and isinstance(conn.get("edges"), list):
+                for edge in conn["edges"]:
+                    node = edge.get("node") if isinstance(edge, dict) else None
+                    if isinstance(node, dict) and isinstance(node.get("items"), list):
+                        for item in node["items"]:
+                            parsed = parse_single_story_node(item)
+                            if parsed and parsed["id"] not in seen:
+                                seen.add(parsed["id"])
+                                results.append(parsed)
+            for v in elem.values():
+                walk(v)
+        elif isinstance(elem, list):
+            for child in elem:
+                walk(child)
+
+    for match in re.finditer(r'<script[^>]*type="application/json"[^>]*>(.*?)</script>', html, re.DOTALL):
+        raw = match.group(1)
+        if "xdt_api__v1__feed__reels_media__connection" not in raw:
+            continue
+        try:
+            walk(json.loads(raw))
+        except Exception:
+            continue
+    return results
 
 
 class InstagramClient:
@@ -419,40 +622,158 @@ class InstagramClient:
             logger.debug(f"GraphQL hash query failed for @{username}: {e}")
         return None
 
-    def fetch_user_posts(self, username: str, user_id: Optional[str] = None, limit: int = 24) -> List[Dict[str, Any]]:
-        """Fetch recent organic posts via authenticated v1 user feed endpoints."""
+    def fetch_user_posts(
+        self,
+        username: str,
+        user_id: Optional[str] = None,
+        limit: int = 50,
+        initial_end_cursor: Optional[str] = None,
+        already_seen: Optional[set] = None,
+    ) -> List[Dict[str, Any]]:
+        """Paginate organic posts beyond the initial 12 using v1 max_id, GraphQL end_cursor, and Instaloader."""
         clean_user = username.strip().lstrip("@").lower()
-        candidates: List[tuple[str, str]] = []
-        if user_id and str(user_id).isdigit():
-            candidates.append((f"https://www.instagram.com/api/v1/feed/user/{user_id}/?count={limit}", DESKTOP_UA))
-            if self.has_session:
-                candidates.append((f"https://i.instagram.com/api/v1/feed/user/{user_id}/?count={limit}", IG_ANDROID_APP_UA))
-        candidates.append((f"https://www.instagram.com/api/v1/feed/user/{clean_user}/username/?count={limit}", DESKTOP_UA))
+        target_limit = 500 if limit <= 0 else max(1, min(limit, 500))
+        edges: List[Dict[str, Any]] = []
+        seen_codes = set(already_seen or set())
+
+        def add_node(node: Dict[str, Any]) -> bool:
+            if not isinstance(node, dict) or is_sponsored_or_foreign_node(node, clean_user):
+                return False
+            code = str(node.get("code") or node.get("shortcode") or "").strip()
+            if not code or code in seen_codes:
+                return False
+            seen_codes.add(code)
+            edges.append({"node": node})
+            return True
 
         self._ensure_guest_cookies()
-        for url, ua in candidates:
-            try:
-                headers = dict(self.session.headers)
-                headers["User-Agent"] = ua
-                headers["Referer"] = f"https://www.instagram.com/{clean_user}/"
-                resp = self.session.get(url, headers=headers, timeout=15)
-                if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
-                    continue
-                items = resp.json().get("items") or []
-                if not items:
-                    continue
-                edges = []
-                for node in items:
-                    if len(edges) >= limit:
+
+        # Stage 1: Fast v1 Feed Cursor Pagination (33 posts/page via next_max_id)
+        if self.has_session or (user_id and str(user_id).isdigit()):
+            next_max_id: Optional[str] = None
+            max_pages = max(1, min((target_limit + 32) // 33, 40))
+            for _page in range(max_pages):
+                if len(seen_codes) >= target_limit:
+                    break
+                cursor_q = f"&max_id={requests.utils.quote(next_max_id, safe='')}" if next_max_id else ""
+                candidates: List[tuple[str, str]] = []
+                if user_id and str(user_id).isdigit():
+                    if self.has_session:
+                        candidates.append((f"https://i.instagram.com/api/v1/feed/user/{user_id}/?count=33{cursor_q}", IG_ANDROID_APP_UA))
+                    candidates.append((f"https://www.instagram.com/api/v1/feed/user/{user_id}/?count=33{cursor_q}", DESKTOP_UA))
+                candidates.append((f"https://www.instagram.com/api/v1/feed/user/{clean_user}/username/?count=33{cursor_q}", DESKTOP_UA))
+
+                page_added = 0
+                page_more = False
+                page_next_cursor: Optional[str] = None
+                page_ok = False
+                for url, ua in candidates:
+                    try:
+                        headers = dict(self.session.headers)
+                        headers["User-Agent"] = ua
+                        headers["Referer"] = f"https://www.instagram.com/{clean_user}/"
+                        resp = self.session.get(url, headers=headers, timeout=15)
+                        if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
+                            continue
+                        payload = resp.json()
+                        items = payload.get("items") or []
+                        if not items:
+                            continue
+                        page_ok = True
+                        for node in items:
+                            if len(seen_codes) >= target_limit:
+                                break
+                            if add_node(node):
+                                page_added += 1
+                        page_more = bool(payload.get("more_available", False))
+                        page_next_cursor = payload.get("next_max_id")
                         break
-                    if is_sponsored_or_foreign_node(node, clean_user):
+                    except Exception as e:
+                        logger.debug(f"v1 feed pagination failed ({url}): {e}")
+
+                if not page_ok or not page_more or not page_next_cursor or page_next_cursor == next_max_id:
+                    break
+                next_max_id = str(page_next_cursor)
+                time.sleep(0.25)
+
+        # Stage 2: GraphQL Timeline Cursor Pagination via end_cursor
+        if len(seen_codes) < target_limit and user_id and str(user_id).isdigit() and initial_end_cursor:
+            cursor: Optional[str] = initial_end_cursor
+            for _page in range(25):
+                if len(seen_codes) >= target_limit or not cursor:
+                    break
+                gql_ok = False
+                next_cursor: Optional[str] = None
+                has_next = False
+                for qhash in (
+                    "69cba40317214236af40e7efa697781d",
+                    "003056d32c2554def87228bc3fd9668a",
+                    "e769aa130647d2354c40ea6a439bfc08",
+                ):
+                    try:
+                        variables = json.dumps({"id": str(user_id), "first": 50, "after": cursor})
+                        url = f"https://www.instagram.com/graphql/query/?query_hash={qhash}&variables={requests.utils.quote(variables, safe='')}"
+                        headers = dict(self.session.headers)
+                        headers["Referer"] = f"https://www.instagram.com/{clean_user}/"
+                        resp = self.session.get(url, headers=headers, timeout=15)
+                        if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
+                            continue
+                        tl = (
+                            resp.json()
+                            .get("data", {})
+                            .get("user", {})
+                            .get("edge_owner_to_timeline_media", {})
+                        )
+                        gql_edges = tl.get("edges") or []
+                        if not gql_edges:
+                            continue
+                        gql_ok = True
+                        for edge in gql_edges:
+                            if len(seen_codes) >= target_limit:
+                                break
+                            node = edge.get("node") if isinstance(edge, dict) else None
+                            if node:
+                                add_node(node)
+                        pi = tl.get("page_info") or {}
+                        has_next = bool(pi.get("has_next_page", False))
+                        next_cursor = pi.get("end_cursor")
+                        break
+                    except Exception as e:
+                        logger.debug(f"GraphQL pagination ({qhash[:8]}) failed: {e}")
+
+                if not gql_ok or not has_next or not next_cursor or next_cursor == cursor:
+                    break
+                cursor = str(next_cursor)
+                time.sleep(0.3)
+
+        # Stage 3: Instaloader cursor pagination fallback when still below target_limit
+        if len(seen_codes) < target_limit and self.has_session:
+            try:
+                profile = instaloader.Profile.from_username(self.il.context, clean_user)
+                for post in profile.get_posts():
+                    if len(seen_codes) >= target_limit:
+                        break
+                    code = post.shortcode
+                    if not code or code in seen_codes:
                         continue
-                    edges.append({"node": node})
-                if edges:
-                    return edges
+                    seen_codes.add(code)
+                    edges.append({
+                        "node": {
+                            "id": str(post.mediaid),
+                            "shortcode": code,
+                            "display_url": post.url,
+                            "is_video": post.is_video,
+                            "video_url": post.video_url if post.is_video else None,
+                            "edge_media_to_caption": {"edges": [{"node": {"text": post.caption or ""}}]},
+                            "edge_media_preview_like": {"count": post.likes or 0},
+                            "edge_media_to_comment": {"count": post.comments or 0},
+                            "taken_at_timestamp": int(post.date_utc.timestamp()),
+                        }
+                    })
             except Exception as e:
-                logger.debug(f"Feed query failed ({url}): {e}")
-        return []
+                logger.debug(f"Instaloader paginated posts fallback failed for @{clean_user}: {e}")
+
+        return edges
 
     def fetch_web_profile(self, username: str) -> Dict[str, Any]:
         """Multi-tier profile fetch: Zero-login SSR -> Mobile API -> Web API -> Auth SSR -> GraphQL -> Instaloader."""
@@ -504,7 +825,7 @@ class InstagramClient:
             if not profile.is_private or getattr(profile, "followed_by_viewer", False):
                 try:
                     for idx, post in enumerate(profile.get_posts()):
-                        if idx >= 24:
+                        if idx >= 50:
                             break
                         posts_edges.append({
                             "node": {
@@ -545,132 +866,275 @@ class InstagramClient:
                 msg = "Instagram requires an active session cookie on this network. Add your session cookie in Settings."
             return {"status": "error", "message": msg}
 
-    def fetch_user_highlights(self, user_id: str, username: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Fetch user highlight trays via v1 REST API, GraphQL, or Instaloader."""
-        if not user_id or not str(user_id).isdigit():
-            return []
+    def fetch_active_user_stories(
+        self,
+        user_id: Optional[str],
+        username: str,
+    ) -> List[Dict[str, Any]]:
+        """Multi-tier active 24h story extraction: Mobile/Web v1 REST -> Desktop SSR -> GraphQL -> Instaloader."""
+        clean_user = username.strip().lstrip("@").lower()
+        uid = str(user_id).strip() if user_id and str(user_id).isdigit() else None
 
-        if self.has_session:
+        # Tier 1: Authenticated Mobile & Web v1 REST APIs
+        if uid and self.has_session:
+            referer = f"https://www.instagram.com/stories/{clean_user}/"
+            candidates = [
+                (f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids={uid}", IG_ANDROID_APP_UA),
+                (f"https://i.instagram.com/api/v1/feed/user/{uid}/story/", IG_ANDROID_APP_UA),
+                (f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={uid}", DESKTOP_UA),
+                (f"https://www.instagram.com/api/v1/feed/user/{uid}/story/", DESKTOP_UA),
+            ]
+            for url, ua in candidates:
+                try:
+                    headers = dict(self.session.headers)
+                    headers["User-Agent"] = ua
+                    headers["Referer"] = referer
+                    resp = self.session.get(url, headers=headers, timeout=15)
+                    if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
+                        items = parse_reels_media_json(resp.json(), reel_key=uid)
+                        if items:
+                            return items
+                except Exception as e:
+                    logger.debug(f"v1 active stories failed ({url}): {e}")
+
+        # Tier 2: Desktop SSR on /stories/<username>/
+        try:
+            ssr_url = f"https://www.instagram.com/stories/{clean_user}/"
+            doc_headers = {
+                "User-Agent": DESKTOP_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+            }
+            resp = (
+                self.session.get(ssr_url, headers=doc_headers, timeout=15)
+                if self.has_session
+                else requests.get(ssr_url, headers=doc_headers, timeout=15)
+            )
+            if resp.status_code == 200 and resp.text:
+                items = parse_stories_from_ssr_html(resp.text)
+                if items:
+                    return items
+        except Exception as e:
+            logger.debug(f"SSR active stories failed for @{clean_user}: {e}")
+
+        # Tier 3: GraphQL reels_media query_hash
+        if uid and self.has_session:
             try:
-                tray_url = f"https://www.instagram.com/api/v1/highlights/{user_id}/highlights_tray/"
+                gql_vars = json.dumps({"reel_ids": [uid], "precomposed_overlay": False})
+                url = f"https://www.instagram.com/graphql/query/?query_hash=452461bc5c9e67e8280862c4335b390c&variables={requests.utils.quote(gql_vars, safe='')}"
                 headers = dict(self.session.headers)
-                headers["Referer"] = f"https://www.instagram.com/{username}/" if username else "https://www.instagram.com/"
-                resp = self.session.get(tray_url, headers=headers, timeout=15)
+                headers["Referer"] = f"https://www.instagram.com/stories/{clean_user}/"
+                resp = self.session.get(url, headers=headers, timeout=15)
                 if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
-                    tray = resp.json().get("tray") or []
+                    items = parse_reels_media_json(resp.json(), reel_key=uid)
+                    if items:
+                        return items
+            except Exception as e:
+                logger.debug(f"GraphQL active stories failed for @{clean_user}: {e}")
+
+        # Tier 4: Instaloader stories fallback (authenticated)
+        if uid and self.has_session:
+            try:
+                results = []
+                for story in self.il.get_stories(userids=[int(uid)]):
+                    for item in story.get_items():
+                        cdn_url = item.video_url if (item.is_video and item.video_url) else item.url
+                        if cdn_url:
+                            results.append({
+                                "id": str(item.mediaid),
+                                "media_type": "video" if item.is_video else "image",
+                                "cdn_url": cdn_url,
+                                "thumb_url": item.url or cdn_url,
+                                "taken_at": int(item.date_utc.timestamp()),
+                                "dimensions": {},
+                            })
+                if results:
+                    return results
+            except Exception as e:
+                logger.debug(f"Instaloader active stories failed for @{clean_user}: {e}")
+
+        return []
+
+    def fetch_user_highlights(
+        self,
+        user_id: str,
+        username: Optional[str] = None,
+        is_private: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Multi-tier highlight trays: Public SSR -> Mobile/Web v1 REST -> Auth SSR -> GraphQL -> Instaloader."""
+        clean_user = (username or "").strip().lstrip("@").lower()
+        uid = str(user_id).strip() if user_id and str(user_id).isdigit() else None
+
+        doc_headers = {
+            "User-Agent": DESKTOP_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+        }
+
+        # Tier 1: Zero-Login Desktop SSR HTML (Polaris lox_highlights_connection)
+        if not is_private and clean_user:
+            try:
+                resp = requests.get(f"https://www.instagram.com/{clean_user}/", headers=doc_headers, timeout=15)
+                if resp.status_code == 200 and resp.text:
+                    ssr_trays = parse_highlights_from_ssr_html(resp.text)
+                    if ssr_trays:
+                        return ssr_trays
+            except Exception as e:
+                logger.debug(f"Zero-login SSR highlights failed for @{clean_user}: {e}")
+
+        # Tier 2: Authenticated Mobile & Web v1 REST highlights_tray
+        if uid and self.has_session:
+            referer = f"https://www.instagram.com/{clean_user}/" if clean_user else "https://www.instagram.com/"
+            for tray_url, ua in (
+                (f"https://i.instagram.com/api/v1/highlights/{uid}/highlights_tray/", IG_ANDROID_APP_UA),
+                (f"https://www.instagram.com/api/v1/highlights/{uid}/highlights_tray/", DESKTOP_UA),
+            ):
+                try:
+                    headers = dict(self.session.headers)
+                    headers["User-Agent"] = ua
+                    headers["Referer"] = referer
+                    resp = self.session.get(tray_url, headers=headers, timeout=15)
+                    if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
+                        tray = resp.json().get("tray")
+                        if isinstance(tray, list):
+                            results = []
+                            for obj in tray:
+                                cover_media = obj.get("cover_media") or {}
+                                cover = (
+                                    (cover_media.get("cropped_image_version") or {}).get("url")
+                                    or (cover_media.get("full_image_version") or {}).get("url")
+                                    or ""
+                                )
+                                results.append({
+                                    "id": str(obj.get("id")),
+                                    "title": str(obj.get("title") or "Highlight").strip() or "Highlight",
+                                    "cover_url": cover,
+                                    "media_count": int(obj.get("media_count") or 0),
+                                })
+                            return results
+                except Exception as e:
+                    logger.debug(f"v1 highlights_tray failed ({tray_url}): {e}")
+
+        # Tier 3: Authenticated SSR HTML
+        if self.has_session and clean_user:
+            try:
+                resp = self.session.get(f"https://www.instagram.com/{clean_user}/", headers=doc_headers, timeout=15)
+                if resp.status_code == 200 and resp.text:
+                    ssr_trays = parse_highlights_from_ssr_html(resp.text)
+                    if ssr_trays:
+                        return ssr_trays
+            except Exception as e:
+                logger.debug(f"Authenticated SSR highlights failed for @{clean_user}: {e}")
+
+        # Tier 4: Legacy GraphQL query_hash
+        if uid:
+            url = f"https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables={requests.utils.quote(json.dumps({'user_id': uid, 'include_highlight_reels': True}), safe='')}"
+            self.session.headers["Referer"] = "https://www.instagram.com/"
+            try:
+                resp = self.session.get(url, timeout=15)
+                if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
+                    edges = resp.json().get("data", {}).get("user", {}).get("edge_highlight_reels", {}).get("edges", [])
                     results = []
-                    for obj in tray:
-                        cover_media = obj.get("cover_media") or {}
-                        cover = (
-                            (cover_media.get("cropped_image_version") or {}).get("url")
-                            or (cover_media.get("full_image_version") or {}).get("url")
-                            or ""
-                        )
+                    for edge in edges:
+                        node = edge.get("node", {})
                         results.append({
-                            "id": str(obj.get("id")),
-                            "title": obj.get("title") or "Highlight",
-                            "cover_url": cover,
-                            "media_count": int(obj.get("media_count") or 0),
+                            "id": str(node.get("id")),
+                            "title": str(node.get("title") or "Highlight").strip() or "Highlight",
+                            "cover_url": (node.get("cover_media") or {}).get("thumbnail_src") or "",
+                            "media_count": int(node.get("media_count") or 0),
                         })
                     if results:
                         return results
             except Exception as e:
-                logger.debug(f"v1 highlights_tray failed for {user_id}: {e}")
+                logger.debug(f"Highlights GraphQL failed for {uid}: {e}")
 
-        url = f"https://www.instagram.com/graphql/query/?query_hash=d4d88dc1500312af6f937f7b804c68c3&variables={json.dumps({'user_id': str(user_id), 'include_highlight_reels': True})}"
-        self.session.headers["Referer"] = "https://www.instagram.com/"
-        try:
-            resp = self.session.get(url, timeout=15)
-            if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
-                data = resp.json()
-                edges = data.get("data", {}).get("user", {}).get("edge_highlight_reels", {}).get("edges", [])
+        # Tier 5: Instaloader highlights fallback (authenticated)
+        if uid and self.has_session:
+            try:
+                profile = instaloader.Profile.from_id(self.il.context, int(uid))
                 results = []
-                for edge in edges:
-                    node = edge.get("node", {})
+                for highlight in self.il.get_highlights(user=profile):
                     results.append({
-                        "id": str(node.get("id")),
-                        "title": node.get("title") or "Highlight",
-                        "cover_url": node.get("cover_media", {}).get("thumbnail_src") or "",
-                        "media_count": int(node.get("media_count") or 0),
+                        "id": f"highlight:{highlight.unique_id}",
+                        "title": highlight.title or "Highlight",
+                        "cover_url": highlight.cover_url or "",
+                        "media_count": highlight.itemcount,
                     })
-                if results:
-                    return results
-        except Exception as e:
-            logger.debug(f"Highlights query failed for user {user_id}: {e}")
-
-        try:
-            profile = instaloader.Profile.from_id(self.il.context, int(user_id))
-            results = []
-            for highlight in self.il.get_highlights(user=profile):
-                results.append({
-                    "id": str(highlight.unique_id),
-                    "title": highlight.title or "Highlight",
-                    "cover_url": highlight.cover_url or "",
-                    "media_count": highlight.itemcount,
-                })
-            return results
-        except Exception as e:
-            logger.debug(f"Instaloader highlight fallback error for user {user_id}: {e}")
+                return results
+            except Exception as e:
+                logger.debug(f"Instaloader highlight fallback error for {uid}: {e}")
 
         return []
 
     def fetch_highlight_stories(self, highlight_id: str) -> List[Dict[str, Any]]:
-        """Fetch stories inside a specific highlight tray."""
-        clean_id = highlight_id if highlight_id.startswith("highlight:") else f"highlight:{highlight_id}"
+        """Multi-tier highlight story extraction: Mobile/Web v1 REST -> Desktop SSR -> GraphQL -> Instaloader."""
+        numeric_id = str(highlight_id).replace("highlight:", "").strip()
+        if not numeric_id:
+            return []
+        clean_id = f"highlight:{numeric_id}"
+        encoded_id = requests.utils.quote(clean_id, safe="")
+        referer = f"https://www.instagram.com/stories/highlights/{numeric_id}/"
 
-        if self.has_session:
+        # Tier 1: Mobile & Web v1 reels_media
+        v1_candidates = (
+            [
+                (f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids={encoded_id}", IG_ANDROID_APP_UA),
+                (f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={encoded_id}", DESKTOP_UA),
+            ]
+            if self.has_session
+            else [(f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={encoded_id}", DESKTOP_UA)]
+        )
+        for v1_url, ua in v1_candidates:
             try:
-                v1_url = f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={clean_id}"
-                resp = self.session.get(v1_url, timeout=15)
+                headers = dict(self.session.headers)
+                headers["User-Agent"] = ua
+                headers["Referer"] = referer
+                resp = self.session.get(v1_url, headers=headers, timeout=15)
                 if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
-                    data = resp.json()
-                    reels = data.get("reels") or {}
-                    reel = reels.get(clean_id) or (next(iter(reels.values())) if reels else None)
-                    items = (reel or {}).get("items") or []
-                    stories = []
-                    for item in items:
-                        vids = item.get("video_versions") or []
-                        imgs = (item.get("image_versions2") or {}).get("candidates") or []
-                        is_video = bool(vids) or item.get("media_type") == 2
-                        cdn_url = (vids[0].get("url") if vids else "") or (imgs[0].get("url") if imgs else "")
-                        if cdn_url:
-                            stories.append({
-                                "id": str(item.get("pk") or item.get("id")),
-                                "media_type": "video" if is_video else "image",
-                                "cdn_url": cdn_url,
-                                "taken_at": int(item.get("taken_at") or time.time()),
-                                "dimensions": {},
-                            })
+                    stories = parse_reels_media_json(resp.json(), reel_key=clean_id)
                     if stories:
                         return stories
             except Exception as e:
-                logger.debug(f"v1 reels_media failed for {highlight_id}: {e}")
+                logger.debug(f"v1 reels_media failed ({v1_url}): {e}")
 
-        url = f"https://www.instagram.com/graphql/query/?query_hash=452461bc5c9e67e8280862c4335b390c&variables={json.dumps({'highlight_reel_ids': [clean_id]})}"
-        self.session.headers["Referer"] = "https://www.instagram.com/"
+        # Tier 2: Desktop SSR on /stories/highlights/<numeric_id>/
+        try:
+            doc_headers = {
+                "User-Agent": DESKTOP_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+            }
+            resp = (
+                self.session.get(referer, headers=doc_headers, timeout=15)
+                if self.has_session
+                else requests.get(referer, headers=doc_headers, timeout=15)
+            )
+            if resp.status_code == 200 and resp.text:
+                stories = parse_stories_from_ssr_html(resp.text)
+                if stories:
+                    return stories
+        except Exception as e:
+            logger.debug(f"SSR highlight stories failed for {clean_id}: {e}")
+
+        # Tier 3: Legacy GraphQL query_hash
+        url = f"https://www.instagram.com/graphql/query/?query_hash=452461bc5c9e67e8280862c4335b390c&variables={requests.utils.quote(json.dumps({'highlight_reel_ids': [clean_id]}), safe='')}"
+        self.session.headers["Referer"] = referer
         try:
             resp = self.session.get(url, timeout=15)
             if resp.status_code == 200 and resp.text.lstrip().startswith("{"):
-                data = resp.json()
-                reels_media = data.get("data", {}).get("reels_media", [])
-                stories = []
-                for reel in reels_media:
-                    for item in reel.get("items", []):
-                        is_video = bool(item.get("is_video", False))
-                        cdn_url = ""
-                        if is_video:
-                            video_resources = item.get("video_resources", [])
-                            cdn_url = video_resources[0].get("src") if video_resources else (item.get("video_url") or "")
-                        if not cdn_url:
-                            cdn_url = item.get("display_url") or ""
-                        stories.append({
-                            "id": str(item.get("id")),
-                            "media_type": "video" if is_video else "image",
-                            "cdn_url": cdn_url,
-                            "taken_at": item.get("taken_at_timestamp") or int(time.time()),
-                            "dimensions": item.get("dimensions", {}),
-                        })
-                return stories
+                stories = parse_reels_media_json(resp.json(), reel_key=clean_id)
+                if stories:
+                    return stories
         except Exception as e:
-            logger.debug(f"Highlight stories query failed for {highlight_id}: {e}")
+            logger.debug(f"Highlight stories GraphQL failed for {clean_id}: {e}")
+
         return []

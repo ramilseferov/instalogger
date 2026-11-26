@@ -307,6 +307,7 @@ impl Scheduler {
         }
 
         let post_count_grew = snapshot.media_count > target.media_count;
+        let story_grew = snapshot.latest_story_at > target.latest_story_at && snapshot.latest_story_at > 0;
         if let Some(pc) = changes.iter().find(|c| c.event_type == "post_count_change") {
             let old_n = pc.old_value.parse::<i64>().unwrap_or(0);
             let new_n = pc.new_value.parse::<i64>().unwrap_or(0);
@@ -334,14 +335,33 @@ impl Scheduler {
 
         self.db.update_target_profile(&target_updated)?;
 
-        // Backfill posts & highlights for public accounts when local archive is empty or new posts appeared
+        // Backfill posts, stories & highlights for public accounts when archive is incomplete or new content appeared
         if !archive_triggered && (!target_updated.is_private || target_updated.followed_by_viewer) {
-            let local_media_count = self
+            let local_post_count = self
                 .db
                 .list_media_by_target(&target_updated.id, None)
-                .map(|m| m.len())
+                .map(|m| {
+                    m.iter()
+                        .filter(|x| x.media_type == "post" || x.media_type == "reel")
+                        .count() as i64
+                })
                 .unwrap_or(0);
-            if (target_updated.media_count > 0 && local_media_count == 0) || post_count_grew {
+            let max_limit = self
+                .db
+                .get_setting("max_posts_sync_limit")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(50);
+            let expected_target_posts = if max_limit > 0 {
+                target_updated.media_count.min(max_limit)
+            } else {
+                target_updated.media_count
+            };
+            let needs_backfill = (expected_target_posts > 0 && local_post_count == 0)
+                || post_count_grew
+                || story_grew;
+            if needs_backfill {
                 let _ = self
                     .trigger_full_archive(&target_updated.username, &target_updated.id, session_path)
                     .await;
@@ -409,9 +429,14 @@ impl Scheduler {
         }
 
         if !blitz.items.is_empty() {
+            let discovered_posts = blitz
+                .items
+                .iter()
+                .filter(|x| x.media_type == "post" || x.media_type == "reel")
+                .count() as i64;
             if let Ok(Some(mut current_target)) = self.db.get_target(target_id) {
-                if current_target.media_count == 0 || current_target.media_count < blitz.items.len() as i64 {
-                    current_target.media_count = blitz.items.len() as i64;
+                if current_target.media_count == 0 || current_target.media_count < discovered_posts {
+                    current_target.media_count = discovered_posts;
                     let _ = self.db.update_target_profile(&current_target);
                 }
             }

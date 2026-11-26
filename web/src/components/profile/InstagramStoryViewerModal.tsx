@@ -66,10 +66,11 @@ export const InstagramStoryViewerModal: React.FC<InstagramStoryViewerModalProps>
 
   if (!currentItem) return null;
 
-  const isVideo = currentItem.relative_file_path.endsWith('.mp4');
+  const isVideo = /\.mp4$/i.test(currentItem.relative_file_path);
   const mediaSrc = currentItem.relative_file_path.startsWith('/')
     ? currentItem.relative_file_path
     : `/${currentItem.relative_file_path}`;
+  const posterSrc = isVideo ? mediaSrc.replace(/\.mp4$/i, '_thumb.jpg') : undefined;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex items-center justify-center animate-fade-in">
@@ -116,20 +117,33 @@ export const InstagramStoryViewerModal: React.FC<InstagramStoryViewerModalProps>
         <div className="relative w-full h-full flex items-center justify-center bg-black">
           {isVideo ? (
             <video
+              key={currentItem.id}
               src={mediaSrc}
+              poster={posterSrc}
+              controls
               autoPlay
               playsInline
               loop
               className="w-full h-full object-contain"
+              onError={(e) => {
+                const vid = e.currentTarget;
+                if (currentItem.cdn_url && !vid.dataset.fallbackApplied) {
+                  vid.dataset.fallbackApplied = '1';
+                  vid.src = currentItem.cdn_url;
+                }
+              }}
             />
           ) : (
             <img
+              key={currentItem.id}
               src={mediaSrc}
               alt={currentItem.caption || title}
               className="w-full h-full object-contain"
               onError={(e) => {
-                if (currentItem.cdn_url) {
-                  (e.target as HTMLImageElement).src = currentItem.cdn_url;
+                const img = e.currentTarget;
+                if (currentItem.cdn_url && !img.dataset.fallbackApplied) {
+                  img.dataset.fallbackApplied = '1';
+                  img.src = currentItem.cdn_url;
                 }
               }}
             />

@@ -57,6 +57,7 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
   const [media, setMedia] = useState<ArchivedMedia[]>([]);
   const [pool, setPool] = useState<TargetPoolConfig | null>(null);
   const [loadingData, setLoadingData] = useState(true);
+  const [hasSession, setHasSession] = useState(true);
   const [isArchiving, setIsArchiving] = useState(false);
   const [syncingTrigger, setSyncingTrigger] = useState(false);
   const [targetDownloads, setTargetDownloads] = useState<DownloadItem[]>([]);
@@ -84,14 +85,16 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
 
   const loadData = useCallback(async () => {
     try {
-      const [l, m, p] = await Promise.all([
+      const [l, m, p, s] = await Promise.all([
         api.getLogs(target.id),
         api.getMedia(target.id),
         api.getTargetPool(target.id).catch(() => null),
+        api.getSettings().catch(() => null),
       ]);
       setLogs(l);
       setMedia(m);
       if (p) setPool(p);
+      if (s) setHasSession(Boolean(s.has_session_cookie));
     } catch (e: any) {
       showToast('err', e?.message || t.toast_check_failed);
     } finally {
@@ -243,6 +246,17 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
     (target.following_count || 0) === 0 &&
     target.media_count === 0;
 
+  const activeStories = useMemo(() => media.filter((m) => m.media_type === 'story'), [media]);
+  const archivedPostCount = useMemo(
+    () => media.filter((m) => m.media_type === 'post' || m.media_type === 'reel').length,
+    [media]
+  );
+  const needsSessionForExtras =
+    !loadingData &&
+    !hasSession &&
+    !isProfileIncomplete &&
+    ((target.latest_story_at || 0) > 0 || target.media_count > 12 || media.filter((m) => m.media_type === 'highlight').length === 0);
+
   return (
     <div className="min-h-screen bg-[var(--bg-canvas)] pb-20">
       <header className="sticky top-0 z-30 bg-[var(--bg-canvas)]/90 backdrop-blur-md border-b border-[var(--border-subtle)]">
@@ -354,24 +368,53 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
           </div>
         )}
 
+        {needsSessionForExtras && (
+          <div className="rounded-2xl p-3.5 bg-amber-500/10 border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+              <Key size={15} strokeWidth={1.75} className="shrink-0 mt-0.5" />
+              <span>{t.story_highlight_session_notice}</span>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              icon={<Key size={13} strokeWidth={1.75} />}
+              onClick={onOpenSettings}
+              className="shrink-0"
+            >
+              {t.open_session_settings}
+            </Button>
+          </div>
+        )}
+
         {/* Profile Overview Card */}
         <Card className="space-y-4">
           <div className="flex items-center gap-4">
             <button
               type="button"
-              onClick={() => setIsAvatarModalOpen(true)}
-              className="w-16 h-16 rounded-full bg-[var(--bg-subtle)] overflow-hidden flex items-center justify-center border border-[var(--border-strong)] shrink-0 hover:border-[#0C7FF2] transition-colors duration-150"
-              title={t.avatar_history}
+              onClick={() =>
+                activeStories.length > 0
+                  ? setActiveStoryGroup({ title: t.active_stories, items: activeStories })
+                  : setIsAvatarModalOpen(true)
+              }
+              className={`w-16 h-16 rounded-full shrink-0 transition-transform duration-150 active:scale-95 ${
+                activeStories.length > 0
+                  ? 'p-[2px] bg-gradient-to-tr from-[#F59E0B] via-[#E1306C] to-[#833AB4]'
+                  : 'border border-[var(--border-strong)] hover:border-[#0C7FF2]'
+              }`}
+              title={activeStories.length > 0 ? t.active_stories : t.avatar_history}
             >
-              {target.profile_pic_path ? (
-                <img
-                  src={target.profile_pic_path.startsWith('/') ? target.profile_pic_path : `/${target.profile_pic_path}`}
-                  alt={target.username}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <User size={24} strokeWidth={1.75} className="text-[var(--text-muted)]" />
-              )}
+              <div className="w-full h-full rounded-full bg-[var(--bg-subtle)] overflow-hidden flex items-center justify-center p-[2px] bg-[var(--bg-surface)]">
+                {target.profile_pic_path ? (
+                  <img
+                    src={target.profile_pic_path.startsWith('/') ? target.profile_pic_path : `/${target.profile_pic_path}`}
+                    alt={target.username}
+                    className="w-full h-full object-cover rounded-full"
+                  />
+                ) : (
+                  <User size={24} strokeWidth={1.75} className="text-[var(--text-muted)]" />
+                )}
+              </div>
             </button>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -537,10 +580,10 @@ export const ProfileDetail: React.FC<ProfileDetailProps> = ({
               </Button>
             )}
           </div>
-        ) : !loadingData && !target.is_private && target.media_count > media.length ? (
+        ) : !loadingData && !target.is_private && target.media_count > archivedPostCount ? (
           <div className="rounded-2xl p-3.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex items-center justify-between gap-3">
             <span className="text-xs text-[var(--text-secondary)] tabular-nums">
-              {media.length} / {target.media_count} {t.posts}
+              {archivedPostCount} / {target.media_count} {t.posts}
             </span>
             <Button
               type="button"

@@ -201,6 +201,9 @@ export interface Translations {
   dl_max_posts_unlimited: string;
   dl_auto_title: string;
   dl_auto_desc: string;
+  stories: string;
+  active_stories: string;
+  story_highlight_session_notice: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -402,6 +405,9 @@ const translations: Record<Language, Translations> = {
     dl_max_posts_unlimited: 'Limitsiz',
     dl_auto_title: 'Avtomatik media endirmə',
     dl_auto_desc: 'Yeni paylaşım aşkarlandıqda avtomatik endirmə növbəsinə əlavə et',
+    stories: 'Hekayələr',
+    active_stories: 'Aktiv hekayələr',
+    story_highlight_session_notice: 'Aktiv hekayələr, önə çıxarılanlar və 12-dən çox paylaşımın yüklənməsi üçün Instagram sessiya kukisi tələb edir.',
   },
   en: {
     app_title: 'InstaLogger',
@@ -601,6 +607,9 @@ const translations: Record<Language, Translations> = {
     dl_max_posts_unlimited: 'Unlimited',
     dl_auto_title: 'Auto-download media',
     dl_auto_desc: 'Automatically enqueue discovered posts and highlights',
+    stories: 'Stories',
+    active_stories: 'Active stories',
+    story_highlight_session_notice: 'Instagram requires an active session cookie to load active stories, highlights, and more than 12 posts.',
   },
   ru: {
     app_title: 'InstaLogger',
@@ -800,6 +809,9 @@ const translations: Record<Language, Translations> = {
     dl_max_posts_unlimited: 'Без лимита',
     dl_auto_title: 'Автозагрузка медиа',
     dl_auto_desc: 'Автоматически добавлять найденные посты в очередь загрузок',
+    stories: 'Истории',
+    active_stories: 'Активные истории',
+    story_highlight_session_notice: 'Instagram требует cookie сессии для загрузки активных историй, актуального и более 12 публикаций.',
   },
 };
 

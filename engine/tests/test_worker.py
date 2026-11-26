@@ -10,6 +10,9 @@ from engine.worker import parse_profile_metadata, parse_posts_blitz
 from engine.instagram_client import (
     parse_cookie_text,
     parse_profile_and_posts_from_ssr_html,
+    parse_highlights_from_ssr_html,
+    parse_reels_media_json,
+    parse_stories_from_ssr_html,
     is_sponsored_or_foreign_node,
 )
 
@@ -69,6 +72,41 @@ class TestWorker(unittest.TestCase):
         self.assertEqual(parsed_post["media_type"], "reel")
         self.assertIn("video.mp4", parsed_post["cdn_url"])
         self.assertEqual(parsed_post["caption"], "Hello world!")
+
+    def test_ssr_highlights_and_reels_media_parsers(self):
+        hl_html = '''<script type="application/json">{"data":{"lox_highlights_connection":{"edges":[{"node":{"id":"1790001","title":"Travel","cover_media_cropped_thumbnail_url":"https://cdn.example.com/cov.jpg","media_count":5}}]}}}</script>'''
+        trays = parse_highlights_from_ssr_html(hl_html)
+        self.assertEqual(len(trays), 1)
+        self.assertEqual(trays[0]["id"], "highlight:1790001")
+        self.assertEqual(trays[0]["title"], "Travel")
+
+        # Format A: reels map
+        stories_a = parse_reels_media_json({
+            "reels": {
+                "8488698886": {
+                    "items": [
+                        {"pk": "9001", "media_type": 2, "video_versions": [{"url": "https://cdn.example.com/s1.mp4"}], "taken_at": 1700000100},
+                        {"pk": "9002", "media_type": 1, "image_versions2": {"candidates": [{"url": "https://cdn.example.com/s2.jpg"}]}, "taken_at": 1700000200},
+                    ]
+                }
+            }
+        }, reel_key="8488698886")
+        self.assertEqual(len(stories_a), 2)
+        self.assertEqual(stories_a[0]["media_type"], "video")
+        self.assertEqual(stories_a[1]["media_type"], "image")
+
+        # SSR stories connection
+        story_html = '''<script type="application/json">{"xdt_api__v1__feed__reels_media__connection":{"edges":[{"node":{"items":[{"pk":"777","display_url":"https://cdn.example.com/st.jpg","taken_at":1700000500}]}}]}}</script>'''
+        stories_ssr = parse_stories_from_ssr_html(story_html)
+        self.assertEqual(len(stories_ssr), 1)
+        self.assertEqual(stories_ssr[0]["id"], "777")
+
+    def test_ssr_extracts_page_info_and_og_media_count(self):
+        html = '''<html><head><meta property="og:description" content="97M Followers, 80 Following, 4,512 Posts - NASA"/></head><body><script type="application/json">{"user":{"pk":"528817151","username":"nasa","full_name":"NASA"},"polaris_ordered_timeline_connection":{"page_info":{"has_next_page":true,"end_cursor":"CUR_NEXT_2"},"edges":[{"node":{"code":"NASA1","user":{"username":"nasa"},"display_uri":"https://cdn.example.com/n1.jpg"}}]}}</script></body></html>'''
+        u = parse_profile_and_posts_from_ssr_html(html, "nasa")
+        self.assertIsNotNone(u)
+        self.assertEqual(u["edge_owner_to_timeline_media"]["count"], 4512)
+        self.assertEqual(u["edge_owner_to_timeline_media"]["page_info"]["end_cursor"], "CUR_NEXT_2")
 
 if __name__ == "__main__":
     unittest.main()

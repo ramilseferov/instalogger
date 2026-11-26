@@ -234,13 +234,30 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
     profile["profile_pic_path"] = avatar_rel
 
     effective_limit = 500 if limit <= 0 else max(1, min(limit, 500))
-    media_edges = (user_data.get("edge_owner_to_timeline_media") or {}).get("edges", [])
-    if (not media_edges or len(media_edges) < min(effective_limit, profile.get("media_count") or 0)) and (
+    timeline_obj = user_data.get("edge_owner_to_timeline_media") or {}
+    media_edges = list(timeline_obj.get("edges") or [])
+    initial_end_cursor = (timeline_obj.get("page_info") or {}).get("end_cursor")
+    expected_posts = int(profile.get("media_count") or 0)
+    desired_posts = min(effective_limit, expected_posts) if expected_posts > 0 else effective_limit
+
+    if (not media_edges or len(media_edges) < desired_posts) and (
         not profile.get("is_private") or profile.get("followed_by_viewer")
     ):
-        extra_edges = client.fetch_user_posts(profile["username"], profile.get("id"), limit=effective_limit)
+        already_codes = {
+            str((e.get("node") or {}).get("shortcode") or (e.get("node") or {}).get("code") or "").strip()
+            for e in media_edges
+            if isinstance(e, dict)
+        }
+        already_codes.discard("")
+        extra_edges = client.fetch_user_posts(
+            profile["username"],
+            profile.get("id"),
+            limit=desired_posts,
+            initial_end_cursor=initial_end_cursor,
+            already_seen=already_codes,
+        )
         if extra_edges:
-            media_edges = list(media_edges) + list(extra_edges)
+            media_edges = media_edges + list(extra_edges)
 
     items = []
     seen_shortcodes = set()
@@ -257,27 +274,52 @@ def action_archive_blitz(target: str, output_dir: str, session_path: Optional[st
         item["relative_file_path"] = f"archives/{profile['id']}/{item['media_type']}s/{item['shortcode']}.{'mp4' if item['media_type'] == 'reel' else 'jpg'}"
         items.append(item)
 
-    # When profile is active/public or followed by viewer, also extract all highlights
+    # Extract active 24h stories and highlights when profile is public or followed by viewer
     if not profile.get("is_private") or profile.get("followed_by_viewer"):
         try:
-            hl_trays = client.fetch_user_highlights(profile["id"], username=profile["username"])
+            active_stories = client.fetch_active_user_stories(profile["id"], profile["username"])
+            for story in active_stories:
+                story_id = sanitize_identifier(story.get("id") or str(int(time.time())))
+                ext = "mp4" if story.get("media_type") == "video" else "jpg"
+                items.append({
+                    "id": f"story_{story_id}",
+                    "shortcode": story_id,
+                    "media_type": "story",
+                    "highlight_title": None,
+                    "cdn_url": story.get("cdn_url") or "",
+                    "caption": f"Story: @{profile['username']}",
+                    "posted_at": story.get("taken_at") or int(time.time()),
+                    "target_id": profile["id"],
+                    "relative_file_path": f"archives/{profile['id']}/stories/{story_id}.{ext}",
+                    "dimensions": story.get("dimensions", {}),
+                })
+        except Exception as e:
+            sys.stderr.write(f"Active story blitz error: {e}\n")
+
+        try:
+            hl_trays = client.fetch_user_highlights(
+                profile["id"],
+                username=profile["username"],
+                is_private=bool(profile.get("is_private", False)),
+            )
             for tray in hl_trays:
-                tray_title = sanitize_identifier(tray.get("title") or "Highlight")
+                tray_title_raw = str(tray.get("title") or "Highlight").strip() or "Highlight"
+                tray_title = sanitize_identifier(tray_title_raw)
                 stories = client.fetch_highlight_stories(tray["id"])
                 for story in stories:
-                    story_id = story.get("id") or str(int(time.time()))
+                    story_id = sanitize_identifier(story.get("id") or str(int(time.time())))
                     ext = "mp4" if story.get("media_type") == "video" else "jpg"
                     items.append({
                         "id": f"highlight_{story_id}",
                         "shortcode": story_id,
                         "media_type": "highlight",
-                        "highlight_title": tray.get("title") or "Highlight",
+                        "highlight_title": tray_title_raw,
                         "cdn_url": story.get("cdn_url") or "",
-                        "caption": f"Highlight: {tray.get('title')}",
+                        "caption": f"Highlight: {tray_title_raw}",
                         "posted_at": story.get("taken_at") or int(time.time()),
                         "target_id": profile["id"],
                         "relative_file_path": f"archives/{profile['id']}/highlights/{tray_title}/{story_id}.{ext}",
-                        "dimensions": story.get("dimensions", {})
+                        "dimensions": story.get("dimensions", {}),
                     })
         except Exception as e:
             sys.stderr.write(f"Highlight blitz error: {e}\n")
