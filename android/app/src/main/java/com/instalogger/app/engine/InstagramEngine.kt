@@ -2052,8 +2052,8 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // 4. Tier D: Direct Public Profile HTML Regex Fallback (Strictly Anonymous Desktop UA)
-        if (!isPrivate) {
+        // 4. Tier D: Direct Public Profile Structured SSR Fallback (Strictly Anonymous Desktop UA, zero blind regex!)
+        if (!isPrivate && !(hasRealSession && System.currentTimeMillis() < anonymousSsrRleUntilMs)) {
             try {
                 val htmlUrl = "https://www.instagram.com/$cleanUser/"
                 val htmlReq = Request.Builder()
@@ -2073,39 +2073,8 @@ class InstagramEngine(context: Context? = null) {
                         if (html.contains("\"is_private\":true") && !hasRealSession) {
                             return PostFetchResult.RequiresSession
                         }
-                        val scPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"([A-Za-z0-9_-]{8,15})\"")
-                        val scMatcher = scPattern.matcher(html)
-                        val shortcodes = mutableListOf<String>()
-                        while (scMatcher.find() && shortcodes.size < limit) {
-                            val sc = scMatcher.group(1)
-                            if (!sc.isNullOrBlank() && !shortcodes.contains(sc)) {
-                                shortcodes.add(sc)
-                            }
-                        }
-
-                        for (sc in shortcodes) {
-                            var directUrl: String? = null
-                            val directPattern = Pattern.compile("\"(?:shortcode|code)\":\\s*\"" + Pattern.quote(sc) + "\"[^}]*?\"(?:display_url|display_uri)\":\\s*\"([^\"]+)\"")
-                            val directMatcher = directPattern.matcher(html)
-                            if (directMatcher.find()) {
-                                directUrl = unescapeJson(directMatcher.group(1) ?: "")
-                            }
-
-                            list.add(
-                                InstagramPostItem(
-                                    id = sc,
-                                    shortcode = sc,
-                                    mediaType = "image",
-                                    displayUrl = directUrl ?: "https://www.instagram.com/p/$sc/media/?size=l",
-                                    videoUrl = null,
-                                    caption = "",
-                                    timestamp = System.currentTimeMillis() - (list.size * 1000L),
-                                    likeCount = 0,
-                                    commentCount = 0
-                                )
-                            )
-                        }
-                        if (list.isNotEmpty()) return PostFetchResult.Success(list)
+                        val parsed = parsePostsFromSsrHtml(html, limit = limit, targetUsername = cleanUser)
+                        if (parsed.isNotEmpty()) return PostFetchResult.Success(parsed)
                     }
                 }
             } catch (e: Exception) {
@@ -2160,7 +2129,9 @@ class InstagramEngine(context: Context? = null) {
         val adKeys = listOf(
             "ad_id", "ad_action", "is_ad", "injected", "dr_ad_type",
             "ad_link_type", "ad_metadata", "sponsored_label", "is_sponsored",
-            "ad_header_style", "ad_expiry_timestamp_in_millis"
+            "ad_header_style", "ad_expiry_timestamp_in_millis", "fb_ad_id",
+            "campaign_id", "ad_cta", "cta_text", "link_text",
+            "iab_autofill_optout_info", "click_id", "ad_intent_data", "boosted_status"
         )
         for (key in adKeys) {
             val el = node.get(key)

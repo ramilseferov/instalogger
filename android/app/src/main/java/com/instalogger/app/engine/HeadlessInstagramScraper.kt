@@ -1320,11 +1320,15 @@ class HeadlessInstagramScraper(context: Context) {
                     if (!n || typeof n !== 'object') return true;
                     if (n.ad_id || n.ad_action || n.is_ad || n.injected || n.dr_ad_type ||
                         n.ad_link_type || n.ad_metadata || n.sponsored_label || n.is_sponsored ||
-                        n.ad_header_style || n.ad_expiry_timestamp_in_millis || n.boosted_status) {
+                        n.ad_header_style || n.ad_expiry_timestamp_in_millis || n.boosted_status ||
+                        n.fb_ad_id || n.campaign_id || n.ad_cta || n.cta_text || n.link_text ||
+                        n.iab_autofill_optout_info || n.click_id || n.ad_intent_data) {
                         return true;
                     }
                     const pType = String(n.product_type || '').toLowerCase();
                     if (pType === 'ad' || pType === 'sponsored') return true;
+                    const comm = String(n.commerciality_status || '').toLowerCase();
+                    if (comm === 'ads' || comm === 'sponsored') return true;
                     const label = String(n.label || '').toLowerCase();
                     if (label.indexOf('sponsored') !== -1 || label.indexOf('reklam') !== -1 || label.indexOf('реклама') !== -1) return true;
                     return false;
@@ -1414,7 +1418,8 @@ class HeadlessInstagramScraper(context: Context) {
                         const url = (arguments[0] && typeof arguments[0] === 'string') ? arguments[0] : (arguments[0] && arguments[0].url ? arguments[0].url : '');
                         return origFetch.apply(this, arguments).then(function(resp) {
                             try {
-                                if (url.indexOf('graphql') !== -1 || url.indexOf('feed/user') !== -1 || url.indexOf('web_profile_info') !== -1) {
+                                if (url.indexOf('feed/timeline') === -1 && url.indexOf('reels_tray') === -1 &&
+                                    (url.indexOf('graphql') !== -1 || url.indexOf('feed/user') !== -1 || url.indexOf('web_profile_info') !== -1)) {
                                     resp.clone().text().then(extractPostsFromText).catch(function(){});
                                 }
                             } catch (_) {}
@@ -1433,7 +1438,8 @@ class HeadlessInstagramScraper(context: Context) {
                     this.addEventListener('load', function() {
                         try {
                             const u = this.__igPostUrl || '';
-                            if (u.indexOf('graphql') !== -1 || u.indexOf('feed/user') !== -1 || u.indexOf('web_profile_info') !== -1) {
+                            if (u.indexOf('feed/timeline') === -1 && u.indexOf('reels_tray') === -1 &&
+                                (u.indexOf('graphql') !== -1 || u.indexOf('feed/user') !== -1 || u.indexOf('web_profile_info') !== -1)) {
                                 extractPostsFromText(this.responseText || '');
                             }
                         } catch (_) {}
