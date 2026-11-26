@@ -33,6 +33,7 @@ class InstaLoggerForegroundService : Service() {
     private val consecutiveFailures = ConcurrentHashMap<String, Int>()
     private val failureBackoffUntilMs = ConcurrentHashMap<String, Long>()
     private var lastNotificationStatusText: String? = null
+    private var lastBackgroundUpdateCheckMs: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -196,6 +197,15 @@ class InstaLoggerForegroundService : Service() {
                     }
                     updateForegroundNotification(liveStatus)
 
+                    if (now - lastBackgroundUpdateCheckMs >= 12L * 60L * 60L * 1000L) {
+                        lastBackgroundUpdateCheckMs = now
+                        app.updateManager.checkForUpdatesAsync(
+                            manual = false,
+                            openSheetIfAvailable = false,
+                            notifyIfAvailable = true
+                        )
+                    }
+
                     if (liveTargets.isNotEmpty()) {
                         val targetSem = Semaphore(speed.targetWorkers.coerceIn(1, 6))
                         coroutineScope {
@@ -317,6 +327,41 @@ class InstaLoggerForegroundService : Service() {
         }
 
         notificationManager.notify(notifTag, (id and 0x7FFFFFFFL).toInt(), builder.build())
+    }
+
+    fun showUpdateNotification(
+        versionCode: Int,
+        title: String,
+        message: String
+    ) {
+        val app = application as InstaLoggerApp
+        val settings = app.settingsManager
+        if (!settings.isNotificationCategoryAllowed(NotificationCategory.SYSTEM_ALERTS)) return
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_OPEN_UPDATE_SHEET, true)
+        }
+        val pending = PendingIntent.getActivity(
+            this,
+            9000 + (versionCode and 0x0FFF),
+            openIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val builder = NotificationCompat.Builder(this, NotificationCategory.SYSTEM_ALERTS.channelId)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFF0A84FF.toInt())
+            .setLargeIcon(getAppLogoBitmap())
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+
+        notificationManager.notify("app_update_$versionCode", 9001, builder.build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

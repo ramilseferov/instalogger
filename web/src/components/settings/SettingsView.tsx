@@ -7,6 +7,7 @@ import {
   SystemSettings,
   Target,
   ThemeMode,
+  UpdateCheckResult,
   YtDlpQuality,
 } from '../../types';
 import { Card } from '../common/Card';
@@ -38,6 +39,8 @@ import {
   Shield,
   Lock,
   Clock,
+  RefreshCw,
+  ExternalLink,
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -118,6 +121,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // PIN Lock state
   const [pinEnabled, setPinEnabled] = useState(false);
   const [currentPin, setCurrentPin] = useState('');
+
+  // GitHub Release Update Check state
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  const handleCheckUpdate = async (force = false) => {
+    setCheckingUpdate(true);
+    try {
+      const res = await api.checkSystemUpdate(force);
+      setUpdateInfo(res);
+    } catch (e: any) {
+      setErrorMsg(e?.message || 'Update check failed');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  useEffect(() => {
+    api.checkSystemUpdate(false).then(setUpdateInfo).catch(() => {});
+  }, []);
   const [newPin, setNewPin] = useState('');
   const [savingPin, setSavingPin] = useState(false);
 
@@ -1155,7 +1178,93 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </Card>
         </section>
 
-        {/* Section 8: Diagnostics, Storage & Queue */}
+        {/* Section 8: Version & GitHub Releases */}
+        <section className="space-y-2.5">
+          <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
+            {t.section_updates}
+          </h2>
+          <Card className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-[var(--text-primary)]">{t.update_title}</span>
+                  {updateInfo && (
+                    <span
+                      className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                        updateInfo.update_available
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-[var(--bg-subtle)] text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {updateInfo.update_available ? `${t.update_available_badge}: v${updateInfo.latest_version}` : t.update_up_to_date}
+                    </span>
+                  )}
+                </div>
+                {updateInfo && (
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5 tabular-nums">
+                    {t.update_current_label}: v{updateInfo.current_version} (b{updateInfo.current_version_code}) · {t.update_latest_label}: {updateInfo.latest_tag}
+                    {updateInfo.apk_size_bytes > 0 ? ` · ${(updateInfo.apk_size_bytes / (1024 * 1024)).toFixed(1)} MB` : ''}
+                  </p>
+                )}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={checkingUpdate}
+                icon={<RefreshCw size={14} className={checkingUpdate ? 'animate-spin' : ''} />}
+                onClick={() => handleCheckUpdate(true)}
+              >
+                {t.update_check_now}
+              </Button>
+            </div>
+
+            {updateInfo && (
+              <>
+                {(() => {
+                  const notes =
+                    language === 'en'
+                      ? updateInfo.changelog_en || updateInfo.changelog_az
+                      : language === 'ru'
+                        ? updateInfo.changelog_ru || updateInfo.changelog_en || updateInfo.changelog_az
+                        : updateInfo.changelog_az || updateInfo.changelog_en;
+                  return notes?.trim() ? (
+                    <div className="rounded-xl bg-[var(--bg-subtle)]/70 border border-[var(--border-subtle)] p-3 text-xs text-[var(--text-secondary)] whitespace-pre-line max-h-40 overflow-y-auto">
+                      {notes.trim()}
+                    </div>
+                  ) : null;
+                })()}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {updateInfo.apk_url && (
+                    <a
+                      href={updateInfo.apk_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[#0C7FF2] text-white text-xs font-medium hover:bg-[#0A6FD6] transition-colors"
+                    >
+                      <Download size={13} />
+                      {t.update_download_apk} ({updateInfo.apk_name})
+                    </a>
+                  )}
+                  {updateInfo.release_url && (
+                    <a
+                      href={updateInfo.release_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)] text-xs font-medium text-[var(--text-primary)] hover:border-[var(--border-strong)] transition-colors"
+                    >
+                      <ExternalLink size={13} />
+                      {t.update_view_github}
+                    </a>
+                  )}
+                </div>
+              </>
+            )}
+          </Card>
+        </section>
+
+        {/* Section 9: Diagnostics, Storage & Queue */}
         <section className="space-y-2.5">
           <h2 className="text-xs font-medium text-[var(--text-muted)] px-1">
             {t.section_diagnostics}

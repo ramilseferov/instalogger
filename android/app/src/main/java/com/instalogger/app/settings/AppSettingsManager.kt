@@ -20,6 +20,7 @@ import com.instalogger.app.engine.media.YtDlpUpdateChannel
 import com.instalogger.app.engine.pool.FollowerPoolMode
 import com.instalogger.app.engine.pool.FollowerPoolPolicy
 import com.instalogger.app.engine.pool.TargetPoolOverride
+import com.instalogger.app.update.AppUpdateChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -348,6 +349,41 @@ class AppSettingsManager(private val context: Context) {
 
     // 0 = Unlimited (sync all posts on profile, e.g., 300, 1000+)
     private val _maxPostsSyncLimit = MutableStateFlow(prefs.getInt(KEY_MAX_POSTS_SYNC_LIMIT, 0).coerceAtLeast(0))
+
+    // In-App GitHub Update Settings
+    private val _autoCheckUpdates = MutableStateFlow(loadBoolean(KEY_AUTO_CHECK_UPDATES, true))
+    val autoCheckUpdates: StateFlow<Boolean> = _autoCheckUpdates.asStateFlow()
+
+    private val _updateWifiOnly = MutableStateFlow(loadBoolean(KEY_UPDATE_WIFI_ONLY, false))
+    val updateWifiOnly: StateFlow<Boolean> = _updateWifiOnly.asStateFlow()
+
+    private val _updateAutoDownloadWifi = MutableStateFlow(loadBoolean(KEY_UPDATE_AUTO_DOWNLOAD_WIFI, false))
+    val updateAutoDownloadWifi: StateFlow<Boolean> = _updateAutoDownloadWifi.asStateFlow()
+
+    private val _updateChannel = MutableStateFlow(
+        AppUpdateChannel.fromKey(prefs.getString(KEY_UPDATE_CHANNEL, AppUpdateChannel.STABLE.key))
+    )
+    val updateChannel: StateFlow<AppUpdateChannel> = _updateChannel.asStateFlow()
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_CHECK_UPDATES, enabled).apply()
+        _autoCheckUpdates.value = enabled
+    }
+
+    fun setUpdateWifiOnly(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_UPDATE_WIFI_ONLY, enabled).apply()
+        _updateWifiOnly.value = enabled
+    }
+
+    fun setUpdateAutoDownloadWifi(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_UPDATE_AUTO_DOWNLOAD_WIFI, enabled).apply()
+        _updateAutoDownloadWifi.value = enabled
+    }
+
+    fun setUpdateChannel(channel: AppUpdateChannel) {
+        prefs.edit().putString(KEY_UPDATE_CHANNEL, channel.key).apply()
+        _updateChannel.value = channel
+    }
     val maxPostsSyncLimit: StateFlow<Int> = _maxPostsSyncLimit.asStateFlow()
 
     private val _categoryStates: Map<NotificationCategory, MutableStateFlow<Boolean>> =
@@ -757,6 +793,10 @@ class AppSettingsManager(private val context: Context) {
         const val KEY_KEEP_AWAKE = "pref_keep_awake_wakelock"
         const val KEY_AUTO_ARCHIVE_PENDING = "pref_auto_archive_pending"
         const val KEY_MAX_POSTS_SYNC_LIMIT = "pref_max_posts_sync_limit"
+        const val KEY_AUTO_CHECK_UPDATES = "pref_auto_check_updates"
+        const val KEY_UPDATE_WIFI_ONLY = "pref_update_wifi_only"
+        const val KEY_UPDATE_AUTO_DOWNLOAD_WIFI = "pref_update_auto_download_wifi"
+        const val KEY_UPDATE_CHANNEL = "pref_update_channel"
         const val DEFAULT_POOL_FIXED_THRESHOLD = 50L
         const val DEFAULT_POOL_PERCENT_THRESHOLD = 0.5f
         const val DEFAULT_POOL_SPIKE_MULTIPLIER = 3.0f

@@ -75,6 +75,8 @@ import com.instalogger.app.ui.components.SettingSwitchRow
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.components.ThemeAppearanceBottomSheet
 import com.instalogger.app.ui.theme.*
+import com.instalogger.app.update.AppUpdateChannel
+import com.instalogger.app.update.UpdateUiState
 import com.instalogger.app.util.AppLockManager
 import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.ArchiveDirectoryManager
@@ -112,6 +114,13 @@ fun SettingsScreen(
     val keepAwakeEnabled by app.settingsManager.keepAwakeEnabled.collectAsStateWithLifecycle()
     val autoArchivePendingEnabled by app.settingsManager.autoArchivePendingEnabled.collectAsStateWithLifecycle()
     val maxPostsSyncLimit by app.settingsManager.maxPostsSyncLimit.collectAsStateWithLifecycle()
+    val autoCheckUpdates by app.settingsManager.autoCheckUpdates.collectAsStateWithLifecycle()
+    val updateWifiOnly by app.settingsManager.updateWifiOnly.collectAsStateWithLifecycle()
+    val updateAutoDownloadWifi by app.settingsManager.updateAutoDownloadWifi.collectAsStateWithLifecycle()
+    val updateChannel by app.settingsManager.updateChannel.collectAsStateWithLifecycle()
+    val updateState by app.updateManager.state.collectAsStateWithLifecycle()
+    val availableUpdate by app.updateManager.availableRelease.collectAsStateWithLifecycle()
+    val lastUpdateCheckMs by app.updateManager.lastCheckedAtMs.collectAsStateWithLifecycle()
     val providerHealthList by app.providerHealthTracker.healthFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val allLogs by app.database.changeLogDao().getAllLogs().collectAsStateWithLifecycle(initialValue = emptyList())
     val devLogs by AppLogger.logs.collectAsStateWithLifecycle()
@@ -127,6 +136,7 @@ fun SettingsScreen(
     var showDataManagementSheet by remember { mutableStateOf(false) }
     var showSecurityExpanded by remember { mutableStateOf(false) }
     var showEngineExpanded by remember { mutableStateOf(false) }
+    var showUpdateExpanded by remember { mutableStateOf(false) }
     var showArchiveExpanded by remember { mutableStateOf(false) }
     var showLogsExpanded by remember { mutableStateOf(false) }
     var showClearLogsDialog by remember { mutableStateOf(false) }
@@ -1121,6 +1131,161 @@ fun SettingsScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 62.dp, end = 16.dp),
+                            thickness = 0.7.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                        )
+
+                        // App Update Center Hub Row (GitHub Releases)
+                        val isCheckingUpdate = updateState is UpdateUiState.Checking
+                        val updateBadgeText = availableUpdate?.let {
+                            stringResource(R.string.update_badge_new, it.versionName)
+                        }
+                        SettingsHubExpandableRow(
+                            icon = Icons.Default.SystemUpdate,
+                            iconTint = if (availableUpdate != null) StatusGreen else AccentBlue,
+                            title = stringResource(R.string.update_section_title),
+                            subtitle = stringResource(
+                                R.string.update_section_sub,
+                                app.updateManager.installedVersionName(),
+                                app.updateManager.installedVersionCode()
+                            ),
+                            badgeText = updateBadgeText,
+                            badgeColor = StatusGreen,
+                            expanded = showUpdateExpanded,
+                            onToggle = { showUpdateExpanded = !showUpdateExpanded }
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                if (lastUpdateCheckMs > 0L) {
+                                    val fmt = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
+                                    Text(
+                                        text = stringResource(R.string.update_last_checked, fmt.format(Date(lastUpdateCheckMs))),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            if (!isCheckingUpdate) {
+                                                scope.launch {
+                                                    val res = app.updateManager.checkForUpdates(
+                                                        manual = true,
+                                                        openSheetIfAvailable = true
+                                                    )
+                                                    when (res) {
+                                                        is UpdateUiState.UpToDate -> {
+                                                            snackbarHostState.showSnackbar(
+                                                                context.getString(R.string.update_status_up_to_date)
+                                                            )
+                                                        }
+                                                        is UpdateUiState.Error -> {
+                                                            snackbarHostState.showSnackbar(res.message)
+                                                        }
+                                                        else -> Unit
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isCheckingUpdate,
+                                        shape = ShapeTokens.MediumShape,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(44.dp)
+                                    ) {
+                                        if (isCheckingUpdate) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.onPrimary
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                        } else {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                        }
+                                        Text(
+                                            text = stringResource(R.string.update_btn_check_now),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    if (availableUpdate != null) {
+                                        FilledTonalButton(
+                                            onClick = { app.updateManager.openSheet() },
+                                            shape = ShapeTokens.MediumShape,
+                                            modifier = Modifier.height(44.dp)
+                                        ) {
+                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("v${availableUpdate!!.versionName}")
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = stringResource(R.string.update_channel_label),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                val appUpdateChannels = remember { listOf(AppUpdateChannel.STABLE, AppUpdateChannel.BETA) }
+                                val appUpdateChannelLabels = listOf(
+                                    SegmentedOption(stringResource(R.string.update_channel_stable)),
+                                    SegmentedOption(stringResource(R.string.update_channel_beta))
+                                )
+                                AnimatedSegmentedSelector(
+                                    options = appUpdateChannelLabels,
+                                    selectedIndex = appUpdateChannels.indexOf(updateChannel).coerceAtLeast(0),
+                                    onSelected = { idx ->
+                                        app.settingsManager.setUpdateChannel(appUpdateChannels[idx])
+                                    },
+                                    height = 38.dp
+                                )
+
+                                SettingSwitchRow(
+                                    title = stringResource(R.string.update_auto_check_title),
+                                    description = stringResource(R.string.update_auto_check_desc),
+                                    checked = autoCheckUpdates,
+                                    onCheckedChange = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        app.settingsManager.setAutoCheckUpdates(it)
+                                    }
+                                )
+
+                                SettingSwitchRow(
+                                    title = stringResource(R.string.update_wifi_only_title),
+                                    description = stringResource(R.string.update_wifi_only_desc),
+                                    checked = updateWifiOnly,
+                                    onCheckedChange = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        app.settingsManager.setUpdateWifiOnly(it)
+                                    }
+                                )
+
+                                SettingSwitchRow(
+                                    title = stringResource(R.string.update_auto_dl_wifi_title),
+                                    description = stringResource(R.string.update_auto_dl_wifi_desc),
+                                    checked = updateAutoDownloadWifi,
+                                    onCheckedChange = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        app.settingsManager.setUpdateAutoDownloadWifi(it)
+                                    }
+                                )
                             }
                         }
 

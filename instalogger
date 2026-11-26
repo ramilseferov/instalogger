@@ -37,6 +37,7 @@ Management Commands (talks to local daemon API):
                                           Inspect, fetch, or export post comments
   ./instalogger storage [--clean-logs | --prune-orphans]
                                           Inspect disk usage or run cleanup actions
+  ./instalogger update [--check]          Check for GitHub updates or pull, rebuild & restart daemon
   ./instalogger doctor                    Run full environment and runtime diagnostics
 EOF
 }
@@ -386,6 +387,76 @@ elif cmd == "doctor":
 PYEOF
 }
 
+update_project() {
+    local check_only=0
+    if [ "$2" = "--check" ]; then
+        check_only=1
+    fi
+
+    echo "[*] Checking InstaLogger updates from GitHub (origin/main)..."
+    cd "$BASE_DIR"
+    git fetch origin main --quiet || {
+        echo "[-] Failed to fetch origin/main. Check internet connection."
+        exit 1
+    }
+
+    local local_sha remote_sha behind_count
+    local_sha=$(git rev-parse --short HEAD)
+    remote_sha=$(git rev-parse --short origin/main)
+    behind_count=$(git rev-list --count HEAD..origin/main)
+
+    echo "[*] Local HEAD   : $local_sha"
+    echo "[*] origin/main  : $remote_sha ($behind_count commit(s) behind)"
+
+    # Also query latest GitHub Release manifest
+    python3 - <<'PYEOF'
+import json, urllib.request
+try:
+    req = urllib.request.Request(
+        "https://github.com/ramilseferov/instalogger/releases/latest/download/update-manifest.json",
+        headers={"User-Agent": "InstaLogger-CLI-Updater/1.0"}
+    )
+    with urllib.request.urlopen(req, timeout=8) as r:
+        m = json.loads(r.read().decode("utf-8"))
+        print(f"[*] GitHub APK   : {m.get('tag')} ({m.get('apk', {}).get('url')})")
+except Exception:
+    pass
+PYEOF
+
+    if [ "$behind_count" -eq 0 ]; then
+        echo "[OK] Local repository is already up to date."
+        return 0
+    fi
+
+    if [ "$check_only" -eq 1 ]; then
+        echo "[!] Update available! Run './instalogger update' to apply."
+        return 0
+    fi
+
+    echo "[+] Applying fast-forward update (untracked data/, archives/, docs/ remain untouched)..."
+    git pull --ff-only origin main
+
+    echo "[+] Rebuilding Web UI and Rust backend..."
+    if [ -d "$BASE_DIR/web" ] && command -v npm >/dev/null 2>&1; then
+        (cd "$BASE_DIR/web" && npm run build)
+    fi
+    if [ -d "$BASE_DIR/backend" ] && command -v cargo >/dev/null 2>&1; then
+        (cd "$BASE_DIR/backend" && cargo build --release)
+        if [ -f "$BIN_RELEASE" ]; then
+            cp -f "$BIN_RELEASE" "$HOME_BIN.new" && chmod +x "$HOME_BIN.new" && mv -f "$HOME_BIN.new" "$HOME_BIN"
+            echo "[OK] Installed updated binary to $HOME_BIN"
+        fi
+    fi
+
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+        echo "[+] Restarting InstaLogger daemon..."
+        stop_daemon
+        sleep 1
+        start_daemon
+    fi
+    echo "[OK] InstaLogger update complete ($local_sha -> $remote_sha)."
+}
+
 case "$1" in
     start)
         start_daemon
@@ -403,6 +474,9 @@ case "$1" in
         ;;
     logs)
         show_logs
+        ;;
+    update)
+        update_project "$@"
         ;;
     targets|add|remove|check|sync|followers|comments|storage|doctor)
         cli_python "$@"

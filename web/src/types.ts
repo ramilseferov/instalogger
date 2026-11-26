@@ -250,3 +250,24 @@ export interface AuthStatus {
   locked: boolean;
   timeout_minutes: number;
 }
+
+export interface UpdateCheckResult {
+  current_version: string;
+  current_version_code: number;
+  latest_tag: string;
+  latest_version: string;
+  latest_version_code: number;
+  update_available: boolean;
+  channel: string;
+  published_at: string;
+  apk_name: string;
+  apk_url: string;
+  apk_size_bytes: number;
+  sha256: string | null;
+  release_url: string;
+  changelog_az: string;
+  changelog_en: string;
+  changelog_ru: string;
+  source: string;
+  checked_at: string;
+}

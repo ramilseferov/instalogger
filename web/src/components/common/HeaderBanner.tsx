@@ -9,6 +9,7 @@ interface HeaderBannerProps {
   onNotificationsClick: () => void;
   activeDownloadsCount?: number;
   unreadNotificationsCount?: number;
+  updateBadgeVersion?: string | null;
   activeCount: number;
   wsConnected: boolean;
 }
@@ -20,6 +21,7 @@ export const HeaderBanner: React.FC<HeaderBannerProps> = ({
   onNotificationsClick,
   activeDownloadsCount = 0,
   unreadNotificationsCount = 0,
+  updateBadgeVersion = null,
   activeCount,
   wsConnected,
 }) => {
@@ -106,12 +108,17 @@ export const HeaderBanner: React.FC<HeaderBannerProps> = ({
           <button
             type="button"
             onClick={onSettingsClick}
-            className="inline-flex items-center gap-2 h-9 px-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs font-medium text-[var(--text-primary)] hover:border-[var(--border-strong)] active:scale-95 transition-[color,border-color,transform] duration-150"
-            title={t.settings}
+            className="relative inline-flex items-center gap-2 h-9 px-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs font-medium text-[var(--text-primary)] hover:border-[var(--border-strong)] active:scale-95 transition-[color,border-color,transform] duration-150"
+            title={updateBadgeVersion ? `${t.update_available_badge}: v${updateBadgeVersion}` : t.settings}
             aria-label={t.settings}
           >
             <Settings size={15} strokeWidth={1.75} className="text-[var(--text-secondary)]" />
             <span className="hidden sm:inline">{t.settings}</span>
+            {updateBadgeVersion && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold">
+                v{updateBadgeVersion}
+              </span>
+            )}
           </button>
         </div>
       </div>

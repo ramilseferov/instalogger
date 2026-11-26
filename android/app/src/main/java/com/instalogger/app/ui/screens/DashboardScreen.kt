@@ -43,6 +43,7 @@ import com.instalogger.app.ui.components.SkeletonTargetCard
 import com.instalogger.app.ui.components.StatusBadge
 import com.instalogger.app.ui.components.TargetCard
 import com.instalogger.app.ui.components.UnifiedEmptyState
+import com.instalogger.app.ui.components.UpdateAvailableBanner
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 import kotlinx.coroutines.Dispatchers
@@ -233,6 +234,10 @@ fun DashboardScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    item(key = "app_update_banner") {
+                        UpdateAvailableBanner(updateManager = app.updateManager)
+                    }
+
                     items(visiblePendingTargets, key = { "pending_$it" }) { pendingUser ->
                         SkeletonTargetCard(
                             username = pendingUser,

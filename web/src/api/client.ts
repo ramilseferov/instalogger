@@ -15,6 +15,7 @@ import {
   NotificationRule,
   StorageOverview,
   AuthStatus,
+  UpdateCheckResult,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -408,5 +409,10 @@ export const api = {
   async lockDashboard(): Promise<void> {
     await fetch(`${BASE_URL}/auth/lock`, { method: 'POST', headers: authHeaders() }).catch(() => {});
     try { sessionStorage.removeItem('instalogger_auth_token'); } catch {}
+  },
+
+  async checkSystemUpdate(force = false): Promise<UpdateCheckResult> {
+    const res = await fetch(`${BASE_URL}/system/update-check${force ? '?force=true' : ''}`);
+    return await parseJsonOrThrow(res);
   },
 };

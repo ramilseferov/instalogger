@@ -1,6 +1,7 @@
 package com.instalogger.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -40,6 +41,7 @@ import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.components.AnimatedBottomBar
 import com.instalogger.app.ui.components.LanguageBlurOverlay
+import com.instalogger.app.ui.components.UpdateBottomSheet
 import com.instalogger.app.ui.components.languageTransitionBlur
 import com.instalogger.app.ui.screens.*
 import com.instalogger.app.ui.theme.InstaLoggerTheme
@@ -106,6 +108,17 @@ class MainActivity : FragmentActivity() {
 
         // Start background monitoring service
         startLoggerService()
+
+        // Trigger silent GitHub update check (respects 6-hour throttle & autoCheckUpdates setting)
+        val openUpdateFromNotif = intent?.getBooleanExtra(EXTRA_OPEN_UPDATE_SHEET, false) == true
+        app.updateManager.checkForUpdatesAsync(
+            manual = openUpdateFromNotif,
+            openSheetIfAvailable = openUpdateFromNotif,
+            notifyIfAvailable = false
+        )
+        if (openUpdateFromNotif) {
+            app.updateManager.openSheet()
+        }
 
         setContent {
             val currentLanguage by LanguageManager.currentLanguage.collectAsState()
@@ -300,9 +313,21 @@ class MainActivity : FragmentActivity() {
                             }
 
                             LanguageBlurOverlay(isBlurActive = isSettingsTransitionActive)
+                            UpdateBottomSheet(updateManager = app.updateManager)
                         }
                     }
                 }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_UPDATE_SHEET, false)) {
+            (application as? InstaLoggerApp)?.updateManager?.let { um ->
+                um.openSheet()
+                um.checkForUpdatesAsync(manual = false, openSheetIfAvailable = true)
             }
         }
     }
@@ -314,7 +339,13 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
-        (application as? InstaLoggerApp)?.appLockManager?.onAppForegrounded()
+        val app = application as? InstaLoggerApp
+        app?.appLockManager?.onAppForegrounded()
+        app?.updateManager?.onActivityResumed()
+    }
+
+    companion object {
+        const val EXTRA_OPEN_UPDATE_SHEET = "extra_open_update_sheet"
     }
 
     private fun getTabRouteIndex(route: String?): Int {

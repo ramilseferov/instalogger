@@ -267,6 +267,15 @@ export interface Translations {
   event_story_vanished: string;
   event_highlight_added: string;
   event_highlight_vanished: string;
+  section_updates: string;
+  update_title: string;
+  update_check_now: string;
+  update_up_to_date: string;
+  update_available_badge: string;
+  update_download_apk: string;
+  update_view_github: string;
+  update_current_label: string;
+  update_latest_label: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -534,6 +543,15 @@ const translations: Record<Language, Translations> = {
     event_story_vanished: 'Hekayə silindi (arxiv qorunur)',
     event_highlight_added: 'Yeni highlight əlavə edildi',
     event_highlight_vanished: 'Highlight silindi (arxiv qorunur)',
+    section_updates: 'Versiya və Yeniləmə',
+    update_title: 'GitHub Reliz Yeniləməsi',
+    update_check_now: 'İndi yoxla',
+    update_up_to_date: 'Ən son versiyadır',
+    update_available_badge: 'Yeni versiya',
+    update_download_apk: 'APK Endir',
+    update_view_github: 'GitHub Relizi',
+    update_current_label: 'Cari',
+    update_latest_label: 'Ən son',
   },
   en: {
     app_title: 'InstaLogger',
@@ -799,6 +817,15 @@ const translations: Record<Language, Translations> = {
     event_story_vanished: 'Story deleted (archive preserved)',
     event_highlight_added: 'Added highlight',
     event_highlight_vanished: 'Highlight removed (archive preserved)',
+    section_updates: 'Version & Updates',
+    update_title: 'GitHub Release Updates',
+    update_check_now: 'Check now',
+    update_up_to_date: 'Up to date',
+    update_available_badge: 'Update available',
+    update_download_apk: 'Download APK',
+    update_view_github: 'GitHub Release',
+    update_current_label: 'Current',
+    update_latest_label: 'Latest',
   },
   ru: {
     app_title: 'InstaLogger',
@@ -1064,6 +1091,15 @@ const translations: Record<Language, Translations> = {
     event_story_vanished: 'История удалена (архив сохранен)',
     event_highlight_added: 'Добавлено актуальное',
     event_highlight_vanished: 'Актуальное удалено (архив сохранен)',
+    section_updates: 'Версия и обновления',
+    update_title: 'Обновления GitHub',
+    update_check_now: 'Проверить сейчас',
+    update_up_to_date: 'Актуальная версия',
+    update_available_badge: 'Доступно обновление',
+    update_download_apk: 'Скачать APK',
+    update_view_github: 'Релиз GitHub',
+    update_current_label: 'Текущая',
+    update_latest_label: 'Последняя',
   },
 };
 

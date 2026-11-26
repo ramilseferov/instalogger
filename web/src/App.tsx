@@ -31,6 +31,7 @@ export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [updateBadgeVersion, setUpdateBadgeVersion] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [toast, setToast] = useState<{ kind: 'info' | 'err'; text: string } | null>(null);
 
@@ -67,6 +68,14 @@ export const App: React.FC = () => {
     api
       .getAuthStatus()
       .then((st) => setIsLocked(Boolean(st.enabled && st.locked)))
+      .catch(() => {});
+    api
+      .checkSystemUpdate(false)
+      .then((upd) => {
+        if (upd.update_available && upd.latest_version) {
+          setUpdateBadgeVersion(upd.latest_version);
+        }
+      })
       .catch(() => {});
     fetchTargets();
     refreshCounts();
@@ -256,6 +265,7 @@ export const App: React.FC = () => {
         wsConnected={wsConnected}
         activeDownloadsCount={activeDownloadsCount}
         unreadNotificationsCount={unreadNotifCount}
+        updateBadgeVersion={updateBadgeVersion}
         onNotificationsClick={() => setActiveView('notifications')}
         onDownloadsClick={() => setActiveView('downloads')}
         onDevLogsClick={() => setActiveView('dev_logs')}

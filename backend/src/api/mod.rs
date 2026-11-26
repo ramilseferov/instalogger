@@ -6,6 +6,7 @@ pub mod media;
 pub mod notifications;
 pub mod settings;
 pub mod storage;
+pub mod system;
 pub mod targets;
 pub mod ws;
 
@@ -44,6 +45,7 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
 
     let api_routes = Router::new()
         .route("/health", get(health_check))
+        .route("/system/update-check", get(system::check_updates))
         .route("/targets", get(targets::list_targets).post(targets::add_target))
         .route(
             "/targets/{id}",

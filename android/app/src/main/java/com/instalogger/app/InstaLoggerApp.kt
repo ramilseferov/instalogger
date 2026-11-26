@@ -19,6 +19,7 @@ import com.instalogger.app.engine.media.ProviderHealthTracker
 import com.instalogger.app.engine.media.YtDlpEmbeddedProvider
 import com.instalogger.app.settings.AppSettingsManager
 import com.instalogger.app.settings.NotificationCategory
+import com.instalogger.app.update.AppUpdateManager
 import com.instalogger.app.util.AppLockManager
 import com.instalogger.app.util.AppLogger
 import com.instalogger.app.util.LanguageManager
@@ -60,6 +61,9 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
         private set
 
     lateinit var mediaDownloadOrchestrator: MediaDownloadOrchestrator
+        private set
+
+    lateinit var updateManager: AppUpdateManager
         private set
 
     override fun newImageLoader(): ImageLoader {
@@ -130,6 +134,11 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
             sessionManager = sessionManager,
             instagramEngine = instagramEngine,
             mediaDownloadOrchestrator = mediaDownloadOrchestrator
+        )
+
+        updateManager = AppUpdateManager(
+            context = this,
+            settingsManager = settingsManager
         )
 
         refreshNotificationChannels()
