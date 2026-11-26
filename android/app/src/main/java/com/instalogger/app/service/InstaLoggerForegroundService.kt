@@ -8,6 +8,9 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.MainActivity
@@ -70,6 +73,22 @@ class InstaLoggerForegroundService : Service() {
         }
     }
 
+    private var cachedAppLogoBitmap: Bitmap? = null
+
+    private fun getAppLogoBitmap(): Bitmap? {
+        cachedAppLogoBitmap?.let { return it }
+        return runCatching {
+            val drawable = ContextCompat.getDrawable(this, R.mipmap.ic_launcher) ?: return null
+            val sizePx = (48 * resources.displayMetrics.density).toInt().coerceIn(96, 192)
+            val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, sizePx, sizePx)
+            drawable.draw(canvas)
+            cachedAppLogoBitmap = bitmap
+            bitmap
+        }.getOrNull()
+    }
+
     private fun buildForegroundNotification(customStatus: String? = null): Notification {
         val resCtx = LanguageManager.getLocalizedAppContext(this)
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
@@ -86,6 +105,7 @@ class InstaLoggerForegroundService : Service() {
             .setContentTitle(resCtx.getString(R.string.service_notification_title))
             .setContentText(customStatus ?: resCtx.getString(R.string.service_notification_desc))
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFFD62976.toInt())
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -275,6 +295,8 @@ class InstaLoggerForegroundService : Service() {
 
         val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(0xFFD62976.toInt())
+            .setLargeIcon(getAppLogoBitmap())
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
