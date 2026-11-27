@@ -75,6 +75,8 @@ class ProfileInspector(
     private val lastActiveStoriesCheckMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val lastFriendshipsCheckMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val unfollowedPrivateUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val missingPostStreakMap = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val pendingPostCountDropMap = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun getSettingsManager(): AppSettingsManager {
         return (context.applicationContext as? InstaLoggerApp)?.settingsManager
@@ -355,33 +357,85 @@ class ProfileInspector(
             }
         }
 
-        // 3. Check post count change
-        val postCountDropped = existing != null && snapshot.mediaCount > 0 && snapshot.mediaCount < existing.mediaCount
-        if (existing != null && existing.mediaCount != snapshot.mediaCount && snapshot.mediaCount > 0) {
-            val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "post_count_change")
-            if (latestLog?.newValue != snapshot.mediaCount.toString()) {
-                val diff = snapshot.mediaCount - existing.mediaCount
-                val sign = if (diff > 0) "+$diff" else "$diff"
-                val title = LanguageManager.getString(context, R.string.notif_posts_changed_title, cleanUser, sign)
-                val desc = LanguageManager.getString(context, R.string.notif_posts_changed_desc, existing.mediaCount.toString(), snapshot.mediaCount.toString(), sign)
-                changeLogDao.insertLog(
-                    ChangeLogEntity(
+        // 3. Check post count change (with downward flicker protection so stale/partial tiers never fire false drops)
+        val hasTrustworthyProfileMetrics = snapshot.mediaCount > 0L ||
+            snapshot.followersCount > 0L ||
+            snapshot.followingCount > 0L
+        val postCountDropped = existing != null &&
+            existing.mediaCount > 0L &&
+            hasTrustworthyProfileMetrics &&
+            snapshot.mediaCount < existing.mediaCount
+        var keepPreviousMediaCountForFlicker = false
+
+        if (existing != null && hasTrustworthyProfileMetrics && existing.mediaCount != snapshot.mediaCount) {
+            if (snapshot.mediaCount > existing.mediaCount) {
+                // Upward change (new post published or un-archived) — clear pending drop & notify immediately
+                pendingPostCountDropMap.remove(cleanUser)
+                val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "post_count_change")
+                if (latestLog?.newValue != snapshot.mediaCount.toString()) {
+                    val diff = snapshot.mediaCount - existing.mediaCount
+                    val sign = "+$diff"
+                    val title = LanguageManager.getString(context, R.string.notif_posts_changed_title, cleanUser, sign)
+                    val desc = LanguageManager.getString(context, R.string.notif_posts_changed_desc, existing.mediaCount.toString(), snapshot.mediaCount.toString(), sign)
+                    changeLogDao.insertLog(
+                        ChangeLogEntity(
+                            targetUsername = cleanUser,
+                            eventType = "post_count_change",
+                            title = title,
+                            oldValue = existing.mediaCount.toString(),
+                            newValue = snapshot.mediaCount.toString(),
+                            timestamp = now
+                        )
+                    )
+                    dispatchAlert(
                         targetUsername = cleanUser,
                         eventType = "post_count_change",
                         title = title,
-                        oldValue = existing.mediaCount.toString(),
-                        newValue = snapshot.mediaCount.toString(),
+                        message = desc,
                         timestamp = now
                     )
-                )
-                dispatchAlert(
-                    targetUsername = cleanUser,
-                    eventType = "post_count_change",
-                    title = title,
-                    message = desc,
-                    timestamp = now
-                )
+                }
+            } else if (postCountDropped) {
+                // Downward change — require 2 consecutive inspections to confirm count drop before emitting post_count_change,
+                // while still triggering immediate full post sync + direct verification to catch genuine deletions on tick 1.
+                val prevPendingDrop = pendingPostCountDropMap[cleanUser]
+                if (prevPendingDrop != null && snapshot.mediaCount <= prevPendingDrop) {
+                    pendingPostCountDropMap.remove(cleanUser)
+                    val latestLog = changeLogDao.getLatestLogForEvent(cleanUser, "post_count_change")
+                    if (latestLog?.newValue != snapshot.mediaCount.toString()) {
+                        val diff = snapshot.mediaCount - existing.mediaCount
+                        val sign = "$diff"
+                        val title = LanguageManager.getString(context, R.string.notif_posts_changed_title, cleanUser, sign)
+                        val desc = LanguageManager.getString(context, R.string.notif_posts_changed_desc, existing.mediaCount.toString(), snapshot.mediaCount.toString(), sign)
+                        changeLogDao.insertLog(
+                            ChangeLogEntity(
+                                targetUsername = cleanUser,
+                                eventType = "post_count_change",
+                                title = title,
+                                oldValue = existing.mediaCount.toString(),
+                                newValue = snapshot.mediaCount.toString(),
+                                timestamp = now
+                            )
+                        )
+                        dispatchAlert(
+                            targetUsername = cleanUser,
+                            eventType = "post_count_change",
+                            title = title,
+                            message = desc,
+                            timestamp = now
+                        )
+                    }
+                } else {
+                    pendingPostCountDropMap[cleanUser] = snapshot.mediaCount
+                    keepPreviousMediaCountForFlicker = true
+                    AppLogger.d(
+                        "ProfileInspector",
+                        "Post count drop flicker guard(@$cleanUser): ${existing.mediaCount} -> ${snapshot.mediaCount}; awaiting confirmation or direct post verification"
+                    )
+                }
             }
+        } else if (existing != null && snapshot.mediaCount >= existing.mediaCount) {
+            pendingPostCountDropMap.remove(cleanUser)
         }
 
         // 4. Check biography change
@@ -661,11 +715,13 @@ class ProfileInspector(
         val resolvedActive = freshInDb?.isActive ?: existing?.isActive ?: true
         val resolvedInterval = freshInDb?.checkIntervalSeconds ?: existing?.checkIntervalSeconds ?: 60
 
-        val localPostsCount = database.postDao().getPostsCountForUser(cleanUser).toLong()
+        val localPostsCount = database.postDao().getActivePostsCountForUser(cleanUser).toLong()
         val histFollowers = if (snapshot.followersCount > 0) snapshot.followersCount else (freshInDb?.followersCount ?: existing?.followersCount ?: 0L)
         val histFollowing = if (snapshot.followingCount > 0) snapshot.followingCount else (freshInDb?.followingCount ?: existing?.followingCount ?: 0L)
         val resolvedMediaCount = when {
+            keepPreviousMediaCountForFlicker && existing != null -> existing.mediaCount
             snapshot.mediaCount > 0L -> snapshot.mediaCount
+            hasTrustworthyProfileMetrics && snapshot.mediaCount == 0L -> 0L
             localPostsCount > 0L -> localPostsCount
             (freshInDb?.mediaCount ?: 0L) > 0L -> freshInDb!!.mediaCount
             (existing?.mediaCount ?: 0L) > 0L -> existing!!.mediaCount
@@ -786,6 +842,7 @@ class ProfileInspector(
                 wasPrivateToPublic = wasPrivateToPublic,
                 isPrivate = snapshot.isPrivate,
                 forceFullPagination = postCountDropped,
+                postCountDropped = postCountDropped,
                 storyGrew = storyGrew,
                 followedByViewer = snapshot.followedByViewer
             )
@@ -1013,19 +1070,25 @@ class ProfileInspector(
                             )
                         } else {
                             val shortcode = id.removePrefix("post_").removePrefix("reel_")
-                            postEntities.add(
-                                PostEntity(
-                                    id = shortcode,
-                                    username = cleanUser,
-                                    caption = caption,
-                                    displayUrl = cdnUrl,
-                                    localPath = localPath,
-                                    isVideo = (mediaType == "reel" || relPath?.endsWith(".mp4") == true),
-                                    likeCount = 0,
-                                    commentCount = 0,
-                                    postedAt = System.currentTimeMillis()
+                            val existingPost = database.postDao().getPostById(shortcode)
+                            if (existingPost == null) {
+                                postEntities.add(
+                                    PostEntity(
+                                        id = shortcode,
+                                        username = cleanUser,
+                                        caption = caption,
+                                        displayUrl = cdnUrl,
+                                        localPath = localPath,
+                                        isVideo = (mediaType == "reel" || relPath?.endsWith(".mp4") == true),
+                                        likeCount = 0,
+                                        commentCount = 0,
+                                        postedAt = System.currentTimeMillis()
+                                    )
                                 )
-                            )
+                            } else if (existingPost.localPath.isNullOrBlank() && !localPath.isNullOrBlank()) {
+                                // Preserve existing metadata & isVanished state when backfilling localPath
+                                postEntities.add(existingPost.copy(localPath = localPath, downloadStatus = "complete"))
+                            }
                         }
                     }
 
@@ -1056,7 +1119,9 @@ class ProfileInspector(
         }
 
         val internalPostDir = File(context.filesDir, "posts/$cleanUser").apply { mkdirs() }
+        val existingById = database.postDao().getPostsListForUser(cleanUser).associateBy { it.id }
         val postEntities = mutableListOf<PostEntity>()
+        val seenCodes = hashSetOf<String>()
 
         for (root in candidateRoots.distinct()) {
             if (!root.exists() || !root.isDirectory) continue
@@ -1067,8 +1132,32 @@ class ProfileInspector(
                 val files = pd.listFiles { f -> f.isFile && (f.name.endsWith(".jpg", ignoreCase = true) || f.name.endsWith(".mp4", ignoreCase = true)) } ?: continue
                 for (file in files) {
                     val sc = file.nameWithoutExtension
+                    // Never import carousel slides, thumbnails, or invalid filenames as standalone posts
+                    if (sc.contains("_slide_") || sc.endsWith("_thumb", ignoreCase = true)) continue
+                    if (!sc.matches(Regex("^[A-Za-z0-9_-]{5,45}$"))) continue
+                    if (!seenCodes.add(sc)) continue
+
                     val internalFile = File(internalPostDir, file.name)
-                    try { file.copyTo(internalFile, overwrite = true) } catch (_: Exception) {}
+                    if (!internalFile.exists() || internalFile.length() == 0L) {
+                        try { file.copyTo(internalFile, overwrite = true) } catch (_: Exception) {}
+                    }
+
+                    val existingPost = existingById[sc]
+                    if (existingPost != null) {
+                        // Never reset isVanished=false or wipe engagement metadata for already-tracked posts
+                        val existingFileOk = !existingPost.localPath.isNullOrBlank() &&
+                            File(existingPost.localPath).exists() &&
+                            File(existingPost.localPath).length() > 0L
+                        if (!existingFileOk && internalFile.exists() && internalFile.length() > 0L) {
+                            postEntities.add(
+                                existingPost.copy(
+                                    localPath = internalFile.absolutePath,
+                                    downloadStatus = "complete"
+                                )
+                            )
+                        }
+                        continue
+                    }
 
                     val capFile = File(pd, "${sc}_caption.txt")
                     val caption = if (capFile.exists()) capFile.readText().cleanDisplayText() else null
@@ -1754,11 +1843,14 @@ class ProfileInspector(
         }
 
         if (postEntities.isNotEmpty()) {
+            for (entity in postEntities) {
+                missingPostStreakMap.remove("$cleanUser:${entity.id}")
+            }
             postDao.insertPosts(postEntities)
-            val totalInDb = postDao.getPostsCountForUser(cleanUser).toLong()
+            val activeInDb = postDao.getActivePostsCountForUser(cleanUser).toLong()
             val cur = database.targetDao().getTarget(cleanUser)
-            if (cur != null && (cur.mediaCount == 0L || cur.mediaCount < totalInDb)) {
-                database.targetDao().insertTarget(cur.copy(mediaCount = totalInDb))
+            if (cur != null && cur.mediaCount == 0L && activeInDb > 0L) {
+                database.targetDao().insertTarget(cur.copy(mediaCount = activeInDb))
             }
             mediaDownloadOrchestrator?.enqueueBatch(cleanUser, orchestratorQueue)
         }
@@ -1772,6 +1864,7 @@ class ProfileInspector(
         wasPrivateToPublic: Boolean = false,
         isPrivate: Boolean = false,
         forceFullPagination: Boolean = false,
+        postCountDropped: Boolean = false,
         storyGrew: Boolean = false,
         followedByViewer: Boolean = false
     ) {
@@ -1784,6 +1877,7 @@ class ProfileInspector(
                 wasPrivateToPublic = wasPrivateToPublic,
                 isPrivate = isPrivate,
                 forceFullPagination = forceFullPagination,
+                postCountDropped = postCountDropped,
                 storyGrew = storyGrew,
                 followedByViewer = followedByViewer
             )
@@ -1802,6 +1896,7 @@ class ProfileInspector(
         wasPrivateToPublic: Boolean = false,
         isPrivate: Boolean = false,
         forceFullPagination: Boolean = false,
+        postCountDropped: Boolean = false,
         storyGrew: Boolean = false,
         followedByViewer: Boolean = false
     ) = withContext(Dispatchers.IO) {
@@ -1835,7 +1930,7 @@ class ProfileInspector(
             // Run Highlights archiving AND Multi-Page Post pagination IN PARALLEL
             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.SYNCING)
             val expectedTotal = targetRecord?.mediaCount ?: 0L
-            val existingPostsCount = database.postDao().getPostsCountForUser(cleanUser)
+            val existingPostsCount = database.postDao().getActivePostsCountForUser(cleanUser)
             val knownZeroPosts = targetRecord != null && targetRecord.lastCheckedAt != null && expectedTotal == 0L
             val needsFullPagination = forceFullPagination ||
                 wasPrivateToPublic ||
@@ -2063,7 +2158,7 @@ class ProfileInspector(
                 }
 
                 val postsJob = async {
-                    if (knownZeroPosts && !forceFullPagination && !wasPrivateToPublic) {
+                    if (knownZeroPosts && !forceFullPagination && !wasPrivateToPublic && !postCountDropped) {
                         _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.COMPLETED)
                         return@async 0
                     }
@@ -2087,7 +2182,7 @@ class ProfileInspector(
                             pageDelayMs = speedPreset.pageDelayMs
                         ) { pageItems, discoveredTotal ->
                             persistAndEnqueuePostPage(cleanUser, pageItems)
-                            val liveInDb = database.postDao().getPostsCountForUser(cleanUser)
+                            val liveInDb = database.postDao().getActivePostsCountForUser(cleanUser)
                             val displayTotal = maxOf(effectiveTargetTotal, liveInDb, discoveredTotal)
                             _postBackfillProgress.value = _postBackfillProgress.value + (cleanUser to (maxOf(liveInDb, discoveredTotal) to displayTotal))
                         }
@@ -2113,6 +2208,20 @@ class ProfileInspector(
                             _postSyncState.value = _postSyncState.value + (cleanUser to status)
                         }
                         is PostFetchResult.Error -> {
+                            // Even if feed fetch returned empty/error after a confirmed drop to 0 posts,
+                            // directly verify archived posts instead of guessing.
+                            if (postCountDropped) {
+                                verifyAndHandleMissingPosts(
+                                    cleanUser = cleanUser,
+                                    liveCodes = emptySet(),
+                                    completeByApi = false,
+                                    completeSmallProfile = false,
+                                    postCountDropped = true,
+                                    expectedTotal = expectedTotal,
+                                    effectiveCookie = effectiveCookie,
+                                    resolvedPrivate = resolvedPrivate
+                                )
+                            }
                             _postSyncState.value = _postSyncState.value + (cleanUser to PostSyncStatus.FAILED)
                         }
                         is PostFetchResult.Success -> {
@@ -2122,51 +2231,36 @@ class ProfileInspector(
                                 persistAndEnqueuePostPage(cleanUser, rawPosts)
                             }
 
-                            // Identify exact vanished/deleted posts when we obtained a complete post snapshot
-                            val hasCompleteCoverage = rawPosts.isNotEmpty() && (
-                                maxPostsLimit == 0 ||
-                                    expectedTotal == 0L ||
-                                    rawPosts.size.toLong() >= expectedTotal
-                            )
-                            if (hasCompleteCoverage) {
-                                val nowMs = System.currentTimeMillis()
-                                val liveCodes = rawPosts.map { it.shortcode }.toHashSet()
-                                val activeArchived = database.postDao().getActivePostsListForUser(cleanUser)
-                                for (oldPost in activeArchived) {
-                                    if (oldPost.id !in liveCodes) {
-                                        database.postDao().markPostVanished(oldPost.id, nowMs)
-                                        val snippet = oldPost.caption?.replace("\n", " ")?.trim()?.take(80).orEmpty()
-                                        val captionPart = if (snippet.isNotBlank()) "— $snippet" else ""
-                                        val title = LanguageManager.getString(
-                                            context,
-                                            R.string.notif_post_vanished_title,
-                                            cleanUser
-                                        )
-                                        val desc = LanguageManager.getString(
-                                            context,
-                                            R.string.notif_post_vanished_desc,
-                                            oldPost.id,
-                                            captionPart
-                                        ).trim()
-                                        database.changeLogDao().insertLog(
-                                            ChangeLogEntity(
-                                                targetUsername = cleanUser,
-                                                eventType = "post_vanished",
-                                                title = "$title (/p/${oldPost.id})",
-                                                oldValue = oldPost.id,
-                                                newValue = desc,
-                                                timestamp = nowMs
-                                            )
-                                        )
-                                        dispatchAlert(
-                                            targetUsername = cleanUser,
-                                            eventType = "post_vanished",
-                                            title = title,
-                                            message = desc,
-                                            timestamp = nowMs
-                                        )
-                                    }
-                                }
+                            val liveCodes = rawPosts.map { it.shortcode }.toHashSet()
+                            for (code in liveCodes) {
+                                missingPostStreakMap.remove("$cleanUser:$code")
+                            }
+
+                            // Strictly determine whether we should probe candidate missing posts.
+                            // NEVER rely on `maxPostsLimit == 0` alone — partial recent fetches (e.g., 24 posts)
+                            // or interrupted pagination MUST NOT mark older posts vanished.
+                            val completeByApi = postResult.isCompleteFeed
+                            val completeSmallProfile = rawPosts.isNotEmpty() &&
+                                expectedTotal > 0L &&
+                                rawPosts.size.toLong() >= expectedTotal &&
+                                (maxPostsLimit == 0 || expectedTotal <= maxPostsLimit.toLong())
+                            val shouldEvaluateCandidates = (rawPosts.isNotEmpty() && (
+                                completeByApi ||
+                                    completeSmallProfile ||
+                                    (postCountDropped && needsFullPagination)
+                                )) || (rawPosts.isEmpty() && postCountDropped)
+
+                            if (shouldEvaluateCandidates) {
+                                verifyAndHandleMissingPosts(
+                                    cleanUser = cleanUser,
+                                    liveCodes = liveCodes,
+                                    completeByApi = completeByApi,
+                                    completeSmallProfile = completeSmallProfile,
+                                    postCountDropped = postCountDropped,
+                                    expectedTotal = expectedTotal,
+                                    effectiveCookie = effectiveCookie,
+                                    resolvedPrivate = resolvedPrivate
+                                )
                             }
 
                             // Also resume any previously pending/failed posts in DB
@@ -2219,6 +2313,7 @@ class ProfileInspector(
         }
 
         val posts = database.postDao().getPostsListForUser(cleanUser)
+        val activePosts = posts.filter { !it.isVanished }
         val pendingDownloads = posts.count { post ->
             val fileOk = !post.localPath.isNullOrBlank() &&
                 File(post.localPath).exists() &&
@@ -2232,8 +2327,8 @@ class ProfileInspector(
             maxLimit > 0 -> minOf(target.mediaCount, maxLimit.toLong())
             else -> target.mediaCount
         }
-        val missingPosts = (effectiveExpected > 0L && posts.size.toLong() < effectiveExpected) ||
-            (posts.isEmpty() && target.mediaCount > 0L)
+        val missingPosts = (effectiveExpected > 0L && activePosts.size.toLong() < effectiveExpected) ||
+            (activePosts.isEmpty() && target.mediaCount > 0L)
 
         val highlights = database.highlightDao().getHighlightsListForUser(cleanUser)
         val lastTrayCheckAt = lastHighlightTrayCheckMs[cleanUser] ?: 0L
@@ -2778,11 +2873,165 @@ class ProfileInspector(
         return job.await()
     }
 
+    private suspend fun verifyAndHandleMissingPosts(
+        cleanUser: String,
+        liveCodes: Set<String>,
+        completeByApi: Boolean,
+        completeSmallProfile: Boolean,
+        postCountDropped: Boolean,
+        expectedTotal: Long,
+        effectiveCookie: String?,
+        resolvedPrivate: Boolean
+    ) {
+        val activeArchived = database.postDao().getActivePostsListForUser(cleanUser)
+        val missingCandidates = activeArchived.filter { it.id !in liveCodes }
+        if (missingCandidates.isEmpty()) return
+
+        val candidatesToVerify = missingCandidates.take(MAX_VERIFY_CANDIDATES_PER_CYCLE)
+        val nowMs = System.currentTimeMillis()
+        var confirmedDeletedCount = 0
+
+        AppLogger.i(
+            "ProfileInspector",
+            "Post verification(@$cleanUser): ${missingCandidates.size} missing candidate(s) " +
+                "(completeApi=$completeByApi, completeSmall=$completeSmallProfile, " +
+                "postCountDropped=$postCountDropped, live=${liveCodes.size}, expected=$expectedTotal). " +
+                "Directly verifying ${candidatesToVerify.size} candidate(s)."
+        )
+
+        val isMassDisappearance = activeArchived.size >= 4 &&
+            missingCandidates.size > maxOf(3, (activeArchived.size * 0.35).toInt())
+
+        for (oldPost in candidatesToVerify) {
+            if (isTargetDeleted(cleanUser)) return
+            val streakKey = "$cleanUser:${oldPost.id}"
+            val status = instagramEngine.verifyPostExistence(
+                shortcode = oldPost.id,
+                username = cleanUser,
+                cookieString = effectiveCookie,
+                isPrivate = resolvedPrivate
+            )
+
+            when (status) {
+                PostExistenceStatus.EXISTS -> {
+                    // Authoritatively confirmed STILL LIVE on Instagram — never mark vanished, never alert!
+                    missingPostStreakMap.remove(streakKey)
+                    AppLogger.d(
+                        "ProfileInspector",
+                        "Post verification(@$cleanUser): /p/${oldPost.id} EXISTS on Instagram — false deletion prevented"
+                    )
+                }
+                PostExistenceStatus.CONFIRMED_DELETED -> {
+                    missingPostStreakMap.remove(streakKey)
+                    confirmedDeletedCount++
+                    markAndNotifyConfirmedDeletedPost(cleanUser, oldPost, nowMs)
+                }
+                PostExistenceStatus.UNKNOWN -> {
+                    // For private accounts only: if we received a truly complete authoritative v1 feed
+                    // (more_available=false, 0 page errors) and it's not a mass wipe, require consecutive
+                    // complete scans before declaring vanished. Public accounts NEVER mark deleted on UNKNOWN.
+                    val canUsePrivateConsensus = resolvedPrivate &&
+                        completeByApi &&
+                        !isMassDisappearance &&
+                        (postCountDropped || (expectedTotal > 0L && liveCodes.size.toLong() == expectedTotal))
+
+                    if (canUsePrivateConsensus) {
+                        val nextStreak = (missingPostStreakMap[streakKey] ?: 0) + 1
+                        if (nextStreak >= PRIVATE_MISSING_CONFIRM_CHECKS) {
+                            missingPostStreakMap.remove(streakKey)
+                            confirmedDeletedCount++
+                            markAndNotifyConfirmedDeletedPost(cleanUser, oldPost, nowMs)
+                        } else {
+                            missingPostStreakMap[streakKey] = nextStreak
+                            AppLogger.d(
+                                "ProfileInspector",
+                                "Post verification(@$cleanUser): /p/${oldPost.id} UNKNOWN on private feed " +
+                                    "(streak $nextStreak/$PRIVATE_MISSING_CONFIRM_CHECKS) — awaiting confirmation"
+                            )
+                        }
+                    } else {
+                        AppLogger.d(
+                            "ProfileInspector",
+                            "Post verification(@$cleanUser): /p/${oldPost.id} UNKNOWN — skipping deletion alert"
+                        )
+                    }
+                }
+            }
+
+            if (candidatesToVerify.size > 1) {
+                kotlinx.coroutines.delay(250L)
+            }
+        }
+
+        // If at least 1 post was confirmed deleted and we had a pending mediaCount drop held for flicker,
+        // commit the lowered mediaCount immediately so the target stays accurate.
+        if (confirmedDeletedCount > 0) {
+            val pendingDrop = pendingPostCountDropMap.remove(cleanUser)
+            val curTarget = database.targetDao().getTarget(cleanUser)
+            if (curTarget != null && pendingDrop != null && pendingDrop < curTarget.mediaCount) {
+                database.targetDao().insertTarget(curTarget.copy(mediaCount = pendingDrop))
+            }
+        }
+    }
+
+    private suspend fun markAndNotifyConfirmedDeletedPost(
+        cleanUser: String,
+        oldPost: PostEntity,
+        nowMs: Long
+    ) {
+        val freshPost = database.postDao().getPostById(oldPost.id)
+        if (freshPost == null || freshPost.isVanished) return
+
+        database.postDao().markPostVanished(oldPost.id, nowMs)
+
+        // Prevent duplicate logs/notifications for the exact same shortcode within the dedup window
+        val prevLog = database.changeLogDao().getLatestLogForEventAndOldValue(cleanUser, "post_vanished", oldPost.id)
+        if (prevLog != null && (nowMs - prevLog.timestamp) < POST_VANISHED_DEDUP_WINDOW_MS) {
+            AppLogger.d("ProfileInspector", "Skipping duplicate post_vanished alert for @$cleanUser /p/${oldPost.id}")
+            return
+        }
+
+        val snippet = oldPost.caption?.replace("\n", " ")?.trim()?.take(80).orEmpty()
+        val captionPart = if (snippet.isNotBlank()) "— $snippet" else ""
+        val title = LanguageManager.getString(
+            context,
+            R.string.notif_post_vanished_title,
+            cleanUser
+        )
+        val desc = LanguageManager.getString(
+            context,
+            R.string.notif_post_vanished_desc,
+            oldPost.id,
+            captionPart
+        ).trim()
+
+        database.changeLogDao().insertLog(
+            ChangeLogEntity(
+                targetUsername = cleanUser,
+                eventType = "post_vanished",
+                title = "$title (/p/${oldPost.id})",
+                oldValue = oldPost.id,
+                newValue = desc,
+                timestamp = nowMs
+            )
+        )
+        dispatchAlert(
+            targetUsername = cleanUser,
+            eventType = "post_vanished",
+            title = title,
+            message = desc,
+            timestamp = nowMs
+        )
+    }
+
     companion object {
         private const val AVATAR_DHASH_THRESHOLD = 6
         private const val HIGHLIGHT_TRAY_REFRESH_INTERVAL_MS = 3L * 60L * 1000L
         private const val ACTIVE_STORY_REFRESH_INTERVAL_MS = 3L * 60L * 1000L
         private const val FRIENDSHIP_REFRESH_INTERVAL_MS = 15L * 60L * 1000L
         private const val UNFOLLOWED_PRIVATE_COOLDOWN_MS = 30L * 60L * 1000L
+        private const val MAX_VERIFY_CANDIDATES_PER_CYCLE = 20
+        private const val PRIVATE_MISSING_CONFIRM_CHECKS = 2
+        private const val POST_VANISHED_DEDUP_WINDOW_MS = 12L * 60L * 60L * 1000L
     }
 }

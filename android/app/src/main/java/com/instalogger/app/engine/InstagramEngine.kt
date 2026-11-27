@@ -79,8 +79,17 @@ data class PostMediaDetails(
     val metadata: ExtractedPostMetadata? = null
 )
 
+enum class PostExistenceStatus {
+    EXISTS,
+    CONFIRMED_DELETED,
+    UNKNOWN
+}
+
 sealed class PostFetchResult {
-    data class Success(val posts: List<InstagramPostItem>) : PostFetchResult()
+    data class Success(
+        val posts: List<InstagramPostItem>,
+        val isCompleteFeed: Boolean = false
+    ) : PostFetchResult()
     object RequiresSession : PostFetchResult()
     object RateLimited : PostFetchResult()
     data class Error(val message: String) : PostFetchResult()
@@ -2020,9 +2029,10 @@ class InstagramEngine(context: Context? = null) {
                                     if (apiPrivate && !hasRealSession) {
                                         return PostFetchResult.RequiresSession
                                     }
-                                    val edges = userObj
-                                        ?.getAsJsonObject("edge_owner_to_timeline_media")
-                                        ?.getAsJsonArray("edges")
+                                    val timelineObj = userObj?.getAsJsonObject("edge_owner_to_timeline_media")
+                                    val edges = timelineObj?.getAsJsonArray("edges")
+                                    val hasNextPage = timelineObj?.getAsJsonObject("page_info")
+                                        ?.get("has_next_page")?.takeIf { !it.isJsonNull }?.asBoolean ?: true
                                     if (edges != null && edges.size() > 0) {
                                         for (edge in edges) {
                                             if (list.size >= limit) break
@@ -2062,7 +2072,8 @@ class InstagramEngine(context: Context? = null) {
                                                 )
                                             )
                                         }
-                                        return PostFetchResult.Success(list)
+                                        val isComplete = !hasNextPage && edges.size() < limit
+                                        return PostFetchResult.Success(list, isCompleteFeed = isComplete)
                                     }
                                 }
                             }
@@ -2129,7 +2140,11 @@ class InstagramEngine(context: Context? = null) {
                                         )
                                     )
                                 }
-                                if (list.isNotEmpty()) return PostFetchResult.Success(list)
+                                if (list.isNotEmpty()) {
+                                    val moreAvailable = root.get("more_available")?.takeIf { !it.isJsonNull }?.asBoolean ?: true
+                                    val isComplete = !moreAvailable && items.size() < limit
+                                    return PostFetchResult.Success(list, isCompleteFeed = isComplete)
+                                }
                             }
                         }
                     }
@@ -2157,10 +2172,12 @@ class InstagramEngine(context: Context? = null) {
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: ""
                         val root = gson.fromJson(body, JsonObject::class.java)
-                        val edges = root?.getAsJsonObject("data")
+                        val timelineObj = root?.getAsJsonObject("data")
                             ?.getAsJsonObject("user")
                             ?.getAsJsonObject("edge_owner_to_timeline_media")
-                            ?.getAsJsonArray("edges")
+                        val edges = timelineObj?.getAsJsonArray("edges")
+                        val hasNextPage = timelineObj?.getAsJsonObject("page_info")
+                            ?.get("has_next_page")?.takeIf { !it.isJsonNull }?.asBoolean ?: true
                         if (edges != null && edges.size() > 0) {
                             for (edge in edges) {
                                 if (list.size >= limit) break
@@ -2199,7 +2216,8 @@ class InstagramEngine(context: Context? = null) {
                                     )
                                 )
                             }
-                            return PostFetchResult.Success(list)
+                            val isComplete = !hasNextPage && edges.size() < limit
+                            return PostFetchResult.Success(list, isCompleteFeed = isComplete)
                         }
                     }
                 }
@@ -3087,11 +3105,19 @@ class InstagramEngine(context: Context? = null) {
         }
         val allByCode = linkedMapOf<String, InstagramPostItem>()
         var sawRateLimit = false
+        var v1ReachedEnd = false
+        var v1HadPageFailure = false
+        var truncatedByLimit = false
 
         suspend fun emitNew(items: List<InstagramPostItem>) {
             val fresh = mutableListOf<InstagramPostItem>()
             for (item in items) {
-                if (allByCode.size >= targetLimit) break
+                if (allByCode.size >= targetLimit) {
+                    if (!allByCode.containsKey(item.shortcode)) {
+                        truncatedByLimit = true
+                    }
+                    break
+                }
                 val prev = allByCode[item.shortcode]
                 if (prev == null) {
                     allByCode[item.shortcode] = item
@@ -3129,9 +3155,9 @@ class InstagramEngine(context: Context? = null) {
             }
         }
 
-        // If we already captured all expected posts, stop immediately
+        // If we already captured all expected posts, stop immediately (not marked isCompleteFeed since SSR is unpaginated)
         if (expectedTotal > 0L && allByCode.size.toLong() >= expectedTotal) {
-            return PostFetchResult.Success(allByCode.values.toList())
+            return PostFetchResult.Success(allByCode.values.toList(), isCompleteFeed = false)
         }
 
         // Stage 2: Fast Authenticated v1 Feed Cursor Pagination (33 posts/page via next_max_id)
@@ -3165,6 +3191,7 @@ class InstagramEngine(context: Context? = null) {
                 var pageItems: List<InstagramPostItem> = emptyList()
                 var pageMore = false
                 var pageNextCursor: String? = null
+                var pageSucceeded = false
 
                 for ((feedUrl, ua) in candidates) {
                     try {
@@ -3185,7 +3212,8 @@ class InstagramEngine(context: Context? = null) {
                                 if (body.startsWith("{")) {
                                     val root = gson.fromJson(body, JsonObject::class.java)
                                     val itemsArr = root?.getAsJsonArray("items")
-                                    if (itemsArr != null && itemsArr.size() > 0) {
+                                    if (itemsArr != null) {
+                                        pageSucceeded = true
                                         val parsed = mutableListOf<InstagramPostItem>()
                                         for (itemEl in itemsArr) {
                                             val node = itemEl.asJsonObject ?: continue
@@ -3236,14 +3264,22 @@ class InstagramEngine(context: Context? = null) {
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage2 page#$pageNum error: ${e.message}")
                     }
-                    if (pageItems.isNotEmpty()) break
+                    if (pageSucceeded) break
                 }
 
-                if (pageItems.isEmpty()) break
-                emitNew(pageItems)
-                AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage2 page#$pageNum: +${pageItems.size} (total=${allByCode.size}/$targetLimit)")
+                if (!pageSucceeded) {
+                    v1HadPageFailure = true
+                    break
+                }
+                if (pageItems.isNotEmpty()) {
+                    emitNew(pageItems)
+                    AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) Stage2 page#$pageNum: +${pageItems.size} (total=${allByCode.size}/$targetLimit)")
+                }
 
-                if (!pageMore || pageNextCursor.isNullOrBlank()) break
+                if (!pageMore || pageNextCursor.isNullOrBlank()) {
+                    v1ReachedEnd = true
+                    break
+                }
                 nextMaxId = pageNextCursor
                 if (pageDelayMs > 0L) {
                     kotlinx.coroutines.delay(pageDelayMs)
@@ -3252,6 +3288,7 @@ class InstagramEngine(context: Context? = null) {
         }
 
         val stillMissingPages = allByCode.size < targetLimit &&
+            !v1ReachedEnd &&
             (expectedTotal == 0L || allByCode.size.toLong() < expectedTotal) &&
             (allByCode.size <= 12 || expectedTotal > allByCode.size.toLong())
         if (stillMissingPages && headlessScraper != null && (!isPrivate || hasRealSession)) {
@@ -3271,7 +3308,7 @@ class InstagramEngine(context: Context? = null) {
                         if (scrapeResult.posts.isNotEmpty()) {
                             emitNew(scrapeResult.posts)
                         } else if (allByCode.isEmpty()) {
-                            return PostFetchResult.Success(emptyList())
+                            return PostFetchResult.Success(emptyList(), isCompleteFeed = false)
                         }
                     }
                     is HeadlessScrapeResult.PrivateAccount -> {
@@ -3295,8 +3332,296 @@ class InstagramEngine(context: Context? = null) {
             return fetchRecentPostsDetailed(userId, cleanUser, cookieString, limit = 24, isPrivate = isPrivate)
         }
 
-        AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) DONE: total=${allByCode.size} posts discovered")
-        return PostFetchResult.Success(allByCode.values.toList())
+        val isCompleteFeed = (maxPosts == 0) &&
+            v1ReachedEnd &&
+            !v1HadPageFailure &&
+            !sawRateLimit &&
+            !truncatedByLimit
+        AppLogger.i(TAG, "fetchAllPostsPaginated(@$cleanUser) DONE: total=${allByCode.size} posts discovered (isCompleteFeed=$isCompleteFeed)")
+        return PostFetchResult.Success(allByCode.values.toList(), isCompleteFeed = isCompleteFeed)
+    }
+
+    /**
+     * Authoritative multi-tier check to verify whether a specific Instagram post shortcode
+     * still exists or has genuinely been deleted/archived.
+     *
+     * Rules:
+     * - If ANY tier observes the post alive, immediately returns [PostExistenceStatus.EXISTS].
+     * - Rate limits (429), login redirects, auth errors (401/403), or network errors NEVER
+     *   count as deletion and result in [PostExistenceStatus.UNKNOWN].
+     * - Public posts require at least 2 independent deletion confirmations (e.g. embed + oEmbed,
+     *   or authenticated media/info + embed/page 404) to return [PostExistenceStatus.CONFIRMED_DELETED].
+     * - Private posts with a valid session require explicit v1 media/info "Media not found"
+     *   (or 2 authenticated 404 signals) to return [PostExistenceStatus.CONFIRMED_DELETED].
+     */
+    suspend fun verifyPostExistence(
+        shortcode: String,
+        username: String,
+        cookieString: String?,
+        isPrivate: Boolean
+    ): PostExistenceStatus {
+        val code = shortcode.trim().substringBefore('/').substringBefore('?')
+        if (code.isBlank() ||
+            !code.matches(Regex("^[A-Za-z0-9_-]{5,45}$")) ||
+            code.contains("_slide_") ||
+            code.endsWith("_thumb", ignoreCase = true)
+        ) {
+            return PostExistenceStatus.UNKNOWN
+        }
+
+        val cleanUser = username.trim().trimStart('@').lowercase(Locale.ROOT)
+        val hasSession = !cookieString.isNullOrBlank()
+        val mediaId = com.instalogger.app.engine.comments.CommentTreeEngine.shortcodeToMediaId(
+            if (code.length > 11) code.take(11) else code
+        )
+
+        var apiMediaNotFound = false
+        var webPost404 = false
+        var embedSaysDeleted = false
+        var oembed404 = false
+        var publicPage404 = false
+
+        // Tier 1: Authenticated v1 media/{mediaId}/info/ (works for both public & followed private accounts)
+        if (hasSession && !mediaId.isNullOrBlank()) {
+            try {
+                val infoUrl = "https://www.instagram.com/api/v1/media/$mediaId/info/"
+                val req = applyAuthenticatedApiHeaders(
+                    builder = Request.Builder().url(infoUrl),
+                    cookieString = cookieString!!,
+                    referer = "https://www.instagram.com/$cleanUser/"
+                )
+                client.newCall(req.build()).execute().use { resp ->
+                    val codeHttp = resp.code
+                    val body = resp.body?.string().orEmpty()
+                    val bodyLower = body.lowercase(Locale.ROOT)
+                    val isAuthOrLimit = codeHttp == 429 || codeHttp == 401 || codeHttp == 403 ||
+                        codeHttp in 300..399 ||
+                        bodyLower.contains("login_required") ||
+                        bodyLower.contains("checkpoint_required") ||
+                        bodyLower.contains("challenge_required") ||
+                        bodyLower.contains("please wait") ||
+                        bodyLower.contains("not authorized")
+
+                    if (!isAuthOrLimit && body.trimStart().startsWith("{")) {
+                        val json = try { gson.fromJson(body, JsonObject::class.java) } catch (_: Exception) { null }
+                        val items = json?.getAsJsonArray("items")
+                        if (codeHttp == 200 && items != null && items.size() > 0) {
+                            return PostExistenceStatus.EXISTS
+                        }
+                        val msg = json?.get("message")?.takeIf { !it.isJsonNull }?.asString?.lowercase(Locale.ROOT).orEmpty()
+                        val statusStr = json?.get("status")?.takeIf { !it.isJsonNull }?.asString?.lowercase(Locale.ROOT).orEmpty()
+                        if ((codeHttp == 400 || codeHttp == 404 || statusStr == "fail") &&
+                            (msg.contains("media not found") || msg.contains("has been deleted") || msg.contains("media is unavailable"))
+                        ) {
+                            apiMediaNotFound = true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "verifyPostExistence($code) Tier1 error: ${e.message}")
+            }
+        }
+
+        // Tier 2: Authenticated post JSON endpoint (?__a=1&__d=dis) without following login redirects
+        if (hasSession) {
+            try {
+                val webUrl = "https://www.instagram.com/p/$code/?__a=1&__d=dis"
+                val req = applyAuthenticatedApiHeaders(
+                    builder = Request.Builder().url(webUrl),
+                    cookieString = cookieString!!,
+                    referer = "https://www.instagram.com/$cleanUser/"
+                )
+                client.newCall(req.build()).execute().use { resp ->
+                    val codeHttp = resp.code
+                    val location = resp.header("Location").orEmpty()
+                    val body = resp.body?.string().orEmpty()
+                    val bodyLower = body.lowercase(Locale.ROOT)
+                    val isLoginOrLimit = codeHttp == 429 || codeHttp == 401 || codeHttp == 403 ||
+                        location.contains("/accounts/login") ||
+                        location.contains("/challenge") ||
+                        bodyLower.contains("login_required") ||
+                        bodyLower.contains("please wait")
+
+                    if (!isLoginOrLimit) {
+                        if (codeHttp == 200) {
+                            if (body.contains("\"shortcode\":\"$code\"") ||
+                                body.contains("\"code\":\"$code\"") ||
+                                body.contains("\"items\":[{") ||
+                                (body.contains("xdt_shortcode_media") && !body.contains("\"xdt_shortcode_media\":null"))
+                            ) {
+                                return PostExistenceStatus.EXISTS
+                            }
+                        } else if (codeHttp == 404) {
+                            webPost404 = true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "verifyPostExistence($code) Tier2 error: ${e.message}")
+            }
+        }
+
+        // Tier 3: Public Embed Check (/p/{code}/embed/captioned/ and /reel/{code}/embed/)
+        if (!isPrivate) {
+            var pEmbedDeleted = false
+            var reelEmbedDeleted = false
+            val embedChecks = listOf(
+                "https://www.instagram.com/p/$code/embed/captioned/" to true,
+                "https://www.instagram.com/reel/$code/embed/" to false
+            )
+            for ((embedUrl, isPostPath) in embedChecks) {
+                try {
+                    val req = Request.Builder()
+                        .url(embedUrl)
+                        .header("User-Agent", DESKTOP_CHROME_UA)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .header("Accept-Language", "en-US,en;q=0.9")
+                        .build()
+                    clientWithRedirects.newCall(req).execute().use { resp ->
+                        val finalPath = resp.request.url.encodedPath
+                        if (finalPath.contains("/accounts/login") || finalPath.contains("/challenge")) {
+                            return@use
+                        }
+                        if (resp.code == 429 || resp.code == 401 || resp.code == 403 || resp.code >= 500) {
+                            return@use
+                        }
+                        val html = resp.body?.string().orEmpty()
+                        if (resp.code == 200) {
+                            val hasLiveMedia = html.contains("EmbeddedMediaImage") ||
+                                html.contains("EmbeddedMediaVideo") ||
+                                html.contains("EmbedVideo") ||
+                                html.contains("CaptionUsername") ||
+                                html.contains("edge_shortcode_media") ||
+                                html.contains("\"shortcode\":\"$code\"") ||
+                                html.contains("\"shortcode\": \"$code\"")
+                            if (hasLiveMedia) {
+                                return PostExistenceStatus.EXISTS
+                            }
+                            val hasRemovedMarker = html.contains("BrokenMedia") ||
+                                html.contains("This post is unavailable", ignoreCase = true) ||
+                                html.contains("post may have been removed", ignoreCase = true) ||
+                                html.contains("link you followed may be broken", ignoreCase = true) ||
+                                html.contains("Sorry, this page isn't available", ignoreCase = true)
+                            if (hasRemovedMarker && !html.contains("loginForm")) {
+                                if (isPostPath) pEmbedDeleted = true else reelEmbedDeleted = true
+                            }
+                        } else if (resp.code == 404) {
+                            if (isPostPath) pEmbedDeleted = true else reelEmbedDeleted = true
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "verifyPostExistence($code) Tier3($embedUrl) error: ${e.message}")
+                }
+                // Only check /reel/ fallback if /p/ suggested deleted (otherwise /p/ was inconclusive)
+                if (isPostPath && !pEmbedDeleted) break
+            }
+            if (pEmbedDeleted && reelEmbedDeleted) {
+                embedSaysDeleted = true
+            }
+        }
+
+        // Tier 4: Public oEmbed API (independent confirmation for public posts)
+        if (!isPrivate) {
+            try {
+                val encodedPostUrl = URLEncoder.encode("https://www.instagram.com/p/$code/", "UTF-8")
+                val oembedUrls = listOf(
+                    "https://www.instagram.com/api/v1/oembed/?url=$encodedPostUrl",
+                    "https://api.instagram.com/oembed/?url=$encodedPostUrl"
+                )
+                for (oUrl in oembedUrls) {
+                    val reqBuilder = Request.Builder()
+                        .url(oUrl)
+                        .header("User-Agent", DESKTOP_CHROME_UA)
+                        .header("Accept", "application/json")
+                    val effCookie = cookieString?.takeIf { it.isNotBlank() } ?: getOrFetchGuestCookies()
+                    if (!effCookie.isNullOrBlank() && oUrl.contains("www.instagram.com")) {
+                        reqBuilder.header("Cookie", effCookie)
+                    }
+                    clientWithRedirects.newCall(reqBuilder.build()).execute().use { resp ->
+                        val finalPath = resp.request.url.encodedPath
+                        if (finalPath.contains("/accounts/login") || finalPath.contains("/challenge")) {
+                            return@use
+                        }
+                        if (resp.code == 429 || resp.code == 401 || resp.code == 403 || resp.code >= 500) {
+                            return@use
+                        }
+                        val body = resp.body?.string().orEmpty()
+                        val bodyLower = body.lowercase(Locale.ROOT)
+                        if (resp.code == 200 && body.trimStart().startsWith("{")) {
+                            val json = try { gson.fromJson(body, JsonObject::class.java) } catch (_: Exception) { null }
+                            val hasFields = !json?.get("media_id")?.takeIf { !it.isJsonNull }?.asString.isNullOrBlank() ||
+                                !json?.get("author_name")?.takeIf { !it.isJsonNull }?.asString.isNullOrBlank() ||
+                                !json?.get("thumbnail_url")?.takeIf { !it.isJsonNull }?.asString.isNullOrBlank()
+                            if (hasFields) {
+                                return PostExistenceStatus.EXISTS
+                            }
+                        } else if (resp.code == 404 &&
+                            !bodyLower.contains("login_required") &&
+                            !bodyLower.contains("please wait") &&
+                            !bodyLower.contains("loginform")
+                        ) {
+                            oembed404 = true
+                        }
+                    }
+                    if (oembed404) break
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "verifyPostExistence($code) Tier4 error: ${e.message}")
+            }
+        }
+
+        // Tier 5: Public desktop post page corroboration (only if we already have 1 deleted signal and need a 2nd)
+        val interimSignals = listOf(apiMediaNotFound, webPost404, embedSaysDeleted, oembed404).count { it }
+        if (!isPrivate && interimSignals == 1) {
+            try {
+                val pageUrl = "https://www.instagram.com/p/$code/"
+                val req = Request.Builder()
+                    .url(pageUrl)
+                    .header("User-Agent", DESKTOP_CHROME_UA)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .build()
+                clientWithRedirects.newCall(req).execute().use { resp ->
+                    val finalPath = resp.request.url.encodedPath
+                    if (!finalPath.contains("/accounts/login") && !finalPath.contains("/challenge") &&
+                        resp.code != 429 && resp.code != 401 && resp.code != 403 && resp.code < 500
+                    ) {
+                        val html = resp.body?.string().orEmpty()
+                        if (resp.code == 200) {
+                            if (html.contains("\"shortcode\":\"$code\"") ||
+                                html.contains("\"code\":\"$code\"") ||
+                                (html.contains("og:image") && (html.contains("cdninstagram.com") || html.contains("fbcdn.net")))
+                            ) {
+                                return PostExistenceStatus.EXISTS
+                            }
+                            if ((html.contains("Sorry, this page isn't available", ignoreCase = true) ||
+                                    html.contains("link you followed may be broken", ignoreCase = true)) &&
+                                !html.contains("loginForm")
+                            ) {
+                                publicPage404 = true
+                            }
+                        } else if (resp.code == 404 && !html.contains("loginForm")) {
+                            publicPage404 = true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "verifyPostExistence($code) Tier5 error: ${e.message}")
+            }
+        }
+
+        val totalDeletedSignals = listOf(apiMediaNotFound, webPost404, embedSaysDeleted, oembed404, publicPage404).count { it }
+        AppLogger.d(
+            TAG,
+            "verifyPostExistence($code, private=$isPrivate): signals=$totalDeletedSignals " +
+                "(apiNotFound=$apiMediaNotFound, web404=$webPost404, embed=$embedSaysDeleted, oembed=$oembed404, page404=$publicPage404)"
+        )
+
+        return when {
+            totalDeletedSignals >= 2 -> PostExistenceStatus.CONFIRMED_DELETED
+            isPrivate && hasSession && apiMediaNotFound -> PostExistenceStatus.CONFIRMED_DELETED
+            else -> PostExistenceStatus.UNKNOWN
+        }
     }
 
     suspend fun fetchPostComments(

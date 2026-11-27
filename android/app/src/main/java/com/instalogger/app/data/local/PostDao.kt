@@ -20,6 +20,9 @@ interface PostDao {
     @Query("SELECT COUNT(*) FROM posts WHERE username = :username")
     suspend fun getPostsCountForUser(username: String): Int
 
+    @Query("SELECT COUNT(*) FROM posts WHERE username = :username AND isVanished = 0")
+    suspend fun getActivePostsCountForUser(username: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPost(post: PostEntity)
 
