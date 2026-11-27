@@ -12,20 +12,27 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VpnKey
@@ -36,10 +43,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.ui.animation.bouncyClickable
@@ -59,6 +69,9 @@ fun InstagramSessionScreen() {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val autoPreviewEnabled by app.settingsManager.sessionWebViewAutoPreview.collectAsStateWithLifecycle()
+    var isWebViewOpen by remember(autoPreviewEnabled) { mutableStateOf(autoPreviewEnabled) }
+
     var selectedTab by remember { mutableIntStateOf(0) }
     var hasSession by remember { mutableStateOf(app.sessionManager.hasSession()) }
     var showClearSessionDialog by remember { mutableStateOf(false) }
@@ -66,6 +79,26 @@ fun InstagramSessionScreen() {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var isLoadingWeb by remember { mutableStateOf(true) }
     var webProgress by remember { mutableFloatStateOf(0.1f) }
+
+    fun closeWebView() {
+        runCatching {
+            webViewRef?.stopLoading()
+            webViewRef?.destroy()
+        }
+        webViewRef = null
+        isLoadingWeb = false
+        isWebViewOpen = false
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching {
+                webViewRef?.stopLoading()
+                webViewRef?.destroy()
+            }
+            webViewRef = null
+        }
+    }
 
     val capturedMsg = stringResource(R.string.msg_session_captured)
     val savedMsg = stringResource(R.string.msg_cookie_saved)
@@ -79,10 +112,10 @@ fun InstagramSessionScreen() {
         }
     }
 
-    // Periodic automatic cookie detection while in login WebView
-    LaunchedEffect(selectedTab, hasSession) {
-        if (selectedTab == 0 && !hasSession) {
-            while (!hasSession) {
+    // Periodic automatic cookie detection ONLY while login WebView is actively open
+    LaunchedEffect(selectedTab, hasSession, isWebViewOpen) {
+        if (selectedTab == 0 && isWebViewOpen && !hasSession) {
+            while (!hasSession && isWebViewOpen) {
                 kotlinx.coroutines.delay(1500)
                 try {
                     val cookies = captureMergedInstagramCookies()
@@ -190,146 +223,252 @@ fun InstagramSessionScreen() {
             when (selectedTab) {
                 0 -> {
                     val webViewShape = ShapeTokens.LargeShape
-                    Column(
+                    AnimatedContent(
+                        targetState = isWebViewOpen,
+                        transitionSpec = {
+                            fadeIn(tween(220)) togetherWith fadeOut(tween(180))
+                        },
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(R.string.webview_login_title),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(
-                                    onClick = {
-                                        val cookies = captureMergedInstagramCookies()
-                                        if (cookies != null && cookies.contains("sessionid=")) {
-                                            app.sessionManager.saveCookieString(cookies)
-                                            manualCookieText = cookies
-                                            hasSession = true
-                                            scope.launch { snackbarHostState.showSnackbar(capturedMsg) }
-                                        } else {
-                                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.session_not_detected_yet)) }
-                                        }
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(stringResource(R.string.btn_check), style = MaterialTheme.typography.labelSmall)
-                                }
-
-                                TextButton(
-                                    onClick = { webViewRef?.reload() },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(stringResource(R.string.btn_refresh), style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            shape = webViewShape,
-                            border = androidx.compose.foundation.BorderStroke(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant),
-                            color = MaterialTheme.colorScheme.surface
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                val isDark = isSystemInDarkTheme()
-                                AndroidView(
-                                    factory = { ctx ->
-                                        WebView(ctx).apply {
-                                            webViewRef = this
-                                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                                            layoutParams = ViewGroup.LayoutParams(
-                                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                                ViewGroup.LayoutParams.MATCH_PARENT
-                                            )
-                                            setBackgroundColor(if (isDark) 0xFF0D0E12.toInt() else 0xFFFFFFFF.toInt())
-                                            val cm = CookieManager.getInstance()
-                                            cm.setAcceptCookie(true)
-                                            cm.setAcceptThirdPartyCookies(this, true)
-
-                                            settings.apply {
-                                                javaScriptEnabled = true
-                                                domStorageEnabled = true
-                                                databaseEnabled = true
-                                                useWideViewPort = true
-                                                loadWithOverviewMode = true
-                                                javaScriptCanOpenWindowsAutomatically = true
-                                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                                cacheMode = WebSettings.LOAD_DEFAULT
-                                                userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
-                                            }
-
-                                            webChromeClient = object : WebChromeClient() {
-                                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                                    webProgress = newProgress / 100f
-                                                    isLoadingWeb = newProgress < 100
-                                                }
-                                            }
-
-                                            webViewClient = object : WebViewClient() {
-                                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                                    val uri = request?.url ?: return false
-                                                    val scheme = uri.scheme?.lowercase()
-                                                    if (scheme == "http" || scheme == "https") {
-                                                        return false
-                                                    }
-                                                    // Prevent intent:// or instagram:// redirects from failing
-                                                    return true
-                                                }
-
-                                                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                                                    super.onReceivedError(view, request, error)
-                                                    if (request?.isForMainFrame == true) {
-                                                        isLoadingWeb = false
-                                                    }
-                                                }
-
-                                                override fun onPageFinished(view: WebView?, url: String?) {
-                                                    super.onPageFinished(view, url)
-                                                    isLoadingWeb = false
-                                                    val cookies = captureMergedInstagramCookies()
-                                                    if (cookies != null && cookies.contains("sessionid=")) {
-                                                        app.sessionManager.saveCookieString(cookies)
-                                                        manualCookieText = cookies
-                                                        hasSession = true
-                                                        scope.launch {
-                                                            snackbarHostState.showSnackbar(capturedMsg)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            loadUrl("https://www.instagram.com/accounts/login/")
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-
-                            if (isLoadingWeb) {
-                                LinearProgressIndicator(
-                                    progress = { webProgress },
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        label = "session_webview_state"
+                    ) { open ->
+                        if (!open) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .align(Alignment.TopCenter)
-                                )
+                                        .widthIn(max = 460.dp)
+                                        .clip(webViewShape)
+                                        .border(
+                                            ShapeTokens.BorderSubtle,
+                                            MaterialTheme.colorScheme.outlineVariant,
+                                            webViewShape
+                                        ),
+                                    shape = webViewShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 28.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .clip(CircleShape)
+                                                .background(AccentBlue.copy(alpha = 0.14f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Public,
+                                                contentDescription = null,
+                                                tint = AccentBlue,
+                                                modifier = Modifier.size(30.dp)
+                                            )
+                                        }
+
+                                        Text(
+                                            text = stringResource(R.string.session_webview_closed_title),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            textAlign = TextAlign.Center
+                                        )
+
+                                        Text(
+                                            text = stringResource(R.string.session_webview_closed_desc),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center
+                                        )
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Button(
+                                            onClick = {
+                                                isLoadingWeb = true
+                                                webProgress = 0.1f
+                                                isWebViewOpen = true
+                                            },
+                                            shape = ShapeTokens.MediumShape,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 48.dp)
+                                                .testTag("session_open_webview_btn")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.OpenInBrowser,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = stringResource(R.string.session_webview_btn_open),
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.webview_login_title),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        TextButton(
+                                            onClick = {
+                                                val cookies = captureMergedInstagramCookies()
+                                                if (cookies != null && cookies.contains("sessionid=")) {
+                                                    app.sessionManager.saveCookieString(cookies)
+                                                    manualCookieText = cookies
+                                                    hasSession = true
+                                                    scope.launch { snackbarHostState.showSnackbar(capturedMsg) }
+                                                } else {
+                                                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.session_not_detected_yet)) }
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(stringResource(R.string.btn_check), style = MaterialTheme.typography.labelSmall)
+                                        }
+
+                                        TextButton(
+                                            onClick = { webViewRef?.reload() },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(stringResource(R.string.btn_refresh), style = MaterialTheme.typography.labelSmall)
+                                        }
+
+                                        TextButton(
+                                            onClick = { closeWebView() },
+                                            colors = ButtonDefaults.textButtonColors(
+                                                contentColor = MaterialTheme.colorScheme.error
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.testTag("session_close_webview_btn")
+                                        ) {
+                                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(stringResource(R.string.session_webview_btn_close), style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier.fillMaxSize(),
+                                    shape = webViewShape,
+                                    border = androidx.compose.foundation.BorderStroke(ShapeTokens.BorderSubtle, MaterialTheme.colorScheme.outlineVariant),
+                                    color = MaterialTheme.colorScheme.surface
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        val isDark = isSystemInDarkTheme()
+                                        AndroidView(
+                                            factory = { ctx ->
+                                                WebView(ctx).apply {
+                                                    webViewRef = this
+                                                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                                    layoutParams = ViewGroup.LayoutParams(
+                                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                                    )
+                                                    setBackgroundColor(if (isDark) 0xFF0D0E12.toInt() else 0xFFFFFFFF.toInt())
+                                                    val cm = CookieManager.getInstance()
+                                                    cm.setAcceptCookie(true)
+                                                    cm.setAcceptThirdPartyCookies(this, true)
+
+                                                    settings.apply {
+                                                        javaScriptEnabled = true
+                                                        domStorageEnabled = true
+                                                        databaseEnabled = true
+                                                        useWideViewPort = true
+                                                        loadWithOverviewMode = true
+                                                        javaScriptCanOpenWindowsAutomatically = true
+                                                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                                        cacheMode = WebSettings.LOAD_DEFAULT
+                                                        userAgentString = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.200 Mobile Safari/537.36"
+                                                    }
+
+                                                    webChromeClient = object : WebChromeClient() {
+                                                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                                            webProgress = newProgress / 100f
+                                                            isLoadingWeb = newProgress < 100
+                                                        }
+                                                    }
+
+                                                    webViewClient = object : WebViewClient() {
+                                                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                                            val uri = request?.url ?: return false
+                                                            val scheme = uri.scheme?.lowercase()
+                                                            if (scheme == "http" || scheme == "https") {
+                                                                return false
+                                                            }
+                                                            // Prevent intent:// or instagram:// redirects from failing
+                                                            return true
+                                                        }
+
+                                                        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                                                            super.onReceivedError(view, request, error)
+                                                            if (request?.isForMainFrame == true) {
+                                                                isLoadingWeb = false
+                                                            }
+                                                        }
+
+                                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                                            super.onPageFinished(view, url)
+                                                            isLoadingWeb = false
+                                                            val cookies = captureMergedInstagramCookies()
+                                                            if (cookies != null && cookies.contains("sessionid=")) {
+                                                                app.sessionManager.saveCookieString(cookies)
+                                                                manualCookieText = cookies
+                                                                hasSession = true
+                                                                scope.launch {
+                                                                    snackbarHostState.showSnackbar(capturedMsg)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    loadUrl("https://www.instagram.com/accounts/login/")
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        if (isLoadingWeb) {
+                                            LinearProgressIndicator(
+                                                progress = { webProgress },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .align(Alignment.TopCenter)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
             1 -> {
                     Column(
                         modifier = Modifier

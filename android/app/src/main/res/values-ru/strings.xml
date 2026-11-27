@@ -749,4 +749,19 @@
     <string name="update_error_storage_generic">Недостаточно места в памяти устройства для установки.</string>
     <string name="update_error_install_failed">Ошибка установки. Попробуйте снова.</string>
     <string name="update_error_generic">Произошла непредвиденная ошибка обновления.</string>
+
+    <!-- Session WebView Preview Toggle -->
+    <string name="session_webview_preview_setting_title">Предпросмотр WebView сессии</string>
+    <string name="session_webview_preview_setting_desc">Автоматически загружать браузер Instagram при открытии вкладки Сессия</string>
+    <string name="session_webview_closed_title">Браузер Instagram закрыт</string>
+    <string name="session_webview_closed_desc">Для скорости и приватности WebView не открывается автоматически. Нажмите ниже, чтобы открыть, или настройте поведение в Настройках.</string>
+    <string name="session_webview_btn_open">Открыть браузер</string>
+    <string name="session_webview_btn_close">Закрыть</string>
+
+    <!-- Splash Screen Real Loading Stages -->
+    <string name="splash_stage_init">Запуск...</string>
+    <string name="splash_stage_security">Проверка зашифрованного Vault...</string>
+    <string name="splash_stage_database">Подготовка базы данных...</string>
+    <string name="splash_stage_session">Синхронизация сессии и служб...</string>
+    <string name="splash_stage_ready">Готово</string>
 </resources>

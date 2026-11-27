@@ -687,4 +687,19 @@
     <string name="update_error_storage_generic">Not enough free storage space to install this update.</string>
     <string name="update_error_install_failed">Installation failed. Please try again.</string>
     <string name="update_error_generic">Unexpected update error occurred.</string>
+
+    <!-- Session WebView Preview Toggle -->
+    <string name="session_webview_preview_setting_title">Session WebView Preview</string>
+    <string name="session_webview_preview_setting_desc">Automatically load Instagram browser when opening Session tab</string>
+    <string name="session_webview_closed_title">Instagram Browser is Closed</string>
+    <string name="session_webview_closed_desc">For speed and privacy, the WebView does not auto-preview on open. Tap below to open it or configure default behavior in Settings.</string>
+    <string name="session_webview_btn_open">Open Browser</string>
+    <string name="session_webview_btn_close">Close</string>
+
+    <!-- Splash Screen Real Loading Stages -->
+    <string name="splash_stage_init">Initializing...</string>
+    <string name="splash_stage_security">Verifying encrypted Vault...</string>
+    <string name="splash_stage_database">Preparing database...</string>
+    <string name="splash_stage_session">Syncing session &amp; services...</string>
+    <string name="splash_stage_ready">Ready</string>
 </resources>

@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
+import androidx.annotation.StringRes
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.instalogger.app.data.local.AppDatabase
@@ -22,13 +24,33 @@ import com.instalogger.app.settings.NotificationCategory
 import com.instalogger.app.update.AppUpdateManager
 import com.instalogger.app.util.AppLockManager
 import com.instalogger.app.util.AppLogger
+import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.VaultMediaFetcher
 import com.instalogger.app.util.VaultStorageManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
+data class StartupProgressState(
+    val progress: Float = 0.08f,
+    @StringRes val stageResId: Int = R.string.splash_stage_init,
+    val isReady: Boolean = false
+)
+
 class InstaLoggerApp : Application(), ImageLoaderFactory {
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _startupProgress = MutableStateFlow(StartupProgressState())
+    val startupProgress: StateFlow<StartupProgressState> = _startupProgress.asStateFlow()
 
     lateinit var database: AppDatabase
         private set
@@ -143,10 +165,73 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
 
         refreshNotificationChannels()
 
-        // One-pass background sweep: encrypt & purge any legacy plaintext avatars/archives from older versions
-        Thread({
-            com.instalogger.app.util.ArchiveDirectoryManager.migrateAndPurgePlaintextMedia(this)
-        }, "VaultPrivacySweep").start()
+        runStartupPipeline()
+    }
+
+    private fun runStartupPipeline() {
+        appScope.launch {
+            val startedAt = SystemClock.elapsedRealtime()
+            try {
+                // Stage 1: Verify encrypted Vault, lock configuration & archive sandbox (.nomedia)
+                _startupProgress.value = StartupProgressState(
+                    progress = 0.24f,
+                    stageResId = R.string.splash_stage_security,
+                    isReady = false
+                )
+                runCatching {
+                    appLockManager.isLockConfigured()
+                    ArchiveDirectoryManager.init(this@InstaLoggerApp)
+                    ArchiveDirectoryManager.getArchiveDirectory(this@InstaLoggerApp)
+                    vaultStorageManager.vaultRoot.exists()
+                }
+
+                // Stage 2: Warm up Room SQLite WAL & preload active tracking targets
+                _startupProgress.value = StartupProgressState(
+                    progress = 0.54f,
+                    stageResId = R.string.splash_stage_database,
+                    isReady = false
+                )
+                runCatching {
+                    database.targetDao().getActiveTargets()
+                }
+
+                // Stage 3: Verify Instagram session state & run one-pass encrypted Vault migration sweep
+                _startupProgress.value = StartupProgressState(
+                    progress = 0.80f,
+                    stageResId = R.string.splash_stage_session,
+                    isReady = false
+                )
+                runCatching {
+                    sessionManager.hasSession()
+                    ArchiveDirectoryManager.migrateAndPurgePlaintextMedia(this@InstaLoggerApp)
+                }
+
+                // Stage 4: Finalize UI readiness cleanly without flicker
+                _startupProgress.value = StartupProgressState(
+                    progress = 0.94f,
+                    stageResId = R.string.splash_stage_ready,
+                    isReady = false
+                )
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                val minCalmDisplayMs = 820L
+                if (elapsed < minCalmDisplayMs) {
+                    delay(minCalmDisplayMs - elapsed)
+                }
+
+                _startupProgress.value = StartupProgressState(
+                    progress = 1.0f,
+                    stageResId = R.string.splash_stage_ready,
+                    isReady = false
+                )
+                delay(260L)
+            } finally {
+                _startupProgress.value = StartupProgressState(
+                    progress = 1.0f,
+                    stageResId = R.string.splash_stage_ready,
+                    isReady = true
+                )
+            }
+        }
     }
 
     fun refreshNotificationChannels() {

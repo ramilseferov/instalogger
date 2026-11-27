@@ -763,4 +763,19 @@
     <string name="update_error_storage_generic">Quraşdırma üçün cihaz yaddaşında kifayət qədər yer yoxdur.</string>
     <string name="update_error_install_failed">Quraşdırma zamanı xəta baş verdi. Yenidən cəhd edin.</string>
     <string name="update_error_generic">Yeniləmə zamanı gözlənilməz xəta baş verdi.</string>
+
+    <!-- Session WebView Preview Toggle -->
+    <string name="session_webview_preview_setting_title">Sessiya WebView önizləməsi</string>
+    <string name="session_webview_preview_setting_desc">Sessiya menyusu açıldıqda Instagram brauzerini avtomatik yüklə</string>
+    <string name="session_webview_closed_title">Instagram brauzeri bağlıdır</string>
+    <string name="session_webview_closed_desc">Məxfilik və sürət üçün WebView menyu açıldıqda avtomatik açılmır. Daxil olmaq üçün aşağıdakı düymə ilə aça və ya Ayarlardan tənzimləyə bilərsiniz.</string>
+    <string name="session_webview_btn_open">Brauzeri aç</string>
+    <string name="session_webview_btn_close">Bağla</string>
+
+    <!-- Splash Screen Real Loading Stages -->
+    <string name="splash_stage_init">Başladılır...</string>
+    <string name="splash_stage_security">Şifrəli Vault yoxlanılır...</string>
+    <string name="splash_stage_database">Verilənlər bazası hazırlanır...</string>
+    <string name="splash_stage_session">Sessiya və xidmətlər sinxronlaşdırılır...</string>
+    <string name="splash_stage_ready">İnterfeys hazırdır</string>
 </resources>

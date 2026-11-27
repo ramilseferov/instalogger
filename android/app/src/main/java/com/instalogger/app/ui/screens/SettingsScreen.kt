@@ -105,6 +105,7 @@ fun SettingsScreen(
     val currentLanguage by LanguageManager.currentLanguage.collectAsState()
     val currentThemeMode by app.settingsManager.themeMode.collectAsStateWithLifecycle()
     val statusBarNotifs by app.settingsManager.statusBarNotifications.collectAsStateWithLifecycle()
+    val sessionWebViewAutoPreview by app.settingsManager.sessionWebViewAutoPreview.collectAsStateWithLifecycle()
     val daemonSyncEnabled by app.settingsManager.daemonSyncEnabled.collectAsStateWithLifecycle()
     val daemonHostUrl by app.settingsManager.daemonHostUrl.collectAsStateWithLifecycle()
     val ytDlpEngineState by app.ytDlpProvider.engineState.collectAsStateWithLifecycle()
@@ -445,6 +446,51 @@ fun SettingsScreen(
                                     }
                                 }
                             }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 62.dp, end = 16.dp),
+                            thickness = 0.7.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    app.settingsManager.setSessionWebViewAutoPreview(!sessionWebViewAutoPreview)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            SettingsIconPod(icon = Icons.Default.WebAsset, tint = AccentBlue)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.session_webview_preview_setting_title),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = stringResource(R.string.session_webview_preview_setting_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Switch(
+                                checked = sessionWebViewAutoPreview,
+                                onCheckedChange = { enabled ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    app.settingsManager.setSessionWebViewAutoPreview(enabled)
+                                },
+                                modifier = Modifier.testTag("settings_session_webview_preview_switch")
+                            )
                         }
                     }
                 }

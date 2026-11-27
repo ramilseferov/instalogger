@@ -347,6 +347,9 @@ class AppSettingsManager(private val context: Context) {
     private val _autoArchivePendingEnabled = MutableStateFlow(loadBoolean(KEY_AUTO_ARCHIVE_PENDING, true))
     val autoArchivePendingEnabled: StateFlow<Boolean> = _autoArchivePendingEnabled.asStateFlow()
 
+    private val _sessionWebViewAutoPreview = MutableStateFlow(loadBoolean(KEY_SESSION_WEBVIEW_AUTO_PREVIEW, false))
+    val sessionWebViewAutoPreview: StateFlow<Boolean> = _sessionWebViewAutoPreview.asStateFlow()
+
     // 0 = Unlimited (sync all posts on profile, e.g., 300, 1000+)
     private val _maxPostsSyncLimit = MutableStateFlow(prefs.getInt(KEY_MAX_POSTS_SYNC_LIMIT, 0).coerceAtLeast(0))
 
@@ -684,6 +687,11 @@ class AppSettingsManager(private val context: Context) {
         prefs.edit().putBoolean(KEY_AUTO_ARCHIVE_PENDING, enabled).apply()
     }
 
+    fun setSessionWebViewAutoPreview(enabled: Boolean) {
+        _sessionWebViewAutoPreview.value = enabled
+        prefs.edit().putBoolean(KEY_SESSION_WEBVIEW_AUTO_PREVIEW, enabled).apply()
+    }
+
     fun setMaxPostsSyncLimit(limit: Int) {
         val safe = limit.coerceAtLeast(0)
         _maxPostsSyncLimit.value = safe
@@ -792,6 +800,7 @@ class AppSettingsManager(private val context: Context) {
         const val KEY_ARCHIVER_SPEED = "pref_archiver_speed_preset"
         const val KEY_KEEP_AWAKE = "pref_keep_awake_wakelock"
         const val KEY_AUTO_ARCHIVE_PENDING = "pref_auto_archive_pending"
+        const val KEY_SESSION_WEBVIEW_AUTO_PREVIEW = "pref_session_webview_auto_preview"
         const val KEY_MAX_POSTS_SYNC_LIMIT = "pref_max_posts_sync_limit"
         const val KEY_AUTO_CHECK_UPDATES = "pref_auto_check_updates"
         const val KEY_UPDATE_WIFI_ONLY = "pref_update_wifi_only"

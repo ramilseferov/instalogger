@@ -41,6 +41,7 @@ import com.instalogger.app.service.InstaLoggerForegroundService
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.components.AnimatedBottomBar
 import com.instalogger.app.ui.components.LanguageBlurOverlay
+import com.instalogger.app.ui.components.SplashOverlay
 import com.instalogger.app.ui.components.UpdateBottomSheet
 import com.instalogger.app.ui.components.languageTransitionBlur
 import com.instalogger.app.ui.screens.*
@@ -123,6 +124,7 @@ class MainActivity : FragmentActivity() {
         setContent {
             val currentLanguage by LanguageManager.currentLanguage.collectAsState()
             val themeMode by app.settingsManager.themeMode.collectAsState()
+            val startupState by app.startupProgress.collectAsStateWithLifecycle()
             val isAppLocked by app.appLockManager.isAppLocked.collectAsStateWithLifecycle()
             val isLockConfigured = remember(isAppLocked) { app.appLockManager.isLockConfigured() }
 
@@ -139,37 +141,38 @@ class MainActivity : FragmentActivity() {
                 LocalConfiguration provides localizedConfiguration
             ) {
                 InstaLoggerTheme(themeMode = themeMode) {
-                    if (isAppLocked && isLockConfigured) {
-                        AppLockScreen(
-                            activity = this@MainActivity,
-                            appLockManager = app.appLockManager
-                        )
-                    } else {
-                        val navController = rememberNavController()
-                        val navBackStackEntry by navController.currentBackStackEntryAsState()
-                        val currentDestination = navBackStackEntry?.destination
-                        val currentRoute = currentDestination?.route
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        if (isAppLocked && isLockConfigured) {
+                            AppLockScreen(
+                                activity = this@MainActivity,
+                                appLockManager = app.appLockManager
+                            )
+                        } else {
+                            val navController = rememberNavController()
+                            val navBackStackEntry by navController.currentBackStackEntryAsState()
+                            val currentDestination = navBackStackEntry?.destination
+                            val currentRoute = currentDestination?.route
 
-                        val isLanguageTransitioning by LanguageManager.isTransitioning.collectAsState()
-                        val isThemeTransitioning by app.settingsManager.isTransitioning.collectAsState()
-                        val isSettingsTransitionActive = isLanguageTransitioning || isThemeTransitioning
+                            val isLanguageTransitioning by LanguageManager.isTransitioning.collectAsState()
+                            val isThemeTransitioning by app.settingsManager.isTransitioning.collectAsState()
+                            val isSettingsTransitionActive = isLanguageTransitioning || isThemeTransitioning
 
-                        // Transition safety watchdog: guaranteed release within 600ms
-                        LaunchedEffect(isSettingsTransitionActive) {
-                            if (isSettingsTransitionActive) {
-                                kotlinx.coroutines.delay(600)
-                                LanguageManager.resetTransition()
+                            // Transition safety watchdog: guaranteed release within 600ms
+                            LaunchedEffect(isSettingsTransitionActive) {
+                                if (isSettingsTransitionActive) {
+                                    kotlinx.coroutines.delay(600)
+                                    LanguageManager.resetTransition()
+                                }
                             }
-                        }
 
-                        val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
+                            val unreadCount by app.notificationRepository.unreadCount.collectAsStateWithLifecycle(initialValue = 0)
 
-                        // Check battery optimization
-                        LaunchedEffect(Unit) {
-                            if (!BatteryHelper.isBatteryOptimizationIgnored(this@MainActivity)) {
-                                BatteryHelper.requestIgnoreBatteryOptimization(this@MainActivity)
+                            // Check battery optimization only after the splash screen has smoothly revealed the app
+                            LaunchedEffect(startupState.isReady) {
+                                if (startupState.isReady && !BatteryHelper.isBatteryOptimizationIgnored(this@MainActivity)) {
+                                    BatteryHelper.requestIgnoreBatteryOptimization(this@MainActivity)
+                                }
                             }
-                        }
 
                         val bottomNavItems = listOf(
                             Screen.Dashboard,
@@ -316,9 +319,12 @@ class MainActivity : FragmentActivity() {
                             UpdateBottomSheet(updateManager = app.updateManager)
                         }
                     }
+
+                    SplashOverlay(state = startupState)
                 }
             }
         }
+    }
     }
 
     override fun onNewIntent(intent: Intent) {
