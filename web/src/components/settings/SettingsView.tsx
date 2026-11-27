@@ -1130,7 +1130,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 size="sm"
                 variant="primary"
                 icon={<Lock size={13} strokeWidth={1.75} />}
-                disabled={savingPin || newPin.trim().length < 4}
+                disabled={savingPin || newPin.trim().length < 4 || (pinEnabled && currentPin.trim().length < 4)}
                 onClick={async () => {
                   setSavingPin(true);
                   setErrorMsg(null);
@@ -1149,31 +1149,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               >
                 {t.pin_set_btn}
               </Button>
-              {pinEnabled && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="danger"
-                  disabled={savingPin || !currentPin.trim()}
-                  onClick={async () => {
-                    setSavingPin(true);
-                    setErrorMsg(null);
-                    try {
-                      await api.setupPin('', currentPin.trim());
-                      setPinEnabled(false);
-                      setCurrentPin('');
-                      setNewPin('');
-                      flashSaved();
-                    } catch (e: any) {
-                      setErrorMsg(e?.message || t.pin_incorrect);
-                    } finally {
-                      setSavingPin(false);
-                    }
-                  }}
-                >
-                  {t.pin_disable_btn}
-                </Button>
-              )}
             </div>
           </Card>
         </section>

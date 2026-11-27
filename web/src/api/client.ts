@@ -20,21 +20,15 @@ import {
 
 const BASE_URL = '/api';
 
-function authHeaders(): Record<string, string> {
-  try {
-    const tok = sessionStorage.getItem('instalogger_auth_token');
-    return tok ? { 'X-Auth-Token': tok } : {};
-  } catch {
-    return {};
-  }
-}
-
 async function parseJsonOrThrow(res: Response) {
   let data: any = null;
   try {
     data = await res.json();
   } catch {
     data = null;
+  }
+  if (res.status === 401 && data?.message === 'Dashboard locked') {
+    window.dispatchEvent(new Event('instalogger:locked'));
   }
   if (!res.ok || (data && data.status === 'error')) {
     const msg = data?.message || `HTTP ${res.status} ${res.statusText}`;
@@ -374,7 +368,7 @@ export const api = {
   },
 
   async getAuthStatus(): Promise<AuthStatus> {
-    const res = await fetch(`${BASE_URL}/auth/status`, { headers: authHeaders() });
+    const res = await fetch(`${BASE_URL}/auth/status`);
     const data = await parseJsonOrThrow(res);
     return { enabled: Boolean(data.enabled), locked: Boolean(data.locked), timeout_minutes: data.timeout_minutes || 15 };
   },
@@ -382,13 +376,10 @@ export const api = {
   async setupPin(pin: string, current_pin?: string, timeout_minutes?: number): Promise<{ enabled: boolean; token?: string }> {
     const res = await fetch(`${BASE_URL}/auth/setup`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pin, current_pin, timeout_minutes }),
     });
     const data = await parseJsonOrThrow(res);
-    if (data.token) {
-      try { sessionStorage.setItem('instalogger_auth_token', data.token); } catch {}
-    }
     return { enabled: Boolean(data.enabled), token: data.token };
   },
 
@@ -400,15 +391,12 @@ export const api = {
     });
     const data = await parseJsonOrThrow(res);
     const token = data.token || '';
-    if (token) {
-      try { sessionStorage.setItem('instalogger_auth_token', token); } catch {}
-    }
     return token;
   },
 
   async lockDashboard(): Promise<void> {
-    await fetch(`${BASE_URL}/auth/lock`, { method: 'POST', headers: authHeaders() }).catch(() => {});
-    try { sessionStorage.removeItem('instalogger_auth_token'); } catch {}
+    await fetch(`${BASE_URL}/auth/lock`, { method: 'POST' }).catch(() => {});
+
   },
 
   async checkSystemUpdate(force = false): Promise<UpdateCheckResult> {

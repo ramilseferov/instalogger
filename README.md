@@ -132,6 +132,11 @@ npm run build
 
 When the Rust daemon runs, it serves the compiled `web/dist` bundle and REST/WebSocket API at `http://127.0.0.1:3000`.
 
+The daemon requires a dashboard PIN before it starts. An existing configured PIN is reused. On first start, set `INSTALOGGER_PIN_FILE` to the absolute path of a private file containing your chosen 4–12 digit PIN. Keep it outside the repository and archive directories and readable only by the service account. After successful initialization the file is no longer needed. Change the PIN from the authenticated dashboard. Changing it signs out existing sessions.
+
+For remote browser access, terminate HTTPS at a reverse proxy, preserve the original Host header and forward WebSocket upgrades. The browser uses a Secure, HttpOnly session cookie for the API, archives and WebSocket. Plain HTTP is intended only for localhost. Rebuild both the daemon and web bundle before restarting an existing deployment.
+
+
 ### Python Extraction Engine (`engine/`)
 Requires Python 3.11+.
 

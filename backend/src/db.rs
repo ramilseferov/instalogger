@@ -676,6 +676,24 @@ impl Database {
         Ok(val)
     }
 
+    pub fn initialize_dashboard_pin(&self, hash: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT INTO system_settings (key,value) VALUES ('dashboard_pin_hash',?1)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE system_settings.value=''", params![hash])?;
+        Ok(())
+    }
+
+    pub fn update_dashboard_pin(&self, hash: &str, minutes: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO system_settings (key,value) VALUES
+             ('dashboard_pin_hash',?1),('dashboard_lock_timeout',?2)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            params![hash, minutes.to_string()],
+        )?;
+        Ok(())
+    }
+
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

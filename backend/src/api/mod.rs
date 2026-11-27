@@ -27,6 +27,7 @@ use crate::scheduler::Scheduler;
 pub struct AppState {
     pub db: Database,
     pub scheduler: Arc<Scheduler>,
+    pub sessions: std::sync::Mutex<auth::Sessions>,
 }
 
 pub async fn health_check() -> impl IntoResponse {
@@ -41,10 +42,9 @@ pub async fn health_check() -> impl IntoResponse {
 }
 
 pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
-    let state = Arc::new(AppState { db, scheduler });
+    let state = Arc::new(AppState { db, scheduler, sessions: Default::default() });
 
     let api_routes = Router::new()
-        .route("/health", get(health_check))
         .route("/system/update-check", get(system::check_updates))
         .route("/targets", get(targets::list_targets).post(targets::add_target))
         .route(
@@ -89,9 +89,7 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
         .route("/storage/export/{target_id}", get(storage::export_target_archive_zip))
         .route("/providers/health", get(storage::list_provider_health))
         .route("/providers/health/reset", post(storage::reset_provider_health))
-        .route("/auth/status", get(auth::get_auth_status))
         .route("/auth/setup", post(auth::setup_pin))
-        .route("/auth/unlock", post(auth::unlock_pin))
         .route("/auth/lock", post(auth::lock_dashboard))
         .route("/downloads", get(downloads::list_downloads))
         .route("/downloads/pause-all", post(downloads::pause_all_downloads))
@@ -135,6 +133,10 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
     Router::new()
         .nest("/api", api_routes)
         .nest_service("/archives", ServeDir::new("archives"))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_session))
+        .route("/api/health", get(health_check))
+        .route("/api/auth/status", get(auth::get_auth_status))
+        .route("/api/auth/unlock", post(auth::unlock_pin))
         .fallback_service(ServeDir::new("web/dist"))
         .layer(cors)
         .with_state(state)

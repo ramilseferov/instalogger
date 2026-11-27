@@ -32,7 +32,7 @@ export const App: React.FC = () => {
   const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [updateBadgeVersion, setUpdateBadgeVersion] = useState<string | null>(null);
-  const [isLocked, setIsLocked] = useState(false);
+  const [isLocked, setIsLocked] = useState(true);
   const [toast, setToast] = useState<{ kind: 'info' | 'err'; text: string } | null>(null);
 
   const showToast = useCallback((kind: 'info' | 'err', text: string) => {
@@ -65,10 +65,17 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const lock = () => setIsLocked(true);
+    window.addEventListener('instalogger:locked', lock);
     api
       .getAuthStatus()
       .then((st) => setIsLocked(Boolean(st.enabled && st.locked)))
       .catch(() => {});
+    return () => window.removeEventListener('instalogger:locked', lock);
+  }, []);
+
+  useEffect(() => {
+    if (isLocked) return;
     api
       .checkSystemUpdate(false)
       .then((upd) => {
@@ -79,7 +86,7 @@ export const App: React.FC = () => {
       .catch(() => {});
     fetchTargets();
     refreshCounts();
-  }, [fetchTargets, refreshCounts]);
+  }, [fetchTargets, refreshCounts, isLocked]);
 
   const wsConnected = useWebSocket((msg) => {
     if (msg.type === 'change_detected') {
@@ -91,7 +98,7 @@ export const App: React.FC = () => {
     } else if (msg.type === 'archive_completed') {
       fetchTargets();
     }
-  });
+  }, !isLocked);
 
   const filteredTargets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

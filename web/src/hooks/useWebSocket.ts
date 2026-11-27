@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
-export function useWebSocket(onMessage: (msg: any) => void): boolean {
+export function useWebSocket(onMessage: (msg: any) => void, enabled = true): boolean {
   const [connected, setConnected] = useState(false);
   const cbRef = useRef(onMessage);
   cbRef.current = onMessage;
 
   useEffect(() => {
+    if (!enabled) return;
     if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') {
       return;
     }
@@ -50,12 +51,13 @@ export function useWebSocket(onMessage: (msg: any) => void): boolean {
     connect();
     return () => {
       disposed = true;
+      setConnected(false);
       if (timer !== null) window.clearTimeout(timer);
       try {
         ws?.close();
       } catch {}
     };
-  }, []);
+  }, [enabled]);
 
   return connected;
 }

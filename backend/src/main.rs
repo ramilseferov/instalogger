@@ -29,6 +29,14 @@ async fn main() -> Result<()> {
     let db = Database::init(db_path)?;
     info!("SQLite database initialized at {}", db_path);
 
+    if db.get_setting("dashboard_pin_hash")?.unwrap_or_default().is_empty() {
+        let path = std::env::var_os("INSTALOGGER_PIN_FILE").ok_or_else(|| anyhow::anyhow!(
+            "Configure a dashboard PIN before starting: set INSTALOGGER_PIN_FILE to a private file containing 4 to 12 digits"
+        ))?;
+        let pin = std::fs::read_to_string(path)?;
+        instalogger_backend::api::auth::initialize_pin(&db, pin.trim())?;
+    }
+
     let notify = Arc::new(Notifier::new(db.clone()));
     let worker_script = PathBuf::from("engine/worker.py");
     let worker = Arc::new(WorkerBridge::new(worker_script));
