@@ -264,15 +264,6 @@ class ProfileInspector(
                                 val vaultCurrent = vaultManager.saveEncryptedFile(cleanUser, "profile", "avatar_current.jpg", plainBytes)
                                 val vaultHistory = vaultManager.saveEncryptedFile(cleanUser, "profile", fileName, plainBytes)
 
-                                try {
-                                    val targetDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/profile")
-                                    targetDir.mkdirs()
-                                    File(targetDir, fileName).writeBytes(plainBytes)
-                                    File(targetDir, "avatar_current.jpg").writeBytes(plainBytes)
-                                } catch (e: Exception) {
-                                    AppLogger.d("ProfileInspector", "External avatar mirror skipped for @$cleanUser: ${e.message}")
-                                }
-
                                 val oldPath = localAvatarPath
                                 localAvatarPath = vaultHistory.absolutePath
                                 val oldHash = currentAvatarHash
@@ -1020,8 +1011,7 @@ class ProfileInspector(
                     val highlightEntities = mutableListOf<HighlightEntity>()
                     val highlightMedia = mutableListOf<HighlightMediaEntity>()
 
-                    val internalPostDir = File(context.filesDir, "posts/$cleanUser").apply { mkdirs() }
-                    val internalHlDir = File(context.filesDir, "highlights/$cleanUser").apply { mkdirs() }
+                    val vaultManager = VaultStorageManager.getInstance(context)
 
                     for (item in items) {
                         val obj = item.asJsonObject ?: continue
@@ -1038,9 +1028,14 @@ class ProfileInspector(
                             val f2 = File(ArchiveDirectoryManager.getArchiveDirectory(context), relPath.removePrefix("archives/"))
                             val resolved = if (f1.exists() && f1.length() > 0) f1 else if (f2.exists() && f2.length() > 0) f2 else null
                             if (resolved != null) {
-                                val dest = if (mediaType == "highlight") File(internalHlDir, resolved.name) else File(internalPostDir, resolved.name)
-                                try { resolved.copyTo(dest, overwrite = true) } catch (_: Exception) {}
-                                localPath = dest.absolutePath
+                                val category = if (mediaType == "highlight") "highlights" else "posts"
+                                val encFile = try {
+                                    vaultManager.getVaultMediaFile(cleanUser, category, resolved.name)
+                                        ?: vaultManager.saveEncryptedFile(cleanUser, category, resolved.name, resolved)
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                localPath = encFile?.absolutePath
                             }
                         }
 
@@ -1118,7 +1113,7 @@ class ProfileInspector(
             candidateRoots.add(File("/storage/emulated/0/instalogger/archives/$instagramId"))
         }
 
-        val internalPostDir = File(context.filesDir, "posts/$cleanUser").apply { mkdirs() }
+        val vaultManager = VaultStorageManager.getInstance(context)
         val existingById = database.postDao().getPostsListForUser(cleanUser).associateBy { it.id }
         val postEntities = mutableListOf<PostEntity>()
         val seenCodes = hashSetOf<String>()
@@ -1137,10 +1132,12 @@ class ProfileInspector(
                     if (!sc.matches(Regex("^[A-Za-z0-9_-]{5,45}$"))) continue
                     if (!seenCodes.add(sc)) continue
 
-                    val internalFile = File(internalPostDir, file.name)
-                    if (!internalFile.exists() || internalFile.length() == 0L) {
-                        try { file.copyTo(internalFile, overwrite = true) } catch (_: Exception) {}
-                    }
+                    val encryptedVaultFile = try {
+                        vaultManager.getVaultMediaFile(cleanUser, "posts", file.name)
+                            ?: vaultManager.saveEncryptedFile(cleanUser, "posts", file.name, file)
+                    } catch (_: Exception) {
+                        null
+                    } ?: continue
 
                     val existingPost = existingById[sc]
                     if (existingPost != null) {
@@ -1148,10 +1145,10 @@ class ProfileInspector(
                         val existingFileOk = !existingPost.localPath.isNullOrBlank() &&
                             File(existingPost.localPath).exists() &&
                             File(existingPost.localPath).length() > 0L
-                        if (!existingFileOk && internalFile.exists() && internalFile.length() > 0L) {
+                        if (!existingFileOk && encryptedVaultFile.exists() && encryptedVaultFile.length() > 0L) {
                             postEntities.add(
                                 existingPost.copy(
-                                    localPath = internalFile.absolutePath,
+                                    localPath = encryptedVaultFile.absolutePath,
                                     downloadStatus = "complete"
                                 )
                             )
@@ -1167,8 +1164,8 @@ class ProfileInspector(
                             id = sc,
                             username = cleanUser,
                             caption = caption,
-                            displayUrl = internalFile.absolutePath,
-                            localPath = internalFile.absolutePath,
+                            displayUrl = encryptedVaultFile.absolutePath,
+                            localPath = encryptedVaultFile.absolutePath,
                             isVideo = file.name.endsWith(".mp4", ignoreCase = true),
                             likeCount = 0,
                             commentCount = 0,
@@ -2023,9 +2020,6 @@ class ProfileInspector(
                             }
                             if (highlights.isNotEmpty()) {
                                 count = highlights.size
-                                val archiveDir = File(ArchiveDirectoryManager.getArchiveDirectory(context), "$cleanUser/highlights")
-                                archiveDir.mkdirs()
-                                ArchiveDirectoryManager.ensureNoMedia(archiveDir)
                                 val vaultManager = VaultStorageManager.getInstance(context)
 
                                 // Phase A: Archive covers in parallel into hardware Vault

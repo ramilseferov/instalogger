@@ -142,6 +142,11 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
         )
 
         refreshNotificationChannels()
+
+        // One-pass background sweep: encrypt & purge any legacy plaintext avatars/archives from older versions
+        Thread({
+            com.instalogger.app.util.ArchiveDirectoryManager.migrateAndPurgePlaintextMedia(this)
+        }, "VaultPrivacySweep").start()
     }
 
     fun refreshNotificationChannels() {

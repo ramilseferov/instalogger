@@ -590,6 +590,12 @@ object StorageCacheManager {
                             t.avatarsBytes += bytes
                             t.files += files
                         }
+                        "archives" -> {
+                            totalArchivesBytes += bytes
+                            totalArchivesFiles += files
+                            t.archivesBytes += bytes
+                            t.files += files
+                        }
                         else -> {
                             totalPostsBytes += bytes
                             totalPostsFiles += files
