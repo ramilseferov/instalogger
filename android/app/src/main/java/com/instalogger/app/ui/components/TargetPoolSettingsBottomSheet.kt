@@ -151,6 +151,7 @@ fun TargetPoolSettingsBottomSheet(
         },
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
+        com.instalogger.app.util.LanguageManager.ProvideLocalizedContext {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -571,6 +572,7 @@ fun TargetPoolSettingsBottomSheet(
                     }
                 }
             }
+        }
         }
     }
 }

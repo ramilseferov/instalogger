@@ -1809,6 +1809,11 @@ private fun ProfileHeroSection(
 
 @Composable
 private fun AuditLogCard(log: ChangeLogEntity) {
+    val context = LocalContext.current
+    val currentLang by com.instalogger.app.util.LanguageManager.currentLanguage.collectAsState()
+    val (localizedTitle, localizedOld, localizedNew) = remember(log.id, log.title, log.oldValue, log.newValue, log.eventType, currentLang) {
+        com.instalogger.app.util.LanguageManager.localizeChangeLog(context, log)
+    }
     val timeFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
     val formattedTime = timeFormat.format(Date(log.timestamp))
     val itemShape = ShapeTokens.MediumShape
@@ -1829,7 +1834,7 @@ private fun AuditLogCard(log: ChangeLogEntity) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = log.title,
+                    text = localizedTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = AccentBlue,
@@ -1843,10 +1848,10 @@ private fun AuditLogCard(log: ChangeLogEntity) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (!log.oldValue.isNullOrBlank() || !log.newValue.isNullOrBlank()) {
+            if (!localizedOld.isNullOrBlank() || !localizedNew.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${log.oldValue?.cleanDisplayText() ?: "-"}  ->  ${log.newValue?.cleanDisplayText() ?: "-"}",
+                    text = "${localizedOld?.cleanDisplayText() ?: "-"}  ->  ${localizedNew?.cleanDisplayText() ?: "-"}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )

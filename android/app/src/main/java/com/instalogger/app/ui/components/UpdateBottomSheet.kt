@@ -176,6 +176,7 @@ fun UpdateBottomSheet(
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
+        LanguageManager.ProvideLocalizedContext {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -598,6 +599,7 @@ fun UpdateBottomSheet(
                     }
                 }
             }
+        }
         }
     }
 }

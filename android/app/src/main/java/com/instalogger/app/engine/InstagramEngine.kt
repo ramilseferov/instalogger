@@ -119,7 +119,7 @@ data class CommentFetchResult(
     val errorMessage: String? = null
 )
 
-class InstagramEngine(context: Context? = null) {
+class InstagramEngine(private val context: Context? = null) {
 
     private val headlessScraper: HeadlessInstagramScraper? = context?.let { HeadlessInstagramScraper(it) }
     private val guestCookieLock = Any()
@@ -355,7 +355,13 @@ class InstagramEngine(context: Context? = null) {
         }
 
         AppLogger.e(TAG, "fetchProfile(@$cleanUsername) FAILED: all tiers exhausted")
-        return Result.failure(Exception("Profil məlumatları alına bilmədi. İnternet əlaqəsini və ya Instagram limitini yoxlayın."))
+        val msg = context?.let {
+            com.instalogger.app.util.LanguageManager.getString(
+                it,
+                com.instalogger.app.R.string.error_profile_fetch_failed
+            )
+        } ?: "Failed to retrieve profile data. Please check your internet connection or Instagram rate limit."
+        return Result.failure(Exception(msg))
     }
 
     private fun fetchViaMobileUsernameInfo(username: String, cookieString: String): InstagramProfileSnapshot? {

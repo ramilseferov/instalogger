@@ -1,12 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">InstaLogger</string>
     <string name="nav_dashboard">Панель</string>
     <string name="nav_notifications">Уведомления</string>
     <string name="nav_session">Сессия</string>
     <string name="nav_settings">Настройки</string>
-
-    <!-- Dashboard -->
     <string name="dashboard_title">Панель мониторинга</string>
     <string name="dashboard_subtitle">Активные цели Instagram и статус аудита</string>
     <string name="dashboard_empty_title">Цели не найдены</string>
@@ -30,8 +27,6 @@
     <string name="badge_inactive">Неактивен</string>
     <string name="last_checked_format">Проверено: %1$s</string>
     <string name="never_checked">Еще не проверялось</string>
-
-    <!-- Dialogs -->
     <string name="dialog_add_title">Добавить новую цель</string>
     <string name="dialog_username_label">Имя пользователя Instagram</string>
     <string name="dialog_username_hint">напр: username</string>
@@ -42,8 +37,6 @@
     <string name="dialog_close">Закрыть</string>
     <string name="dialog_delete_confirm_title">Удалить цель</string>
     <string name="dialog_delete_confirm_desc">Вы уверены, что хотите удалить @%1$s и всю историю?</string>
-
-    <!-- Target Detail -->
     <string name="target_detail_title">Детали цели</string>
     <string name="tab_audit_logs">Журнал аудита (%1$d)</string>
     <string name="tab_posts">Публикации (%1$d)</string>
@@ -59,14 +52,26 @@
     <string name="chart_subtitle">Динамика количества подписчиков и подписок</string>
     <string name="chart_no_data">Недостаточно данных для построения графика.</string>
     <string name="audit_sheet_title">Аудит подписчиков и подписок</string>
+    <string name="tab_followers_list">Подписчики (%1$d)</string>
+    <string name="tab_following_list">Подписки (%1$d)</string>
+    <string name="tab_audit_diffs">Изменения (%1$d)</string>
+    <string name="search_users_placeholder">Поиск по имени пользователя или имени…</string>
+    <string name="empty_followers_desc">Список подписчиков ещё не архивирован. Обновите профиль или войдите в сессию Instagram.</string>
+    <string name="empty_following_desc">Список подписок ещё не архивирован. Обновите профиль или войдите в сессию Instagram.</string>
+    <string name="post_detail_title">Детали публикации</string>
+    <string name="action_copy_caption">Копировать текст</string>
+    <string name="action_export_media">Сохранить / Поделиться</string>
+    <string name="msg_caption_copied">Текст публикации скопирован</string>
+    <string name="msg_username_copied">@%1$s скопировано в буфер обмена</string>
+    <string name="view_on_instagram">Открыть в Instagram</string>
+    <string name="likes_count_format">%1$d нравится</string>
+    <string name="comments_count_format">%1$d коммент.</string>
     <string name="filter_unfollowers">Отписавшиеся</string>
     <string name="filter_unfollowed_by_target">Удаленные из подписок</string>
     <string name="filter_new_followers">Новые подписчики</string>
     <string name="filter_new_following">Новые подписки</string>
     <string name="audit_empty_title">Записей не найдено</string>
     <string name="audit_empty_desc">В этой категории изменений пока не обнаружено.</string>
-
-    <!-- Notification Center & Audit Logs -->
     <string name="notifications_title">Уведомления</string>
     <string name="notifications_subtitle">Уведомления о системе и изменениях целей</string>
     <string name="tab_audit_journal">Журнал аудита (%1$d)</string>
@@ -87,8 +92,6 @@
     <string name="action_delete">Удалить</string>
     <string name="action_mark_read">Прочитано</string>
     <string name="none_value">Нет</string>
-
-    <!-- Instagram Session -->
     <string name="session_title">Сессия Instagram</string>
     <string name="session_subtitle">Подключение аккаунта для мониторинга закрытых профилей</string>
     <string name="session_status_card_title">Статус сессии</string>
@@ -109,8 +112,6 @@
     <string name="msg_session_captured">Сессия Instagram успешно перехвачена и сохранена!</string>
     <string name="msg_cookie_saved">Cookie успешно сохранены</string>
     <string name="msg_session_cleared">Сессия очищена</string>
-
-    <!-- Settings -->
     <string name="settings_title">Настройки</string>
     <string name="settings_subtitle">Конфигурация системы, языка и фонового режима</string>
     <string name="section_language">Язык приложения</string>
@@ -128,8 +129,6 @@
     <string name="danger_zone_desc">Сбросить все локальные цели, журналы изменений и уведомления на этом устройстве.</string>
     <string name="btn_clear_all_data">Очистить все локальные данные</string>
     <string name="msg_data_cleared">Все локальные данные очищены</string>
-
-    <!-- Archive Directory -->
     <string name="archive_dir_title">Папка архива</string>
     <string name="archive_dir_desc">Место для сохранения загруженных аватаров и медиафайлов профилей.</string>
     <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
@@ -138,8 +137,6 @@
     <string name="btn_reset_default">По умолчанию</string>
     <string name="msg_archive_dir_saved">Папка архива успешно обновлена</string>
     <string name="msg_archive_dir_invalid">Путь к папке недействителен или недоступен для записи</string>
-
-    <!-- Audit Logs in Settings -->
     <string name="section_audit_logs">Логи проверок и аудита</string>
     <string name="section_audit_logs_desc">История проверок и изменений профилей.</string>
     <string name="btn_view_logs">Просмотр логов</string>
@@ -148,14 +145,10 @@
     <string name="empty_logs_text">Записей пока нет</string>
     <string name="dialog_clear_logs_title">Очистить логи</string>
     <string name="dialog_clear_logs_desc">Вы уверены, что хотите удалить все логи аудита и проверок?</string>
-
-    <!-- Foreground Service -->
     <string name="service_notification_channel">Служба InstaLogger</string>
     <string name="service_notification_title">Фоновый мониторинг InstaLogger</string>
     <string name="service_notification_desc">Профили Instagram непрерывно отслеживаются</string>
     <string name="alert_notification_channel">Оповещения InstaLogger</string>
-
-    <!-- Theme & Appearance -->
     <string name="theme_section_title">Внешний вид и тема</string>
     <string name="theme_section_desc">Настройка цветовой схемы и темы приложения.</string>
     <string name="theme_light">Светлая тема</string>
@@ -164,8 +157,6 @@
     <string name="theme_dark_desc">Глубокие темные оттенки для глаз</string>
     <string name="theme_system">Как в системе</string>
     <string name="theme_system_desc">Автоматически подстраивается под настройки устройства</string>
-
-    <!-- Notification Settings -->
     <string name="section_notifications">Уведомления и оповещения</string>
     <string name="section_notifications_desc">Настройка каналов, звука, вибрации и категорий событий.</string>
     <string name="notif_status_bar_title">Системные уведомления</string>
@@ -191,8 +182,6 @@
     <string name="notif_settings_sheet_title">Настройки уведомлений</string>
     <string name="btn_battery_opt_active">Исключение активно • Открыть настройки</string>
     <string name="badge_active_count_format">%1$d активных</string>
-
-    <!-- Security & App Lock -->
     <string name="lock_biometric_title">Биометрическая проверка</string>
     <string name="lock_biometric_desc">Подтвердите отпечаток пальца или лицо для разблокировки InstaLogger</string>
     <string name="lock_use_pin">Использовать PIN</string>
@@ -220,8 +209,6 @@
     <string name="autolock_30s">30 секунд</string>
     <string name="autolock_1m">1 минута</string>
     <string name="autolock_5m">5 минут</string>
-
-    <!-- Encrypted Vault Storage -->
     <string name="vault_card_title">Аппаратно зашифрованное хранилище</string>
     <string name="vault_card_desc">Медиа, аватары и посты шифруются на диске AES-256-GCM и полностью скрыты от Галереи.</string>
     <string name="vault_status_engine">Механизм шифрования</string>
@@ -232,8 +219,6 @@
     <string name="vault_storage_size_format">%1$s (Ноль открытого текста на диске)</string>
     <string name="vault_badge_secure">Аппаратная защита</string>
     <string name="vault_badge_isolated">100% Скрыто</string>
-
-    <!-- Skeleton & Loading states -->
     <string name="loading_profile_data">Загрузка данных профиля…</string>
     <string name="loading_posts">Загрузка публикаций…</string>
     <string name="posts_syncing_format">Обнаружено %1$d публикаций • Синхронизация…</string>
@@ -259,13 +244,9 @@
     <string name="error_share_media">Ошибка отправки</string>
     <string name="error_media_not_local">Файл еще не сохранен локально</string>
     <string name="badge_unread_format">%1$d Новых</string>
-
-    <!-- Compact Tab Titles -->
     <string name="tab_audit_short">Аудит (%1$d)</string>
     <string name="tab_posts_short">Посты (%1$d)</string>
     <string name="tab_avatars_short">Аватары (%1$d)</string>
-
-    <!-- Daemon & Termux Settings -->
     <string name="section_daemon_title">Синхронизация Termux и Daemon</string>
     <string name="section_daemon_desc">Опциональное подключение к локальному демону Rust на Termux или ПК</string>
     <string name="daemon_sync_enabled">Интеграция с демоном Termux</string>
@@ -276,8 +257,6 @@
     <string name="btn_ping_daemon">Проверить связь</string>
     <string name="msg_daemon_connected">Связь с демоном успешно установлена!</string>
     <string name="msg_daemon_unreachable">Демон не отвечает по данному адресу</string>
-
-    <!-- Localized Alert Notifications -->
     <string name="notif_followers_changed_title">@%1$s число подписчиков изменилось (%2$s)</string>
     <string name="notif_followers_changed_desc">%1$d -&gt; %2$d подписчиков (%3$s)</string>
     <string name="notif_following_changed_title">@%1$s число подписок изменилось (%2$s)</string>
@@ -291,19 +270,20 @@
     <string name="notif_privacy_public">ОТКРЫТЫЙ</string>
     <string name="notif_privacy_private">ЗАКРЫТЫЙ</string>
     <string name="notif_bio_changed_title">@%1$s биография обновлена</string>
+    <string name="notif_name_changed_title">@%1$s имя профиля обновлено</string>
     <string name="notif_public_archived_title">@%1$s теперь ОТКРЫТ! Публикации сохранены.</string>
     <string name="notif_public_archived_desc">Архивировано %1$d альбомов историй и %2$d постов.</string>
     <string name="notif_follower_gained_title">@%1$s новый подписчик: @%2$s</string>
+    <string name="notif_follower_gained_desc">Новый подписчик: %1$s</string>
     <string name="notif_follower_lost_title">@%1$s отписался: @%2$s</string>
+    <string name="notif_follower_lost_desc">Отписался: %1$s</string>
     <string name="notif_following_gained_title">@%1$s подписался на: @%2$s</string>
+    <string name="notif_following_gained_desc">Теперь подписан на: %1$s</string>
     <string name="notif_following_lost_title">@%1$s отписался от: @%2$s</string>
-
-    <!-- Avatar Management -->
+    <string name="notif_following_lost_desc">Перестал читать: %1$s</string>
     <string name="dialog_delete_avatar_title">Удалить аватар</string>
     <string name="dialog_delete_avatar_desc">Вы уверены, что хотите удалить эту историческую запись аватара?</string>
     <string name="msg_avatar_deleted">Архив аватара удален</string>
-
-    <!-- Multi-Provider Media & yt-dlp Engine -->
     <string name="section_media_engine_title">Медиа-движки (yt-dlp)</string>
     <string name="section_media_engine_desc">Встроенный yt-dlp + FFmpeg для Reels/Видео, Native Graph для фото и каруселей, SHA-256 дедупликация в Vault.</string>
     <string name="ytdlp_status_ready">Готов · %1$s</string>
@@ -338,8 +318,6 @@
     <string name="download_stage_cancelled">Загрузка отменена</string>
     <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
     <string name="msg_ytdlp_update_failed">Ошибка обновления yt-dlp: %1$s</string>
-
-    <!-- Highlights & Story Viewer -->
     <string name="highlight_loading_stories">Загрузка историй из актуального…</string>
     <string name="highlight_session_required_title">Требуется сессия для историй</string>
     <string name="highlight_session_required_desc">Instagram требует активную сессию для загрузки фото и видео внутри актуального. Подключите сессию для просмотра и архивации.</string>
@@ -349,7 +327,6 @@
     <string name="story_viewer_active_title">@%1$s · История</string>
     <string name="notif_story_posted_title">@%1$s опубликовал новую историю</string>
     <string name="notif_story_posted_desc">Обнаружена новая 24-часовая активная история</string>
-    <!-- Follower Change Pool & High-Velocity Account Protection -->
     <string name="notif_pool_flush_title">@%1$s пул подписчиков (%2$s)</string>
     <string name="notif_pool_digest_title">@%1$s сводка подписчиков (%2$s)</string>
     <string name="notif_pool_spike_title">@%1$s резкий скачок подписчиков (%2$s)</string>
@@ -392,8 +369,7 @@
     <string name="pool_badge_suggest_large">Крупный аккаунт · Включить пул</string>
     <string name="pool_msg_flushed">Пул отправлен (%1$s)</string>
     <string name="pool_msg_reset">Базовая точка пула сброшена</string>
-    <!-- Developer Logs Terminal & Honest Refresh Feedback -->
-    <string name="dev_logs_title">Developer Logs</string>
+    <string name="dev_logs_title">Журналы разработчика</string>
     <string name="dev_logs_desc">Зашифрованный терминал: коды HTTP, ответы API, загрузки и журнал ошибок.</string>
     <string name="dev_logs_open_btn">Открыть терминал логов</string>
     <string name="dev_logs_subtitle_stats">%1$d строк · %2$d ошибок · %3$d предупреждений</string>
@@ -550,7 +526,6 @@
     <string name="dialog_delete_post_title">Удалить пост из архива?</string>
     <string name="dialog_delete_post_desc">Пост %1$s и его зашифрованные файлы будут удалены с устройства.</string>
     <string name="msg_post_deleted">Пост удалён из архива</string>
-    <!-- Data & Storage Management -->
     <string name="storage_mgmt_title">Управление данными и памятью</string>
     <string name="storage_mgmt_desc">Использование памяти, зашифрованный Vault, кэш, разбивка по аккаунтам и куки WebView</string>
     <string name="storage_mgmt_header_sub">Анализ памяти и выборочная очистка</string>
@@ -666,7 +641,6 @@
     <string name="dev_logs_filter_debug">Отладка</string>
     <string name="session_clear_confirm_title">Сбросить сессию?</string>
     <string name="session_clear_confirm_desc">Сохранённые куки входа Instagram будут удалены. Для закрытых профилей потребуется повторный вход.</string>
-    <!-- Story & Highlight Archive System -->
     <string name="tab_stories_short">Истории (%1$d)</string>
     <string name="story_archive_title">Архив историй и актуального</string>
     <string name="story_archive_summary_stories">Истории: %1$d</string>
@@ -682,7 +656,7 @@
     <string name="story_archive_delete_item_title">Удалить с устройства?</string>
     <string name="story_archive_delete_item_desc">Этот архивный файл (%1$s) будет навсегда удален из локального хранилища.</string>
     <string name="story_archive_delete_hl_title">Удалить актуальное?</string>
-    <string name="story_archive_delete_hl_desc">Актуальное &quot;%1$s&quot; и все файлы (%2$s) будут навсегда удалены из памяти.</string>
+    <string name="story_archive_delete_hl_desc">Актуальное \"%1$s\" и все файлы (%2$s) будут навсегда удалены из памяти.</string>
     <string name="story_archive_clear_all_desc">Все архивные файлы историй (%1$s) этого профиля будут удалены из памяти.</string>
     <string name="story_archive_highlights_section">Архив актуального (%1$d)</string>
     <string name="story_archive_history_section">История публикаций (%1$d)</string>
@@ -691,14 +665,13 @@
     <string name="notif_story_vanished_title">@%1$s удалил историю</string>
     <string name="notif_story_vanished_desc">История удалена до истечения 24ч (%1$s). Копия сохранена.</string>
     <string name="notif_highlight_added_title">@%1$s добавил актуальное</string>
-    <string name="notif_highlight_added_desc">Актуальное &quot;%1$s&quot; (%2$d файлов) автоматически архивировано.</string>
+    <string name="notif_highlight_added_desc">Актуальное \"%1$s\" (%2$d файлов) автоматически архивировано.</string>
     <string name="notif_highlight_updated_title">@%1$s обновил актуальное</string>
-    <string name="notif_highlight_updated_desc">В актуальное &quot;%1$s&quot; добавлено +%2$d новых историй.</string>
+    <string name="notif_highlight_updated_desc">В актуальное \"%1$s\" добавлено +%2$d новых историй.</string>
     <string name="notif_highlight_vanished_title">@%1$s удалил актуальное</string>
-    <string name="notif_highlight_vanished_desc">Актуальное &quot;%1$s&quot; удалено из профиля. Архив сохранен.</string>
+    <string name="notif_highlight_vanished_desc">Актуальное \"%1$s\" удалено из профиля. Архив сохранен.</string>
     <string name="notif_highlight_item_vanished_title">@%1$s удалил историю из актуального</string>
-    <string name="notif_highlight_item_vanished_desc">Из &quot;%1$s&quot; удалено %2$d историй. Архивная копия сохранена.</string>
-    <!-- GitHub In-App Update System -->
+    <string name="notif_highlight_item_vanished_desc">Из \"%1$s\" удалено %2$d историй. Архивная копия сохранена.</string>
     <string name="update_section_title">Обновления приложения</string>
     <string name="update_section_sub">Текущая версия: v%1$s (Сборка %2$d)</string>
     <string name="update_sheet_title">Доступно обновление</string>
@@ -749,19 +722,16 @@
     <string name="update_error_storage_generic">Недостаточно места в памяти устройства для установки.</string>
     <string name="update_error_install_failed">Ошибка установки. Попробуйте снова.</string>
     <string name="update_error_generic">Произошла непредвиденная ошибка обновления.</string>
-
-    <!-- Session WebView Preview Toggle -->
     <string name="session_webview_preview_setting_title">Предпросмотр WebView сессии</string>
     <string name="session_webview_preview_setting_desc">Автоматически загружать браузер Instagram при открытии вкладки Сессия</string>
     <string name="session_webview_closed_title">Браузер Instagram закрыт</string>
     <string name="session_webview_closed_desc">Для скорости и приватности WebView не открывается автоматически. Нажмите ниже, чтобы открыть, или настройте поведение в Настройках.</string>
     <string name="session_webview_btn_open">Открыть браузер</string>
     <string name="session_webview_btn_close">Закрыть</string>
-
-    <!-- Splash Screen Real Loading Stages -->
     <string name="splash_stage_init">Запуск...</string>
     <string name="splash_stage_security">Проверка зашифрованного Vault...</string>
     <string name="splash_stage_database">Подготовка базы данных...</string>
     <string name="splash_stage_session">Синхронизация сессии и служб...</string>
     <string name="splash_stage_ready">Готово</string>
+    <string name="error_profile_fetch_failed">Не удалось получить данные профиля. Проверьте подключение к интернету или лимиты Instagram.</string>
 </resources>

@@ -345,9 +345,15 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        LanguageManager.applyLocaleToResources(this)
         val app = application as? InstaLoggerApp
         app?.appLockManager?.onAppForegrounded()
         app?.updateManager?.onActivityResumed()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        LanguageManager.applyLocaleToResources(this)
     }
 
     companion object {

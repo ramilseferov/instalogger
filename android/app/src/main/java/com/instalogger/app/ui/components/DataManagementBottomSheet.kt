@@ -167,18 +167,20 @@ fun DataManagementBottomSheet(
             )
         }
     ) {
-        DataManagementContent(
-            showHeaderBar = true,
-            onDismiss = onDismissRequest,
-            onStorageChanged = onStorageChanged,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = maxSheetHeight)
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 16.dp)
-                .testTag("data_management_bottom_sheet"),
-        )
+        com.instalogger.app.util.LanguageManager.ProvideLocalizedContext {
+            DataManagementContent(
+                showHeaderBar = true,
+                onDismiss = onDismissRequest,
+                onStorageChanged = onStorageChanged,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxSheetHeight)
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(horizontal = 16.dp)
+                    .testTag("data_management_bottom_sheet"),
+            )
+        }
     }
 }
 

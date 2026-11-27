@@ -1,12 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">InstaLogger</string>
     <string name="nav_dashboard">Dashboard</string>
     <string name="nav_notifications">Notifications</string>
     <string name="nav_session">Session</string>
     <string name="nav_settings">Settings</string>
-
-    <!-- Dashboard -->
     <string name="dashboard_title">Monitoring Dashboard</string>
     <string name="dashboard_subtitle">Active Instagram targets and audit status</string>
     <string name="dashboard_empty_title">No Targets Found</string>
@@ -30,8 +27,6 @@
     <string name="badge_inactive">Inactive</string>
     <string name="last_checked_format">Checked: %1$s</string>
     <string name="never_checked">Not checked yet</string>
-
-    <!-- Dialogs -->
     <string name="dialog_add_title">Add New Target</string>
     <string name="dialog_username_label">Instagram Username</string>
     <string name="dialog_username_hint">e.g. username</string>
@@ -42,8 +37,6 @@
     <string name="dialog_close">Close</string>
     <string name="dialog_delete_confirm_title">Delete Target</string>
     <string name="dialog_delete_confirm_desc">Are you sure you want to delete @%1$s and all its history?</string>
-
-    <!-- Target Detail -->
     <string name="target_detail_title">Target Details</string>
     <string name="tab_audit_logs">Audit Logs (%1$d)</string>
     <string name="tab_posts">Posts (%1$d)</string>
@@ -59,14 +52,26 @@
     <string name="chart_subtitle">Live follower and following trajectory</string>
     <string name="chart_no_data">Not enough history points to render chart yet.</string>
     <string name="audit_sheet_title">Followers &amp; Following Audit</string>
+    <string name="tab_followers_list">Followers (%1$d)</string>
+    <string name="tab_following_list">Following (%1$d)</string>
+    <string name="tab_audit_diffs">Changes (%1$d)</string>
+    <string name="search_users_placeholder">Search username or full name…</string>
+    <string name="empty_followers_desc">Followers list not archived yet. Re-check target or configure Instagram session.</string>
+    <string name="empty_following_desc">Following list not archived yet. Re-check target or configure Instagram session.</string>
+    <string name="post_detail_title">Post Details</string>
+    <string name="action_copy_caption">Copy Caption</string>
+    <string name="action_export_media">Save / Share</string>
+    <string name="msg_caption_copied">Caption copied to clipboard</string>
+    <string name="msg_username_copied">@%1$s copied to clipboard</string>
+    <string name="view_on_instagram">View on Instagram</string>
+    <string name="likes_count_format">%1$d likes</string>
+    <string name="comments_count_format">%1$d comments</string>
     <string name="filter_unfollowers">Unfollowers</string>
     <string name="filter_unfollowed_by_target">Unfollowed</string>
     <string name="filter_new_followers">New Followers</string>
     <string name="filter_new_following">New Following</string>
     <string name="audit_empty_title">No Records Found</string>
     <string name="audit_empty_desc">No user changes detected in this category yet.</string>
-
-    <!-- Notification Center & Audit Logs -->
     <string name="notifications_title">Notifications</string>
     <string name="notifications_subtitle">System and target change notifications</string>
     <string name="tab_audit_journal">Audit Journal (%1$d)</string>
@@ -87,8 +92,6 @@
     <string name="action_delete">Delete</string>
     <string name="action_mark_read">Mark Read</string>
     <string name="none_value">None</string>
-
-    <!-- Instagram Session -->
     <string name="session_title">Instagram Session</string>
     <string name="session_subtitle">Account connection for monitoring private profiles</string>
     <string name="session_status_card_title">Session Status</string>
@@ -100,11 +103,15 @@
     <string name="cookie_input_label">Cookie String</string>
     <string name="btn_save_cookie">Save Cookie</string>
     <string name="btn_clear_session">Reset Session</string>
+    <string name="btn_copy_session">Copy Session</string>
+    <string name="btn_export_session">Export Session</string>
+    <string name="msg_session_copied">Active session copied</string>
+    <string name="badge_vanished">Deleted</string>
+    <string name="notif_post_vanished_title">@%1$s deleted a post</string>
+    <string name="notif_post_vanished_desc">Deleted post: /p/%1$s %2$s</string>
     <string name="msg_session_captured">Instagram session captured and saved successfully!</string>
     <string name="msg_cookie_saved">Cookie saved successfully</string>
     <string name="msg_session_cleared">Session cleared</string>
-
-    <!-- Settings -->
     <string name="settings_title">Settings</string>
     <string name="settings_subtitle">System, language and background configuration</string>
     <string name="section_language">Application Language</string>
@@ -122,8 +129,6 @@
     <string name="danger_zone_desc">Reset all local targets, change logs, and notifications stored on this device.</string>
     <string name="btn_clear_all_data">Clear All Local Data</string>
     <string name="msg_data_cleared">All local data cleared</string>
-
-    <!-- Archive Directory -->
     <string name="archive_dir_title">Archive Directory</string>
     <string name="archive_dir_desc">Location where downloaded profile avatars and media files are stored.</string>
     <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
@@ -132,8 +137,6 @@
     <string name="btn_reset_default">Default</string>
     <string name="msg_archive_dir_saved">Archive directory updated successfully</string>
     <string name="msg_archive_dir_invalid">Directory path is invalid or not writable</string>
-
-    <!-- Audit Logs in Settings -->
     <string name="section_audit_logs">Inspection &amp; Audit Logs</string>
     <string name="section_audit_logs_desc">Live inspection activity and target change records.</string>
     <string name="btn_view_logs">View Logs</string>
@@ -142,14 +145,10 @@
     <string name="empty_logs_text">No logs recorded yet</string>
     <string name="dialog_clear_logs_title">Clear Logs</string>
     <string name="dialog_clear_logs_desc">Are you sure you want to delete all audit and inspection logs?</string>
-
-    <!-- Foreground Service -->
     <string name="service_notification_channel">InstaLogger Service</string>
     <string name="service_notification_title">InstaLogger Background Monitor</string>
     <string name="service_notification_desc">Instagram profiles are actively being monitored</string>
     <string name="alert_notification_channel">InstaLogger Alerts</string>
-
-    <!-- Theme & Appearance -->
     <string name="theme_section_title">Appearance &amp; Theme</string>
     <string name="theme_section_desc">Customize application color scheme and theme mode.</string>
     <string name="theme_light">Light Mode</string>
@@ -158,8 +157,6 @@
     <string name="theme_dark_desc">Deep dark slate contrast</string>
     <string name="theme_system">System Default</string>
     <string name="theme_system_desc">Follows device appearance</string>
-
-    <!-- Notification Settings -->
     <string name="section_notifications">Notifications &amp; Alerts</string>
     <string name="section_notifications_desc">Configure alert channels, sounds and system notifications.</string>
     <string name="notif_status_bar_title">Phone Notifications</string>
@@ -183,11 +180,61 @@
     <string name="btn_open_system_notifs">Open Android Notification Settings</string>
     <string name="btn_open_system_notifs_desc">Native OS sound, lock screen and channel controls</string>
     <string name="notif_settings_sheet_title">Notification Settings</string>
-    <string name="chart_scrubber_followers">%1$d followers</string>
-    <string name="chart_scrubber_following">%1$d following</string>
+    <string name="btn_battery_opt_active">Exemption Active • Open Settings</string>
+    <string name="badge_active_count_format">%1$d active</string>
+    <string name="lock_biometric_title">Biometric Verification</string>
+    <string name="lock_biometric_desc">Confirm fingerprint or face to unlock InstaLogger</string>
+    <string name="lock_use_pin">Use PIN</string>
+    <string name="lock_enter_pin_desc">Enter your 4-digit security PIN</string>
+    <string name="lock_lockout_warning">Too many attempts. Locked for %1$d seconds</string>
+    <string name="lock_enter_pin_title">Enter Security PIN</string>
+    <string name="lock_confirm_pin_title">Confirm Security PIN</string>
+    <string name="lock_pin_mismatch">PINs do not match. Try again.</string>
+    <string name="lock_pin_set_success">App Lock configured successfully</string>
+    <string name="lock_disabled_success">App Lock has been disabled</string>
+    <string name="lock_pin_incorrect">Incorrect PIN</string>
+    <string name="sec_card_title">Security &amp; App Lock</string>
+    <string name="sec_card_desc">Protect access to InstaLogger with hardware-backed biometric and PIN shield.</string>
+    <string name="sec_app_lock">App Lock</string>
+    <string name="sec_app_lock_desc">Require PIN or biometric when opening app</string>
+    <string name="sec_change_pin">Change PIN</string>
+    <string name="sec_biometric">Biometric Unlock</string>
+    <string name="sec_biometric_desc">Fingerprint or Face authentication</string>
+    <string name="sec_secure_screen">Screenshot &amp; Recents Shield</string>
+    <string name="sec_secure_screen_desc">Blocks screenshots and hides screen preview in recent apps</string>
+    <string name="sec_autolock">Auto-Lock</string>
+    <string name="sec_autolock_desc">Lock when sent to background</string>
+    <string name="autolock_immediately">Immediately</string>
+    <string name="autolock_15s">15 seconds</string>
+    <string name="autolock_30s">30 seconds</string>
+    <string name="autolock_1m">1 minute</string>
+    <string name="autolock_5m">5 minutes</string>
+    <string name="vault_card_title">Hardware-Backed Encrypted Vault</string>
+    <string name="vault_card_desc">Media, avatars and posts are encrypted on disk with AES-256-GCM and completely excluded from Android Gallery.</string>
+    <string name="vault_status_engine">Encryption Engine</string>
+    <string name="vault_engine_val">AES-256-GCM hardware encryption</string>
+    <string name="vault_gallery_isolation">Gallery &amp; MediaStore Isolation</string>
+    <string name="vault_gallery_isolation_val">Enforced — completely hidden from Gallery</string>
+    <string name="vault_storage_usage">Vault Storage Size</string>
+    <string name="vault_storage_size_format">%1$s — zero plaintext on disk</string>
+    <string name="vault_badge_secure">Hardware Protected</string>
+    <string name="vault_badge_isolated">100% Hidden</string>
+    <string name="loading_profile_data">Loading profile data…</string>
+    <string name="loading_posts">Loading posts…</string>
+    <string name="posts_syncing_format">%1$d posts detected • Syncing…</string>
+    <string name="action_refresh_list">Refresh</string>
+    <string name="session_required_followers">Instagram session may be required to view full followers list.</string>
+    <string name="posts_session_required_title">Instagram Session Required</string>
+    <string name="posts_session_required_desc">Instagram blocks anonymous post archiving. Log in with an Instagram account in the Session tab to view and archive timeline posts.</string>
     <string name="posts_private_account_title">This Account is Private</string>
     <string name="posts_private_account_desc">This account is PRIVATE. Per Instagram rules, only approved followers can view a private account\'s posts. If you follow this account, you can optionally add a session to view them.</string>
     <string name="btn_login_session">Log In to Instagram</string>
+    <string name="posts_rate_limited_title">Instagram Rate Limit</string>
+    <string name="posts_rate_limited_desc">Too many requests were sent to Instagram from this network. Please wait a few minutes and try again, or use an active session.</string>
+    <string name="posts_sync_failed_title">Failed to Fetch Posts</string>
+    <string name="posts_sync_failed_desc">Could not retrieve timeline posts from Instagram. Check your connection or retry.</string>
+    <string name="chart_scrubber_followers">%1$d followers</string>
+    <string name="chart_scrubber_following">%1$d following</string>
     <string name="webview_login_title">Instagram Web Login</string>
     <string name="session_not_detected_yet">Session not detected yet</string>
     <string name="btn_check">Check</string>
@@ -197,13 +244,9 @@
     <string name="error_share_media">Sharing error</string>
     <string name="error_media_not_local">File has not been archived locally yet</string>
     <string name="badge_unread_format">%1$d New</string>
-
-    <!-- Compact Tab Titles -->
     <string name="tab_audit_short">Audit (%1$d)</string>
     <string name="tab_posts_short">Posts (%1$d)</string>
     <string name="tab_avatars_short">Avatars (%1$d)</string>
-
-    <!-- Daemon & Termux Settings -->
     <string name="section_daemon_title">Termux &amp; Daemon Sync</string>
     <string name="section_daemon_desc">Optional connection to local Rust daemon running on Termux or desktop</string>
     <string name="daemon_sync_enabled">Termux Daemon Sync</string>
@@ -214,8 +257,6 @@
     <string name="btn_ping_daemon">Test Connection</string>
     <string name="msg_daemon_connected">Daemon reached successfully!</string>
     <string name="msg_daemon_unreachable">Daemon is not running on this address</string>
-
-    <!-- Localized Alert Notifications -->
     <string name="notif_followers_changed_title">@%1$s followers count changed (%2$s)</string>
     <string name="notif_followers_changed_desc">%1$d -&gt; %2$d followers (%3$s)</string>
     <string name="notif_following_changed_title">@%1$s following count changed (%2$s)</string>
@@ -229,19 +270,20 @@
     <string name="notif_privacy_public">PUBLIC</string>
     <string name="notif_privacy_private">PRIVATE</string>
     <string name="notif_bio_changed_title">@%1$s biography updated</string>
+    <string name="notif_name_changed_title">@%1$s display name updated</string>
     <string name="notif_public_archived_title">@%1$s is now PUBLIC! Highlights &amp; Posts archived.</string>
     <string name="notif_public_archived_desc">Archived %1$d highlight reels and %2$d posts.</string>
     <string name="notif_follower_gained_title">@%1$s gained follower: @%2$s</string>
+    <string name="notif_follower_gained_desc">New follower: %1$s</string>
     <string name="notif_follower_lost_title">@%1$s lost follower: @%2$s</string>
+    <string name="notif_follower_lost_desc">Unfollowed: %1$s</string>
     <string name="notif_following_gained_title">@%1$s started following: @%2$s</string>
+    <string name="notif_following_gained_desc">Now following: %1$s</string>
     <string name="notif_following_lost_title">@%1$s unfollowed: @%2$s</string>
-
-    <!-- Avatar Management -->
+    <string name="notif_following_lost_desc">Stopped following: %1$s</string>
     <string name="dialog_delete_avatar_title">Delete Avatar</string>
     <string name="dialog_delete_avatar_desc">Are you sure you want to delete this historical avatar archive?</string>
     <string name="msg_avatar_deleted">Avatar archive deleted</string>
-
-    <!-- Multi-Provider Media & yt-dlp Engine -->
     <string name="section_media_engine_title">Media Engines (yt-dlp)</string>
     <string name="section_media_engine_desc">Embedded yt-dlp + FFmpeg for Reels/Videos, Native Graph for Photos &amp; Carousels, with SHA-256 Vault deduplication.</string>
     <string name="ytdlp_status_ready">Ready · %1$s</string>
@@ -276,8 +318,6 @@
     <string name="download_stage_cancelled">Download cancelled</string>
     <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
     <string name="msg_ytdlp_update_failed">yt-dlp update failed: %1$s</string>
-
-    <!-- Highlights & Story Viewer -->
     <string name="highlight_loading_stories">Loading highlight stories…</string>
     <string name="highlight_session_required_title">Session Required for Story Items</string>
     <string name="highlight_session_required_desc">Instagram requires a logged-in session to load story photos and videos inside highlights. Connect a session to view and archive them.</string>
@@ -287,7 +327,6 @@
     <string name="story_viewer_active_title">@%1$s · Story</string>
     <string name="notif_story_posted_title">@%1$s posted a new story</string>
     <string name="notif_story_posted_desc">A new 24-hour active story was detected</string>
-    <!-- Follower Change Pool & High-Velocity Account Protection -->
     <string name="notif_pool_flush_title">@%1$s follower pool (%2$s)</string>
     <string name="notif_pool_digest_title">@%1$s follower digest (%2$s)</string>
     <string name="notif_pool_spike_title">@%1$s rapid follower spike (%2$s)</string>
@@ -330,7 +369,6 @@
     <string name="pool_badge_suggest_large">Large account · Enable pool</string>
     <string name="pool_msg_flushed">Pool flushed (%1$s)</string>
     <string name="pool_msg_reset">Pool baseline reset</string>
-    <!-- Developer Logs Terminal & Honest Refresh Feedback -->
     <string name="dev_logs_title">Developer Logs</string>
     <string name="dev_logs_desc">Encrypted terminal console for HTTP status codes, API tiers, downloads, and errors.</string>
     <string name="dev_logs_open_btn">Open Log Terminal</string>
@@ -488,7 +526,6 @@
     <string name="dialog_delete_post_title">Delete archived post?</string>
     <string name="dialog_delete_post_desc">Post %1$s and its archived Vault files will be permanently removed.</string>
     <string name="msg_post_deleted">Post removed from archive</string>
-    <!-- Data & Storage Management -->
     <string name="storage_mgmt_title">Data &amp; Storage Management</string>
     <string name="storage_mgmt_desc">Storage usage, encrypted Vault media, caches, per-target breakdown, and WebView cookies</string>
     <string name="storage_mgmt_header_sub">Storage analytics &amp; granular cleanup</string>
@@ -604,7 +641,6 @@
     <string name="dev_logs_filter_debug">Debug</string>
     <string name="session_clear_confirm_title">Reset session?</string>
     <string name="session_clear_confirm_desc">Saved Instagram session cookies will be removed. Re-login will be required for private profiles.</string>
-    <!-- Story & Highlight Archive System -->
     <string name="tab_stories_short">Stories (%1$d)</string>
     <string name="story_archive_title">Story &amp; Highlight Archive</string>
     <string name="story_archive_summary_stories">Stories: %1$d</string>
@@ -620,7 +656,7 @@
     <string name="story_archive_delete_item_title">Delete from storage?</string>
     <string name="story_archive_delete_item_desc">This archived file (%1$s) will be permanently deleted from local storage.</string>
     <string name="story_archive_delete_hl_title">Delete highlight archive?</string>
-    <string name="story_archive_delete_hl_desc">Highlight &quot;%1$s&quot; and all archived files (%2$s) will be permanently removed from storage.</string>
+    <string name="story_archive_delete_hl_desc">Highlight \"%1$s\" and all archived files (%2$s) will be permanently removed from storage.</string>
     <string name="story_archive_clear_all_desc">All archived story files (%1$s) for this profile will be permanently deleted.</string>
     <string name="story_archive_highlights_section">Highlight Archive (%1$d)</string>
     <string name="story_archive_history_section">Story History (%1$d)</string>
@@ -629,14 +665,13 @@
     <string name="notif_story_vanished_title">@%1$s deleted a story</string>
     <string name="notif_story_vanished_desc">Story removed before 24h expiry (%1$s). Archive copy preserved.</string>
     <string name="notif_highlight_added_title">@%1$s added a new highlight</string>
-    <string name="notif_highlight_added_desc">Highlight &quot;%1$s&quot; (%2$d items) archived automatically.</string>
+    <string name="notif_highlight_added_desc">Highlight \"%1$s\" (%2$d items) archived automatically.</string>
     <string name="notif_highlight_updated_title">@%1$s updated a highlight</string>
-    <string name="notif_highlight_updated_desc">Added +%2$d new item(s) to highlight &quot;%1$s&quot;.</string>
+    <string name="notif_highlight_updated_desc">Added +%2$d new item(s) to highlight \"%1$s\".</string>
     <string name="notif_highlight_vanished_title">@%1$s removed a highlight</string>
-    <string name="notif_highlight_vanished_desc">Highlight &quot;%1$s&quot; was deleted from profile. Archive copy preserved.</string>
+    <string name="notif_highlight_vanished_desc">Highlight \"%1$s\" was deleted from profile. Archive copy preserved.</string>
     <string name="notif_highlight_item_vanished_title">@%1$s removed item from highlight</string>
-    <string name="notif_highlight_item_vanished_desc">%2$d item(s) removed from &quot;%1$s&quot;. Archive copy preserved.</string>
-    <!-- GitHub In-App Update System -->
+    <string name="notif_highlight_item_vanished_desc">%2$d item(s) removed from \"%1$s\". Archive copy preserved.</string>
     <string name="update_section_title">App Updates</string>
     <string name="update_section_sub">Current version: v%1$s (Build %2$d)</string>
     <string name="update_sheet_title">Update Available</string>
@@ -663,7 +698,7 @@
     <string name="update_status_installing">Starting installation...</string>
     <string name="update_verified_sha256">SHA-256 and signing certificate verified</string>
     <string name="update_verified_ready">APK integrity and signature verified</string>
-    <string name="update_permission_desc">To install updates directly inside InstaLogger, enable "Install unknown apps" in Android settings. Installation will resume automatically when you return.</string>
+    <string name="update_permission_desc">To install updates directly inside InstaLogger, enable \"Install unknown apps\" in Android settings. Installation will resume automatically when you return.</string>
     <string name="update_auto_check_title">Automatic update checks</string>
     <string name="update_auto_check_desc">Periodically check GitHub releases in the background</string>
     <string name="update_wifi_only_title">Download over Wi-Fi only</string>
@@ -687,19 +722,16 @@
     <string name="update_error_storage_generic">Not enough free storage space to install this update.</string>
     <string name="update_error_install_failed">Installation failed. Please try again.</string>
     <string name="update_error_generic">Unexpected update error occurred.</string>
-
-    <!-- Session WebView Preview Toggle -->
     <string name="session_webview_preview_setting_title">Session WebView Preview</string>
     <string name="session_webview_preview_setting_desc">Automatically load Instagram browser when opening Session tab</string>
     <string name="session_webview_closed_title">Instagram Browser is Closed</string>
     <string name="session_webview_closed_desc">For speed and privacy, the WebView does not auto-preview on open. Tap below to open it or configure default behavior in Settings.</string>
     <string name="session_webview_btn_open">Open Browser</string>
     <string name="session_webview_btn_close">Close</string>
-
-    <!-- Splash Screen Real Loading Stages -->
     <string name="splash_stage_init">Initializing...</string>
     <string name="splash_stage_security">Verifying encrypted Vault...</string>
     <string name="splash_stage_database">Preparing database...</string>
     <string name="splash_stage_session">Syncing session &amp; services...</string>
     <string name="splash_stage_ready">Ready</string>
+    <string name="error_profile_fetch_failed">Could not fetch profile data. Check your internet connection or Instagram rate limit.</string>
 </resources>

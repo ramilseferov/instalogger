@@ -1839,6 +1839,11 @@ private fun SettingsLogItem(
     log: ChangeLogEntity,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
+    val currentLang by LanguageManager.currentLanguage.collectAsState()
+    val (localizedTitle, localizedOld, localizedNew) = remember(log.id, log.title, log.oldValue, log.newValue, log.eventType, currentLang) {
+        LanguageManager.localizeChangeLog(context, log)
+    }
     val formattedTime = remember(log.timestamp) {
         SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault()).format(Date(log.timestamp))
     }
@@ -1875,7 +1880,11 @@ private fun SettingsLogItem(
             }
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = "${log.oldValue ?: ""} -> ${log.newValue ?: ""}".trim().ifEmpty { log.title },
+                text = if (!localizedOld.isNullOrBlank() || !localizedNew.isNullOrBlank()) {
+                    "${localizedOld ?: "-"} -> ${localizedNew ?: "-"}"
+                } else {
+                    localizedTitle
+                },
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,

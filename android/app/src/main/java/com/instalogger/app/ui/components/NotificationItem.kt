@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -121,9 +122,13 @@ fun NotificationItem(
     val haptic = LocalHapticFeedback.current
     val cardShape = ShapeTokens.LargeShape
     val visuals = resolveNotificationVisuals(notification.eventType)
+    val currentLang by com.instalogger.app.util.LanguageManager.currentLanguage.collectAsState()
 
-    val formattedTime = remember(notification.timestamp) {
+    val formattedTime = remember(notification.timestamp, currentLang) {
         formatRelativeTimestamp(context, notification.timestamp)
+    }
+    val (localizedTitle, localizedMessage) = remember(notification.id, notification.title, notification.message, notification.eventType, currentLang) {
+        com.instalogger.app.util.LanguageManager.localizeNotification(context, notification)
     }
 
     val isUnread = !notification.isRead
@@ -378,7 +383,7 @@ fun NotificationItem(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = notification.title,
+                            text = localizedTitle,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = if (isUnread) FontWeight.Bold else FontWeight.SemiBold,
                             color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
@@ -388,9 +393,9 @@ fun NotificationItem(
                         )
                     }
 
-                    if (notification.message.isNotBlank()) {
+                    if (localizedMessage.isNotBlank()) {
                         Text(
-                            text = notification.message,
+                            text = localizedMessage,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 3,
@@ -410,9 +415,9 @@ private fun formatRelativeTimestamp(context: android.content.Context, timestamp:
     val dateStr = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(timestamp))
 
     return when {
-        diffMs < 60_000L -> "${context.getString(R.string.time_just_now)} · $clockStr"
-        diffMs < 3_600_000L -> "${context.getString(R.string.time_minutes_ago, (diffMs / 60_000L).toInt())} · $clockStr"
-        diffMs < 86_400_000L -> "${context.getString(R.string.time_hours_ago, (diffMs / 3_600_000L).toInt())} · $clockStr"
+        diffMs < 60_000L -> "${com.instalogger.app.util.LanguageManager.getString(context, R.string.time_just_now)} · $clockStr"
+        diffMs < 3_600_000L -> "${com.instalogger.app.util.LanguageManager.getString(context, R.string.time_minutes_ago, (diffMs / 60_000L).toInt())} · $clockStr"
+        diffMs < 86_400_000L -> "${com.instalogger.app.util.LanguageManager.getString(context, R.string.time_hours_ago, (diffMs / 3_600_000L).toInt())} · $clockStr"
         else -> dateStr
     }
 }

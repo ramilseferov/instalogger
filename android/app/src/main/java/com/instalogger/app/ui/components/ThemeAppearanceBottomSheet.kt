@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import com.instalogger.app.R
 import com.instalogger.app.settings.ThemeMode
 import com.instalogger.app.ui.theme.AccentBlue
+import com.instalogger.app.util.LanguageManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +79,7 @@ fun ThemeAppearanceBottomSheet(
             )
         }
     ) {
+        LanguageManager.ProvideLocalizedContext {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -271,6 +273,7 @@ fun ThemeAppearanceBottomSheet(
                     }
                 }
             }
+        }
         }
     }
 }

@@ -170,6 +170,7 @@ fun PostCommentsBottomSheet(
             .padding(top = 12.dp),
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
+        com.instalogger.app.util.LanguageManager.ProvideLocalizedContext {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -620,6 +621,7 @@ fun PostCommentsBottomSheet(
                     }
                 }
             }
+        }
         }
     }
 

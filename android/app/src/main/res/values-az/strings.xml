@@ -1,12 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">InstaLogger</string>
     <string name="nav_dashboard">Panel</string>
     <string name="nav_notifications">Bildirişlər</string>
     <string name="nav_session">Sessiya</string>
     <string name="nav_settings">Ayarlar</string>
-
-    <!-- Dashboard -->
     <string name="dashboard_title">İzləmə Paneli</string>
     <string name="dashboard_subtitle">Aktiv Instagram hədəfləri və audit vəziyyəti</string>
     <string name="dashboard_empty_title">Heç bir hədəf tapılmadı</string>
@@ -30,8 +27,6 @@
     <string name="badge_inactive">Deaktiv</string>
     <string name="last_checked_format">Son yoxlanış: %1$s</string>
     <string name="never_checked">Hələ yoxlanılmayıb</string>
-
-    <!-- Dialogs -->
     <string name="dialog_add_title">Yeni Hədəf Əlavə Et</string>
     <string name="dialog_username_label">Instagram İstifadəçi Adı</string>
     <string name="dialog_username_hint">məs: user</string>
@@ -42,8 +37,6 @@
     <string name="dialog_close">Bağla</string>
     <string name="dialog_delete_confirm_title">Hədəfi Sil</string>
     <string name="dialog_delete_confirm_desc">@%1$s hədəfini və bütün arxiv tarixçəsini silmək istədiyinizdən əminsiniz?</string>
-
-    <!-- Target Detail -->
     <string name="target_detail_title">Hədəf Təfərrüatları</string>
     <string name="tab_audit_logs">Audit Jurnalı (%1$d)</string>
     <string name="tab_posts">Postlar (%1$d)</string>
@@ -79,8 +72,6 @@
     <string name="filter_new_following">Yeni İzlənilənlər</string>
     <string name="audit_empty_title">Qeyd Tapılmadı</string>
     <string name="audit_empty_desc">Bu kateqoriya üzrə hələ ki heç bir dəyişiklik aşkar edilməyib.</string>
-
-    <!-- Notification Center & Audit Logs -->
     <string name="notifications_title">Bildirişlər</string>
     <string name="notifications_subtitle">Sistem və profil dəyişiklikləri qeydləri</string>
     <string name="tab_audit_journal">Audit Jurnalı (%1$d)</string>
@@ -101,8 +92,6 @@
     <string name="action_delete">Sil</string>
     <string name="action_mark_read">Oxundu</string>
     <string name="none_value">Yoxdur</string>
-
-    <!-- Instagram Session -->
     <string name="session_title">Instagram Sessiyası</string>
     <string name="session_subtitle">Məxfi profilləri izləmək üçün daxili hesab əlaqəsi</string>
     <string name="session_status_card_title">Sessiya Vəziyyəti</string>
@@ -123,8 +112,6 @@
     <string name="msg_session_captured">Instagram sessiyası avtomatik tutuldu və saxlanıldı!</string>
     <string name="msg_cookie_saved">Cookie uğurla yadda saxlanıldı</string>
     <string name="msg_session_cleared">Sessiya təmizləndi</string>
-
-    <!-- Settings -->
     <string name="settings_title">Ayarlar</string>
     <string name="settings_subtitle">Sistem, dil və arxa fon konfiqurasiyası</string>
     <string name="section_language">Tətbiq Dili</string>
@@ -142,8 +129,6 @@
     <string name="danger_zone_desc">Cihazda saxlanılan bütün yerli hədəf, dəyişiklik jurnalı və bildiriş qeydlərini sıfırlayın.</string>
     <string name="btn_clear_all_data">Bütün Məlumatları Təmizlə</string>
     <string name="msg_data_cleared">Bütün yerli məlumatlar təmizləndi</string>
-
-    <!-- Archive Directory -->
     <string name="archive_dir_title">Arxiv Qovluğu</string>
     <string name="archive_dir_desc">Yüklənən profil şəkilləri və media fayllarının saxlanıldığı yerli qovluq.</string>
     <string name="archive_dir_hint">/storage/emulated/0/instalogger/archives</string>
@@ -152,8 +137,6 @@
     <string name="btn_reset_default">Standart</string>
     <string name="msg_archive_dir_saved">Arxiv qovluğu uğurla yeniləndi</string>
     <string name="msg_archive_dir_invalid">Qovluq ünvanı etibarsızdır və ya yazıla bilmir</string>
-
-    <!-- Audit Logs in Settings -->
     <string name="section_audit_logs">Audit və Yoxlama Logları</string>
     <string name="section_audit_logs_desc">Hədəflər üzrə canlı yoxlama və dəyişiklik qeydləri.</string>
     <string name="btn_view_logs">Loglara Bax</string>
@@ -162,14 +145,10 @@
     <string name="empty_logs_text">Hələ heç bir qeyd yoxdur</string>
     <string name="dialog_clear_logs_title">Logları Təmizlə</string>
     <string name="dialog_clear_logs_desc">Bütün audit və yoxlama loglarını silmək istədiyinizdən əminsiniz?</string>
-
-    <!-- Foreground Service -->
     <string name="service_notification_channel">InstaLogger Xidməti</string>
     <string name="service_notification_title">InstaLogger Arxa Fona Nəzarət</string>
     <string name="service_notification_desc">Instagram profilləri anlıq olaraq izlənilir</string>
     <string name="alert_notification_channel">InstaLogger Bildirişləri</string>
-
-    <!-- Theme & Appearance -->
     <string name="theme_section_title">Görünüş və Tema</string>
     <string name="theme_section_desc">Tətbiqin rəng palitrası və görünüş rejimini seçin.</string>
     <string name="theme_light">Açıq Rejim</string>
@@ -178,8 +157,6 @@
     <string name="theme_dark_desc">Gözü yormayan dərin qara və tünd çalarlar</string>
     <string name="theme_system">Sistem Uyğunluğu</string>
     <string name="theme_system_desc">Cihazın sistem görünüşünə avtomatik uyğunlaşır</string>
-
-    <!-- Notification Settings -->
     <string name="section_notifications">Bildirişlər və Xəbərdarlıqlar</string>
     <string name="section_notifications_desc">Android kanalları, səs, titrəyiş və bildiriş kateqoriyaları.</string>
     <string name="notif_status_bar_title">Telefon Bildirişləri</string>
@@ -205,8 +182,6 @@
     <string name="notif_settings_sheet_title">Bildiriş Tənzimləmələri</string>
     <string name="btn_battery_opt_active">İstisna Aktivdir • Ayarları Aç</string>
     <string name="badge_active_count_format">%1$d aktiv</string>
-
-    <!-- Security & App Lock -->
     <string name="lock_biometric_title">Biometrik Doğrulama</string>
     <string name="lock_biometric_desc">InstaLogger kilidini açmaq üçün barmaq izi və ya üzünüzü təsdiqləyin</string>
     <string name="lock_use_pin">PIN istifadə et</string>
@@ -234,8 +209,6 @@
     <string name="autolock_30s">30 saniyə</string>
     <string name="autolock_1m">1 dəqiqə</string>
     <string name="autolock_5m">5 dəqiqə</string>
-
-    <!-- Encrypted Vault Storage -->
     <string name="vault_card_title">Aparat-Dəstəkli Şifrəli Saxlama</string>
     <string name="vault_card_desc">Media, avatar və postlar AES-256-GCM ilə diskdə şifrələnir və Qalareyaya qətiyyən düşmür.</string>
     <string name="vault_status_engine">Şifrələmə Mühərriki</string>
@@ -246,8 +219,6 @@
     <string name="vault_storage_size_format">%1$s — diskdə açıq mətn yoxdur</string>
     <string name="vault_badge_secure">Aparatla Qorunur</string>
     <string name="vault_badge_isolated">100% Gizli</string>
-
-    <!-- Skeleton & Loading states -->
     <string name="loading_profile_data">Profil məlumatları yüklənir…</string>
     <string name="loading_posts">Paylaşımlar gətirilir…</string>
     <string name="posts_syncing_format">%1$d paylaşım aşkarlandı • Arxivlənir…</string>
@@ -273,13 +244,9 @@
     <string name="error_share_media">Paylaşım xətası</string>
     <string name="error_media_not_local">Fayl hələ yerli saxlanılmayıb</string>
     <string name="badge_unread_format">%1$d Yeni</string>
-
-    <!-- Compact Tab Titles -->
-    <string name="tab_audit_short">Audit (%1$d)</string>
+    <string name="tab_audit_short">Tarixçə (%1$d)</string>
     <string name="tab_posts_short">Postlar (%1$d)</string>
     <string name="tab_avatars_short">Avatarlar (%1$d)</string>
-
-    <!-- Daemon & Termux Settings -->
     <string name="section_daemon_title">Termux və Daemon Sinxronizasiyası</string>
     <string name="section_daemon_desc">Termux və ya kompüterdə işləyən yerli Rust daemon-una qoşulma (istəyə bağlı)</string>
     <string name="daemon_sync_enabled">Termux Daemon İnteqrasiyası</string>
@@ -290,8 +257,6 @@
     <string name="btn_ping_daemon">Bağlantını Yoxla</string>
     <string name="msg_daemon_connected">Daemon ilə əlaqə uğurla quruldu!</string>
     <string name="msg_daemon_unreachable">Bu ünvanda işləyən daemon tapılmadı</string>
-
-    <!-- Localized Alert Notifications -->
     <string name="notif_followers_changed_title">@%1$s izləyici sayı dəyişdi (%2$s)</string>
     <string name="notif_followers_changed_desc">%1$d -&gt; %2$d izləyici (%3$s)</string>
     <string name="notif_following_changed_title">@%1$s izlənilən sayı dəyişdi (%2$s)</string>
@@ -305,19 +270,20 @@
     <string name="notif_privacy_public">AÇIQ</string>
     <string name="notif_privacy_private">GİZLİ</string>
     <string name="notif_bio_changed_title">@%1$s bioqrafiyası yeniləndi</string>
+    <string name="notif_name_changed_title">@%1$s profil adı yeniləndi</string>
     <string name="notif_public_archived_title">@%1$s artıq AÇIQDIR! Postlar arxivləndi.</string>
     <string name="notif_public_archived_desc">%1$d hekayə albomu və %2$d post arxivləndi.</string>
     <string name="notif_follower_gained_title">@%1$s yeni izləyici qazandı: @%2$s</string>
+    <string name="notif_follower_gained_desc">Yeni izləyici: %1$s</string>
     <string name="notif_follower_lost_title">@%1$s izləyicisini itirdi: @%2$s</string>
+    <string name="notif_follower_lost_desc">İzləmədən çıxdı: %1$s</string>
     <string name="notif_following_gained_title">@%1$s yeni hesabı izləməyə başladı: @%2$s</string>
+    <string name="notif_following_gained_desc">Artıq izləyir: %1$s</string>
     <string name="notif_following_lost_title">@%1$s hesabı izləməkdən çıxdı: @%2$s</string>
-
-    <!-- Avatar Management -->
+    <string name="notif_following_lost_desc">İzləməni dayandırdı: %1$s</string>
     <string name="dialog_delete_avatar_title">Avatarı Sil</string>
     <string name="dialog_delete_avatar_desc">Bu tarixi avatar qeydini və faylını arxivdən silmək istədiyinizdən əminsiniz?</string>
     <string name="msg_avatar_deleted">Avatar arxivi silindi</string>
-
-    <!-- Multi-Provider Media & yt-dlp Engine -->
     <string name="section_media_engine_title">Media Mühərriki</string>
     <string name="section_media_engine_desc">Reels/Videolar üçün gömülü yt-dlp + FFmpeg, Foto və Carousel-lər üçün Native Graph, SHA-256 Vault deduplikasiyası.</string>
     <string name="ytdlp_status_ready">Hazır · %1$s</string>
@@ -352,18 +318,15 @@
     <string name="download_stage_cancelled">Endirmə ləğv edildi</string>
     <string name="msg_ytdlp_updated">yt-dlp: %1$s</string>
     <string name="msg_ytdlp_update_failed">yt-dlp yenilənmə xətası: %1$s</string>
-
-    <!-- Highlights & Story Viewer -->
     <string name="highlight_loading_stories">Highlight hekayələri yüklənir…</string>
     <string name="highlight_session_required_title">Hekayələr üçün Sessiya Tələb Olunur</string>
     <string name="highlight_session_required_desc">Instagram highlight albomlarının daxilindəki foto və videoları göstərmək üçün giriş sessiyası tələb edir. Baxmaq və arxivləmək üçün sessiya qoşun.</string>
     <string name="highlight_empty_title">Hekayə Elementi Tapılmadı</string>
     <string name="highlight_empty_desc">Bu highlight daxilindəki hekayələr hazırda yüklənə bilmədi. Yenidən cəhd edin.</string>
-    <string name="badge_active_story">Story</string>
-    <string name="story_viewer_active_title">@%1$s · Story</string>
+    <string name="badge_active_story">Hekayə</string>
+    <string name="story_viewer_active_title">@%1$s · Hekayə</string>
     <string name="notif_story_posted_title">@%1$s yeni story paylaşdı</string>
     <string name="notif_story_posted_desc">Yeni 24 saatlıq aktiv story aşkarlandı</string>
-    <!-- Follower Change Pool & High-Velocity Account Protection -->
     <string name="notif_pool_flush_title">@%1$s izləyici yığımı (%2$s)</string>
     <string name="notif_pool_digest_title">@%1$s izləyici xülasəsi (%2$s)</string>
     <string name="notif_pool_spike_title">@%1$s sürətli izləyici sıçrayışı (%2$s)</string>
@@ -406,8 +369,7 @@
     <string name="pool_badge_suggest_large">Böyük hesab · Toplamanı aç</string>
     <string name="pool_msg_flushed">Toplanan bildirişlər göndərildi (%1$s)</string>
     <string name="pool_msg_reset">Toplama başlanğıc nöqtəsi sıfırlandı</string>
-    <!-- Developer Logs Terminal & Honest Refresh Feedback -->
-    <string name="dev_logs_title">Developer Logs</string>
+    <string name="dev_logs_title">Tərtibatçı Jurnalları</string>
     <string name="dev_logs_desc">Şifrəli terminal konsolu: HTTP kodları, API cavabları, yükləmə və xəta jurnalı.</string>
     <string name="dev_logs_open_btn">Log Terminalını Aç</string>
     <string name="dev_logs_subtitle_stats">%1$d sətir · %2$d xəta · %3$d xəbərdarlıq</string>
@@ -564,7 +526,6 @@
     <string name="dialog_delete_post_title">Postu arxivdən sil?</string>
     <string name="dialog_delete_post_desc">%1$s postu və arxivlənmiş faylları cihazdan silinəcək.</string>
     <string name="msg_post_deleted">Post arxivdən silindi</string>
-    <!-- Data & Storage Management -->
     <string name="storage_mgmt_title">Məlumat və Yaddaş İdarəetməsi</string>
     <string name="storage_mgmt_desc">Yaddaş istifadəsi, şifrəli Vault mediası, keşlər, hədəf bölgüsü və WebView çərəzləri</string>
     <string name="storage_mgmt_header_sub">Yaddaş analizi və kateqoriya üzrə təmizlik</string>
@@ -680,7 +641,6 @@
     <string name="dev_logs_filter_debug">Sazlama</string>
     <string name="session_clear_confirm_title">Sessiyanı sıfırla?</string>
     <string name="session_clear_confirm_desc">Saxlanılmış Instagram giriş sessiyası silinəcək. Gizli profillər üçün yenidən giriş tələb olunacaq.</string>
-    <!-- Story & Highlight Archive System -->
     <string name="tab_stories_short">Hekayə (%1$d)</string>
     <string name="story_archive_title">Hekayə və Highlight Arxivi</string>
     <string name="story_archive_summary_stories">Hekayələr: %1$d</string>
@@ -696,7 +656,7 @@
     <string name="story_archive_delete_item_title">Arxivdən silinsin?</string>
     <string name="story_archive_delete_item_desc">Bu fayl lokal yaddaşdan və arxiv tarixçəsindən həmişəlik silinəcək (%1$s).</string>
     <string name="story_archive_delete_hl_title">Highlight silinsin?</string>
-    <string name="story_archive_delete_hl_desc">&quot;%1$s&quot; highlight-ı və bütün arxiv faylları (%2$s) yaddaşdan həmişəlik silinəcək.</string>
+    <string name="story_archive_delete_hl_desc">\"%1$s\" highlight-ı və bütün arxiv faylları (%2$s) yaddaşdan həmişəlik silinəcək.</string>
     <string name="story_archive_clear_all_desc">Bu profil üçün arxivlənmiş bütün hekayə faylları (%1$s) yaddaşdan silinəcək.</string>
     <string name="story_archive_highlights_section">Highlight Arxivi (%1$d)</string>
     <string name="story_archive_history_section">Hekayə Tarixçəsi (%1$d)</string>
@@ -705,14 +665,13 @@
     <string name="notif_story_vanished_title">@%1$s hekayəni sildi</string>
     <string name="notif_story_vanished_desc">Hekayə 24 saat dolmadan silindi (%1$s). Arxiv nüsxəsi qorunur.</string>
     <string name="notif_highlight_added_title">@%1$s yeni highlight əlavə etdi</string>
-    <string name="notif_highlight_added_desc">&quot;%1$s&quot; highlight-ı (%2$d fayl) avtomatik arxivləşdirildi.</string>
+    <string name="notif_highlight_added_desc">\"%1$s\" highlight-ı (%2$d fayl) avtomatik arxivləşdirildi.</string>
     <string name="notif_highlight_updated_title">@%1$s highlight-ı yenilədi</string>
-    <string name="notif_highlight_updated_desc">&quot;%1$s&quot; highlight-ına +%2$d yeni hekayə əlavə edildi.</string>
+    <string name="notif_highlight_updated_desc">\"%1$s\" highlight-ına +%2$d yeni hekayə əlavə edildi.</string>
     <string name="notif_highlight_vanished_title">@%1$s highlight sildi</string>
-    <string name="notif_highlight_vanished_desc">&quot;%1$s&quot; highlight-ı profildən silindi. Arxiv nüsxəsi qorunur.</string>
+    <string name="notif_highlight_vanished_desc">\"%1$s\" highlight-ı profildən silindi. Arxiv nüsxəsi qorunur.</string>
     <string name="notif_highlight_item_vanished_title">@%1$s highlight-dan hekayə sildi</string>
-    <string name="notif_highlight_item_vanished_desc">&quot;%1$s&quot; highlight-ından %2$d hekayə silindi. Arxiv nüsxəsi qorunur.</string>
-    <!-- GitHub In-App Update System -->
+    <string name="notif_highlight_item_vanished_desc">\"%1$s\" highlight-ından %2$d hekayə silindi. Arxiv nüsxəsi qorunur.</string>
     <string name="update_section_title">Tətbiq Yeniləməsi</string>
     <string name="update_section_sub">Cari versiya: v%1$s (Build %2$d)</string>
     <string name="update_sheet_title">Yeni Yeniləmə</string>
@@ -739,7 +698,7 @@
     <string name="update_status_installing">Quraşdırma başladılır...</string>
     <string name="update_verified_sha256">SHA-256 və imza sertifikatı təsdiqləndi</string>
     <string name="update_verified_ready">APK bütövlüyü və imzası təsdiqləndi</string>
-    <string name="update_permission_desc">Yeniləməni tətbiq daxilindən quraşdırmaq üçün Android sistemində "Naməlum tətbiqləri quraşdır" icazəsini aktiv edin. Qayıdan kimi quraşdırma avtomatik davam edəcək.</string>
+    <string name="update_permission_desc">Yeniləməni tətbiq daxilindən quraşdırmaq üçün Android sistemində \"Naməlum tətbiqləri quraşdır\" icazəsini aktiv edin. Qayıdan kimi quraşdırma avtomatik davam edəcək.</string>
     <string name="update_auto_check_title">Avtomatik yeniləmə yoxlaması</string>
     <string name="update_auto_check_desc">Yeni GitHub buraxılışlarını periodik olaraq arxa fonda yoxla</string>
     <string name="update_wifi_only_title">Yalnız Wi-Fi üzərindən endir</string>
@@ -763,19 +722,16 @@
     <string name="update_error_storage_generic">Quraşdırma üçün cihaz yaddaşında kifayət qədər yer yoxdur.</string>
     <string name="update_error_install_failed">Quraşdırma zamanı xəta baş verdi. Yenidən cəhd edin.</string>
     <string name="update_error_generic">Yeniləmə zamanı gözlənilməz xəta baş verdi.</string>
-
-    <!-- Session WebView Preview Toggle -->
     <string name="session_webview_preview_setting_title">Sessiya WebView önizləməsi</string>
     <string name="session_webview_preview_setting_desc">Sessiya menyusu açıldıqda Instagram brauzerini avtomatik yüklə</string>
     <string name="session_webview_closed_title">Instagram brauzeri bağlıdır</string>
     <string name="session_webview_closed_desc">Məxfilik və sürət üçün WebView menyu açıldıqda avtomatik açılmır. Daxil olmaq üçün aşağıdakı düymə ilə aça və ya Ayarlardan tənzimləyə bilərsiniz.</string>
     <string name="session_webview_btn_open">Brauzeri aç</string>
     <string name="session_webview_btn_close">Bağla</string>
-
-    <!-- Splash Screen Real Loading Stages -->
     <string name="splash_stage_init">Başladılır...</string>
     <string name="splash_stage_security">Şifrəli Vault yoxlanılır...</string>
     <string name="splash_stage_database">Verilənlər bazası hazırlanır...</string>
     <string name="splash_stage_session">Sessiya və xidmətlər sinxronlaşdırılır...</string>
     <string name="splash_stage_ready">İnterfeys hazırdır</string>
+    <string name="error_profile_fetch_failed">Profil məlumatları alına bilmədi. İnternet əlaqəsini və ya Instagram limitini yoxlayın.</string>
 </resources>

@@ -186,7 +186,8 @@ class ProfileInspector(
                 daemonSnapshot
             }
         } else {
-            val reason = engineResult.exceptionOrNull()?.message ?: "Profil məlumatları alına bilmədi"
+            val reason = engineResult.exceptionOrNull()?.message
+                ?: LanguageManager.getString(context, R.string.error_profile_fetch_failed)
             AppLogger.e("ProfileInspector", "inspectTarget(@$cleanUser) FAILED: $reason")
             return@withContext Result.failure(engineResult.exceptionOrNull() ?: Exception(reason))
         }
@@ -1628,8 +1629,8 @@ class ProfileInspector(
                     val lost = if (decision.allowLossAlerts) oldUsers.filter { it.username.lowercase() !in newSet } else emptyList()
 
                     for (u in gained) {
-                        val title = "@$username gained new follower: @${u.username}"
-                        val desc = "New follower: ${u.fullName.ifBlank { "@" + u.username }}"
+                        val title = LanguageManager.getString(context, R.string.notif_follower_gained_title, username, u.username)
+                        val desc = LanguageManager.getString(context, R.string.notif_follower_gained_desc, u.fullName.ifBlank { "@" + u.username })
                         database.followerAuditDao().insertAudit(
                             FollowerAuditEntity(
                                 targetUsername = username,
@@ -1653,8 +1654,8 @@ class ProfileInspector(
                     }
 
                     for (u in lost) {
-                        val title = "@$username lost follower: @${u.username}"
-                        val desc = "Unfollowed: ${u.fullName.ifBlank { "@" + u.username }}"
+                        val title = LanguageManager.getString(context, R.string.notif_follower_lost_title, username, u.username)
+                        val desc = LanguageManager.getString(context, R.string.notif_follower_lost_desc, u.fullName.ifBlank { "@" + u.username })
                         database.followerAuditDao().insertAudit(
                             FollowerAuditEntity(
                                 targetUsername = username,
@@ -1721,8 +1722,8 @@ class ProfileInspector(
                     val lost = if (decision.allowLossAlerts) oldUsers.filter { it.username.lowercase() !in newSet } else emptyList()
 
                     for (u in gained) {
-                        val title = "@$username followed: @${u.username}"
-                        val desc = "Now following: ${u.fullName.ifBlank { "@" + u.username }}"
+                        val title = LanguageManager.getString(context, R.string.notif_following_gained_title, username, u.username)
+                        val desc = LanguageManager.getString(context, R.string.notif_following_gained_desc, u.fullName.ifBlank { "@" + u.username })
                         database.followerAuditDao().insertAudit(
                             FollowerAuditEntity(
                                 targetUsername = username,
@@ -1746,8 +1747,8 @@ class ProfileInspector(
                     }
 
                     for (u in lost) {
-                        val title = "@$username unfollowed: @${u.username}"
-                        val desc = "Stopped following: ${u.fullName.ifBlank { "@" + u.username }}"
+                        val title = LanguageManager.getString(context, R.string.notif_following_lost_title, username, u.username)
+                        val desc = LanguageManager.getString(context, R.string.notif_following_lost_desc, u.fullName.ifBlank { "@" + u.username })
                         database.followerAuditDao().insertAudit(
                             FollowerAuditEntity(
                                 targetUsername = username,
