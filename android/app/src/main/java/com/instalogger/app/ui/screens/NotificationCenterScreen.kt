@@ -128,6 +128,7 @@ fun NotificationCenterScreen(
             ReachabilityHeader(
                 title = stringResource(R.string.notifications_title),
                 subtitle = stringResource(R.string.unread_notifications_format, unreadCount),
+                logoResId = R.drawable.ic_header_notifications,
                 badgeContent = {
                     AnimatedVisibility(
                         visible = unreadCount > 0,

@@ -137,6 +137,7 @@ fun InstagramSessionScreen() {
             ReachabilityHeader(
                 title = stringResource(R.string.session_title),
                 subtitle = stringResource(R.string.session_subtitle),
+                logoResId = R.drawable.ic_header_session,
                 actions = {
                     HeaderActionButton(onClick = { hasSession = app.sessionManager.hasSession() }) {
                         Icon(

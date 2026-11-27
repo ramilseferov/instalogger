@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Modern Instagram-gradient Account / Session Portal Emblem -->
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12C2,17.52 6.48,22 12,22C17.52,22 22,17.52 22,12C22,6.48 17.52,2 12,2ZM12,5.8C13.93,5.8 15.5,7.37 15.5,9.3C15.5,11.23 13.93,12.8 12,12.8C10.07,12.8 8.5,11.23 8.5,9.3C8.5,7.37 10.07,5.8 12,5.8ZM12,19.6C9.5,19.6 7.29,18.32 6,16.38C6.03,14.39 10,13.3 12,13.3C13.99,13.3 17.97,14.39 18,16.38C16.71,18.32 14.5,19.6 12,19.6Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="2"
+                android:startY="22"
+                android:endX="22"
+                android:endY="2">
+                <item android:offset="0.0" android:color="#FFFEDA75" />
+                <item android:offset="0.2" android:color="#FFFA7E1E" />
+                <item android:offset="0.45" android:color="#FFD62976" />
+                <item android:offset="0.75" android:color="#FF962FBF" />
+                <item android:offset="1.0" android:color="#FF4F5BD5" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

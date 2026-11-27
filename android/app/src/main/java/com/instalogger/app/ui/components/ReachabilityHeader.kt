@@ -1,5 +1,9 @@
 package com.instalogger.app.ui.components
 
+import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -7,10 +11,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -24,10 +34,26 @@ fun ReachabilityHeader(
     title: String,
     subtitle: String? = null,
     showLogo: Boolean = true,
+    @DrawableRes logoResId: Int = R.drawable.ic_instalogger_logo,
     badgeContent: (@Composable () -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var iconVisible by remember(logoResId) { mutableStateOf(false) }
+    LaunchedEffect(logoResId) {
+        iconVisible = true
+    }
+    val iconScale by animateFloatAsState(
+        targetValue = if (iconVisible) 1f else 0.86f,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "header_logo_scale"
+    )
+    val iconAlpha by animateFloatAsState(
+        targetValue = if (iconVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "header_logo_alpha"
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -66,9 +92,15 @@ fun ReachabilityHeader(
         ) {
             if (showLogo) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_instalogger_logo),
-                    contentDescription = "InstaLogger Logo",
-                    modifier = Modifier.size(34.dp)
+                    painter = painterResource(id = logoResId),
+                    contentDescription = title,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .graphicsLayer {
+                            scaleX = iconScale
+                            scaleY = iconScale
+                            alpha = iconAlpha
+                        }
                 )
             }
             Text(

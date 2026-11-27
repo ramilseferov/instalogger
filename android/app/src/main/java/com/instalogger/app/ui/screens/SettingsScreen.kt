@@ -9,16 +9,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +45,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -86,6 +99,7 @@ import com.instalogger.app.util.LanguageManager
 import com.instalogger.app.util.LogLevel
 import com.instalogger.app.util.PinHapticHelper
 import com.instalogger.app.util.StorageCacheManager
+import com.instalogger.app.util.StorageCategoryMetric
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -153,9 +167,15 @@ fun SettingsScreen(
     var isTestingDaemon by remember { mutableStateOf(false) }
     var daemonPingStatus by remember { mutableStateOf<Boolean?>(null) }
 
-    var storageSnapshot by remember { mutableStateOf<DeviceStorageSnapshot?>(null) }
+    var storageSnapshot by remember { mutableStateOf(CachedStorageSnapshotHolder.lastSnapshot) }
     LaunchedEffect(Unit) {
-        storageSnapshot = runCatching { StorageCacheManager.analyzeStorage(context) }.getOrNull()
+        val fresh = runCatching {
+            withContext(Dispatchers.IO) { StorageCacheManager.analyzeStorage(context) }
+        }.getOrNull()
+        if (fresh != null) {
+            CachedStorageSnapshotHolder.lastSnapshot = fresh
+            storageSnapshot = fresh
+        }
     }
 
     var isBatteryIgnored by remember { mutableStateOf(BatteryHelper.isBatteryOptimizationIgnored(context)) }
@@ -201,7 +221,8 @@ fun SettingsScreen(
         topBar = {
             ReachabilityHeader(
                 title = stringResource(R.string.settings_title),
-                subtitle = stringResource(R.string.settings_subtitle)
+                subtitle = stringResource(R.string.settings_subtitle),
+                logoResId = R.drawable.ic_header_settings
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -537,13 +558,20 @@ fun SettingsScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                if (storageBadge != null) {
+                                AnimatedVisibility(
+                                    visible = storageBadge != null,
+                                    enter = fadeIn(tween(340, easing = FastOutSlowInEasing)) +
+                                        scaleIn(
+                                            initialScale = 0.88f,
+                                            animationSpec = tween(340, easing = FastOutSlowInEasing)
+                                        )
+                                ) {
                                     Surface(
                                         shape = ShapeTokens.PillShape,
                                         color = Color(0xFF32ADE6).copy(alpha = 0.14f)
                                     ) {
                                         Text(
-                                            text = storageBadge,
+                                            text = storageBadge.orEmpty(),
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF32ADE6),
@@ -562,29 +590,14 @@ fun SettingsScreen(
                             val activeSegments = remember(storageSnapshot) {
                                 storageSnapshot?.categories?.filter { it.sizeBytes > 0L }.orEmpty()
                             }
-                            if (activeSegments.isNotEmpty()) {
-                                val totalSegBytes = activeSegments.sumOf { it.sizeBytes }.coerceAtLeast(1L)
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 50.dp)
-                                        .height(6.dp)
-                                        .clip(ShapeTokens.PillShape)
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    activeSegments.forEach { metric ->
-                                        val frac = (metric.sizeBytes.toFloat() / totalSegBytes.toFloat()).coerceAtLeast(0.05f)
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(frac)
-                                                .fillMaxHeight()
-                                                .clip(ShapeTokens.PillShape)
-                                                .background(Color(metric.type.colorHex))
-                                        )
-                                    }
-                                }
-                            }
+                            AnimatedStorageDistributionBar(
+                                segments = activeSegments,
+                                isLoaded = storageSnapshot != null,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 50.dp)
+                                    .height(6.dp)
+                            )
                         }
 
                         HorizontalDivider(
@@ -1471,7 +1484,10 @@ fun SettingsScreen(
     if (showDataManagementSheet) {
         DataManagementBottomSheet(
             onDismissRequest = { showDataManagementSheet = false },
-            onStorageChanged = { updated -> storageSnapshot = updated }
+            onStorageChanged = { updated ->
+                CachedStorageSnapshotHolder.lastSnapshot = updated
+                storageSnapshot = updated
+            }
         )
     }
 }
@@ -2185,3 +2201,124 @@ private fun AutoLockTimeoutDialog(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
     )
 }
+
+private object CachedStorageSnapshotHolder {
+    @Volatile
+    var lastSnapshot: DeviceStorageSnapshot? = null
+}
+
+private val SmoothStorageEaseOut = CubicBezierEasing(0.22f, 1.0f, 0.36f, 1.0f)
+
+@Composable
+private fun AnimatedStorageDistributionBar(
+    segments: List<StorageCategoryMetric>,
+    isLoaded: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val shimmerHighlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+
+    // Master reveal animation (0f -> 1f) whenever the bar enters composition or finishes loading
+    val revealAnim = remember { Animatable(0f) }
+    LaunchedEffect(isLoaded, segments.isNotEmpty()) {
+        if (isLoaded && segments.isNotEmpty()) {
+            if (revealAnim.value < 0.05f) {
+                revealAnim.snapTo(0f)
+            }
+            revealAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 720,
+                    easing = SmoothStorageEaseOut
+                )
+            )
+        }
+    }
+
+    // Subtle shimmer while initial storage analysis is running
+    val infiniteTransition = rememberInfiniteTransition(label = "storage_bar_shimmer")
+    val shimmerPhase by infiniteTransition.animateFloat(
+        initialValue = -0.4f,
+        targetValue = 1.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1350, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "storage_shimmer_phase"
+    )
+
+    val rawWeights = remember(segments) {
+        if (segments.isEmpty()) {
+            emptyList()
+        } else {
+            val total = segments.sumOf { it.sizeBytes }.coerceAtLeast(1L).toFloat()
+            val minPinned = segments.map { (it.sizeBytes.toFloat() / total).coerceAtLeast(0.05f) }
+            val sumWeights = minPinned.sum().coerceAtLeast(0.0001f)
+            minPinned.map { it / sumWeights }
+        }
+    }
+
+    Canvas(
+        modifier = modifier.clip(ShapeTokens.PillShape)
+    ) {
+        val w = size.width
+        val h = size.height
+        val corner = CornerRadius(h / 2f, h / 2f)
+
+        // Base track
+        drawRoundRect(
+            color = trackColor,
+            size = Size(w, h),
+            cornerRadius = corner
+        )
+
+        if (!isLoaded || segments.isEmpty()) {
+            // Soft non-fatiguing shimmer sweep while computing
+            val bandWidth = w * 0.42f
+            val startX = w * shimmerPhase
+            drawRoundRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, shimmerHighlight, Color.Transparent),
+                    startX = startX,
+                    endX = startX + bandWidth
+                ),
+                size = Size(w, h),
+                cornerRadius = corner
+            )
+            return@Canvas
+        }
+
+        val progress = revealAnim.value.coerceIn(0f, 1f)
+        if (progress <= 0.001f) return@Canvas
+
+        val gapPx = 2.dp.toPx()
+        val count = segments.size
+        val totalGaps = gapPx * (count - 1).coerceAtLeast(0)
+        val usableWidth = (w - totalGaps).coerceAtLeast(1f)
+        val revealedUsableWidth = usableWidth * progress
+
+        var currentX = 0f
+        var remainingReveal = revealedUsableWidth
+
+        for (i in 0 until count) {
+            if (remainingReveal <= 0.5f) break
+            val targetSegWidth = usableWidth * rawWeights[i]
+            val drawnSegWidth = remainingReveal.coerceAtMost(targetSegWidth)
+            val segCompletion = (drawnSegWidth / targetSegWidth.coerceAtLeast(1f)).coerceIn(0f, 1f)
+            val segColor = Color(segments[i].type.colorHex).copy(
+                alpha = (0.35f + 0.65f * segCompletion).coerceIn(0f, 1f)
+            )
+
+            drawRoundRect(
+                color = segColor,
+                topLeft = Offset(currentX, 0f),
+                size = Size(drawnSegWidth.coerceAtLeast(h.coerceAtMost(targetSegWidth)), h),
+                cornerRadius = corner
+            )
+
+            currentX += drawnSegWidth + gapPx
+            remainingReveal -= targetSegWidth
+        }
+    }
+}
+
