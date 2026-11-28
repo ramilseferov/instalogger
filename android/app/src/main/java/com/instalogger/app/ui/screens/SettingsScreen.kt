@@ -81,6 +81,7 @@ import com.instalogger.app.settings.ArchiverSpeedPreset
 import com.instalogger.app.settings.ThemeMode
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.components.AnimatedSegmentedSelector
+import com.instalogger.app.ui.components.BackupExportImportBottomSheet
 import com.instalogger.app.ui.components.DataManagementBottomSheet
 import com.instalogger.app.ui.components.NotificationSettingsBottomSheet
 import com.instalogger.app.ui.components.ReachabilityHeader
@@ -152,6 +153,7 @@ fun SettingsScreen(
     var showThemeSheet by remember { mutableStateOf(false) }
     var showNotifSettingsSheet by remember { mutableStateOf(false) }
     var showDataManagementSheet by remember { mutableStateOf(false) }
+    var showBackupExportImportSheet by remember { mutableStateOf(false) }
     var showSecurityExpanded by remember { mutableStateOf(false) }
     var showEngineExpanded by remember { mutableStateOf(false) }
     var showUpdateExpanded by remember { mutableStateOf(false) }
@@ -600,6 +602,22 @@ fun SettingsScreen(
                                     .height(6.dp)
                             )
                         }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 62.dp, end = 16.dp),
+                            thickness = 0.7.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                        )
+
+                        SettingsHubRow(
+                            icon = Icons.Default.ImportExport,
+                            iconTint = Color(0xFF10B981),
+                            title = stringResource(R.string.backup_sheet_title),
+                            subtitle = stringResource(R.string.backup_sheet_subtitle),
+                            badgeText = "JSON / CSV",
+                            badgeColor = Color(0xFF10B981),
+                            onClick = { showBackupExportImportSheet = true }
+                        )
 
                         HorizontalDivider(
                             modifier = Modifier.padding(start = 62.dp, end = 16.dp),
@@ -1488,6 +1506,15 @@ fun SettingsScreen(
             onStorageChanged = { updated ->
                 CachedStorageSnapshotHolder.lastSnapshot = updated
                 storageSnapshot = updated
+            }
+        )
+    }
+
+    if (showBackupExportImportSheet) {
+        BackupExportImportBottomSheet(
+            onDismissRequest = { showBackupExportImportSheet = false },
+            onCompletedMessage = { msg ->
+                scope.launch { snackbarHostState.showSnackbar(msg) }
             }
         )
     }

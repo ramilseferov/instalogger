@@ -276,6 +276,44 @@ export interface Translations {
   update_view_github: string;
   update_current_label: string;
   update_latest_label: string;
+  section_backup_transfer: string;
+  backup_export_targets_title: string;
+  backup_export_targets_desc: string;
+  backup_export_full_title: string;
+  backup_export_full_desc: string;
+  backup_export_full_btn: string;
+  backup_include_secrets_title: string;
+  backup_include_secrets_desc: string;
+  backup_security_note: string;
+  backup_import_title: string;
+  backup_import_desc: string;
+  backup_drop_hint: string;
+  backup_choose_file: string;
+  backup_preview_title: string;
+  backup_format_full: string;
+  backup_format_targets_json: string;
+  backup_format_targets_csv: string;
+  backup_source_label: string;
+  backup_targets_found: string;
+  backup_targets_new: string;
+  backup_targets_existing: string;
+  backup_settings_found: string;
+  backup_rules_found: string;
+  backup_opt_targets: string;
+  backup_opt_settings: string;
+  backup_opt_rules: string;
+  backup_opt_appearance: string;
+  backup_opt_secrets: string;
+  backup_conflict_label: string;
+  backup_conflict_merge: string;
+  backup_conflict_skip: string;
+  backup_import_apply: string;
+  backup_importing: string;
+  backup_import_success: string;
+  backup_export_success: string;
+  backup_invalid_file: string;
+  backup_file_too_large: string;
+  backup_no_targets: string;
 }
 
 const translations: Record<Language, Translations> = {
@@ -552,6 +590,44 @@ const translations: Record<Language, Translations> = {
     update_view_github: 'GitHub Relizi',
     update_current_label: 'Cari',
     update_latest_label: 'Ən son',
+    section_backup_transfer: 'Ehtiyat Nüsxə, Eksport və İmport',
+    backup_export_targets_title: 'Hədəf Siyahısını Eksport Et',
+    backup_export_targets_desc: 'Bütün izlənilən profilləri JSON və ya cədvəl (CSV) faylı kimi endirin',
+    backup_export_full_title: 'Tam Tətbiq Konfiqurasiyası',
+    backup_export_full_desc: 'Hədəflər, tətbiq ayarları, hovuz qaydaları, bildiriş ağacı, dil və tema bir faylda (Web və Android uyğun)',
+    backup_export_full_btn: 'Tam Nüsxə (JSON)',
+    backup_include_secrets_title: 'Telegram açarlarını daxil et',
+    backup_include_secrets_desc: 'Bot Token və Chat ID nüsxəyə əlavə olunsun (PIN və sessiya çərəzləri heç vaxt eksport edilmir)',
+    backup_security_note: 'PIN şifrəsi və Instagram sessiya çərəzləri təhlükəsizlik üçün eksport edilmir.',
+    backup_import_title: 'Konfiqurasiya və Hədəfləri İmport Et',
+    backup_import_desc: 'InstaLogger JSON nüsxəsi, hədəf JSON və ya CSV faylı seçib bərpa edin',
+    backup_drop_hint: 'JSON və ya CSV faylını bura sürükləyin, yaxud seçin',
+    backup_choose_file: 'Fayl seç',
+    backup_preview_title: 'İmport Önizləməsi',
+    backup_format_full: 'Tam Nüsxə (JSON)',
+    backup_format_targets_json: 'Hədəf Siyahısı (JSON)',
+    backup_format_targets_csv: 'Hədəf Siyahısı (CSV)',
+    backup_source_label: 'Mənbə',
+    backup_targets_found: 'Hədəf',
+    backup_targets_new: 'yeni',
+    backup_targets_existing: 'mövcud',
+    backup_settings_found: 'Ayar',
+    backup_rules_found: 'Bildiriş qaydası',
+    backup_opt_targets: 'Hədəf siyahısı və hovuz ayarları',
+    backup_opt_settings: 'Sistem və yükləmə ayarları',
+    backup_opt_rules: 'Bildiriş ağacı qaydaları',
+    backup_opt_appearance: 'Görünüş (tema) və dil',
+    backup_opt_secrets: 'Telegram açarlarını bərpa et',
+    backup_conflict_label: 'Mövcud hədəflər üçün davranış',
+    backup_conflict_merge: 'Birləşdir və yenilə',
+    backup_conflict_skip: 'Mövcudları keç',
+    backup_import_apply: 'İmportu Tətbiq Et',
+    backup_importing: 'İmport edilir...',
+    backup_import_success: 'İmport uğurla tamamlandı',
+    backup_export_success: 'Fayl uğurla eksport edildi',
+    backup_invalid_file: 'Dəstəklənməyən və ya zədələnmiş JSON/CSV faylı',
+    backup_file_too_large: 'Fayl ölçüsü 2 MB limitini aşır',
+    backup_no_targets: 'Eksport üçün hədəf yoxdur',
   },
   en: {
     app_title: 'InstaLogger',
@@ -826,6 +902,44 @@ const translations: Record<Language, Translations> = {
     update_view_github: 'GitHub Release',
     update_current_label: 'Current',
     update_latest_label: 'Latest',
+    section_backup_transfer: 'Backup, Export & Import',
+    backup_export_targets_title: 'Export Target List',
+    backup_export_targets_desc: 'Download all tracked Instagram targets as a portable JSON or CSV file',
+    backup_export_full_title: 'Full App Configuration Backup',
+    backup_export_full_desc: 'Targets, app settings, follower pool rules, notification tree, theme & language in one cross-platform file',
+    backup_export_full_btn: 'Full Backup (JSON)',
+    backup_include_secrets_title: 'Include Telegram credentials',
+    backup_include_secrets_desc: 'Include Bot Token & Chat ID in export (PIN hashes and session cookies are never exported)',
+    backup_security_note: 'PIN hashes and Instagram session cookies are never included for security.',
+    backup_import_title: 'Import Configuration & Targets',
+    backup_import_desc: 'Restore from an InstaLogger JSON backup, target JSON, or CSV list',
+    backup_drop_hint: 'Drag & drop a JSON or CSV file here, or click to browse',
+    backup_choose_file: 'Choose file',
+    backup_preview_title: 'Import Preview',
+    backup_format_full: 'Full Backup (JSON)',
+    backup_format_targets_json: 'Target List (JSON)',
+    backup_format_targets_csv: 'Target List (CSV)',
+    backup_source_label: 'Source',
+    backup_targets_found: 'Targets',
+    backup_targets_new: 'new',
+    backup_targets_existing: 'existing',
+    backup_settings_found: 'Settings',
+    backup_rules_found: 'Alert rules',
+    backup_opt_targets: 'Target list & pool overrides',
+    backup_opt_settings: 'System & archiver settings',
+    backup_opt_rules: 'Notification tree rules',
+    backup_opt_appearance: 'Appearance (theme) & language',
+    backup_opt_secrets: 'Restore Telegram credentials',
+    backup_conflict_label: 'Existing targets conflict mode',
+    backup_conflict_merge: 'Merge & Update',
+    backup_conflict_skip: 'Skip Existing',
+    backup_import_apply: 'Apply Import',
+    backup_importing: 'Importing...',
+    backup_import_success: 'Import completed successfully',
+    backup_export_success: 'File exported successfully',
+    backup_invalid_file: 'Unsupported or malformed JSON/CSV file',
+    backup_file_too_large: 'File exceeds the 2 MB maximum size limit',
+    backup_no_targets: 'No targets to export',
   },
   ru: {
     app_title: 'InstaLogger',
@@ -1100,6 +1214,44 @@ const translations: Record<Language, Translations> = {
     update_view_github: 'Релиз GitHub',
     update_current_label: 'Текущая',
     update_latest_label: 'Последняя',
+    section_backup_transfer: 'Резервная копия, Экспорт и Импорт',
+    backup_export_targets_title: 'Экспорт списка целей',
+    backup_export_targets_desc: 'Скачайте все отслеживаемые профили в формате JSON или CSV',
+    backup_export_full_title: 'Полная конфигурация приложения',
+    backup_export_full_desc: 'Цели, настройки, правила пула, дерево уведомлений, тема и язык в одном файле (Web и Android)',
+    backup_export_full_btn: 'Полная копия (JSON)',
+    backup_include_secrets_title: 'Включить ключи Telegram',
+    backup_include_secrets_desc: 'Добавить Bot Token и Chat ID (PIN-хеш и cookie сессии никогда не экспортируются)',
+    backup_security_note: 'PIN-код и cookie сессии Instagram никогда не включаются в экспорт.',
+    backup_import_title: 'Импорт настроек и целей',
+    backup_import_desc: 'Восстановите полную копию InstaLogger (JSON), список целей JSON или CSV',
+    backup_drop_hint: 'Перетащите JSON или CSV файл сюда или нажмите для выбора',
+    backup_choose_file: 'Выбрать файл',
+    backup_preview_title: 'Предпросмотр импорта',
+    backup_format_full: 'Полная копия (JSON)',
+    backup_format_targets_json: 'Список целей (JSON)',
+    backup_format_targets_csv: 'Список целей (CSV)',
+    backup_source_label: 'Источник',
+    backup_targets_found: 'Целей',
+    backup_targets_new: 'новых',
+    backup_targets_existing: 'существующих',
+    backup_settings_found: 'Настроек',
+    backup_rules_found: 'Правил уведомлений',
+    backup_opt_targets: 'Список целей и настройки пула',
+    backup_opt_settings: 'Настройки системы и архиватора',
+    backup_opt_rules: 'Правила уведомлений',
+    backup_opt_appearance: 'Оформление (тема) и язык',
+    backup_opt_secrets: 'Восстановить ключи Telegram',
+    backup_conflict_label: 'Поведение для существующих целей',
+    backup_conflict_merge: 'Объединить и обновить',
+    backup_conflict_skip: 'Пропустить существующие',
+    backup_import_apply: 'Применить импорт',
+    backup_importing: 'Импорт...',
+    backup_import_success: 'Импорт успешно завершен',
+    backup_export_success: 'Файл успешно экспортирован',
+    backup_invalid_file: 'Неподдерживаемый или поврежденный файл JSON/CSV',
+    backup_file_too_large: 'Размер файла превышает лимит 2 МБ',
+    backup_no_targets: 'Нет целей для экспорта',
   },
 };
 

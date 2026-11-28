@@ -16,6 +16,8 @@ import {
   StorageOverview,
   AuthStatus,
   UpdateCheckResult,
+  BackupImportOptions,
+  BackupImportResponse,
 } from '../types';
 
 const BASE_URL = '/api';
@@ -401,6 +403,53 @@ export const api = {
 
   async checkSystemUpdate(force = false): Promise<UpdateCheckResult> {
     const res = await fetch(`${BASE_URL}/system/update-check${force ? '?force=true' : ''}`);
+    return await parseJsonOrThrow(res);
+  },
+
+  async exportBackup(params: {
+    format: 'json' | 'csv';
+    scope: 'full' | 'targets';
+    include_secrets?: boolean;
+    theme_mode?: string;
+    language?: string;
+  }): Promise<{ blob: Blob; filename: string }> {
+    const qs = new URLSearchParams({
+      format: params.format,
+      scope: params.scope,
+      include_secrets: params.include_secrets ? 'true' : 'false',
+    });
+    if (params.theme_mode) qs.set('theme_mode', params.theme_mode);
+    if (params.language) qs.set('language', params.language);
+    const res = await fetch(`${BASE_URL}/backup/export?${qs.toString()}`);
+    if (!res.ok) {
+      let msg = `Export failed (${res.status})`;
+      try {
+        const j = await res.json();
+        if (j?.error) msg = j.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(msg);
+    }
+    const cd = res.headers.get('content-disposition') || '';
+    const match = /filename="([^"]+)"/.exec(cd);
+    const ext = params.format === 'csv' ? 'csv' : 'json';
+    const prefix = params.scope === 'targets' ? 'instalogger-targets' : 'instalogger-backup';
+    const filename = match?.[1] || `${prefix}.${ext}`;
+    const blob = await res.blob();
+    return { blob, filename };
+  },
+
+  async importBackup(payload: {
+    format: 'json' | 'csv';
+    content: string;
+    options: BackupImportOptions;
+  }): Promise<BackupImportResponse> {
+    const res = await fetch(`${BASE_URL}/backup/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
     return await parseJsonOrThrow(res);
   },
 };

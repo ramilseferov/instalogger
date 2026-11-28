@@ -14,6 +14,7 @@ import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { SegmentedControl } from '../common/SegmentedControl';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { DataBackupSection } from './DataBackupSection';
 import { useI18n, Language } from '../../i18n';
 import {
   Bell,
@@ -1238,6 +1239,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             )}
           </Card>
         </section>
+
+        {/* Section 8.5: Backup, Export & Import */}
+        <DataBackupSection
+          targets={targets}
+          settings={settings}
+          rules={rules}
+          onImportCompleted={loadSettings}
+        />
 
         {/* Section 9: Diagnostics, Storage & Queue */}
         <section className="space-y-2.5">

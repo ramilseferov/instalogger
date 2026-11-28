@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod backup;
 pub mod comments;
 pub mod dev_logs;
 pub mod downloads;
@@ -104,6 +105,8 @@ pub fn create_router(db: Database, scheduler: Arc<Scheduler>) -> Router {
             get(settings::get_settings).post(settings::update_settings),
         )
         .route("/settings/session-export", get(settings::export_session_cookie))
+        .route("/backup/export", get(backup::export_backup))
+        .route("/backup/import", post(backup::import_backup))
         .route(
             "/dev-logs",
             get(dev_logs::get_dev_logs).delete(dev_logs::clear_dev_logs),

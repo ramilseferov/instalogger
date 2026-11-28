@@ -271,3 +271,31 @@ export interface UpdateCheckResult {
   source: string;
   checked_at: string;
 }
+
+export interface BackupImportOptions {
+  import_targets: boolean;
+  import_settings: boolean;
+  import_notification_rules: boolean;
+  conflict_mode: 'merge' | 'skip';
+  include_secrets: boolean;
+}
+
+export interface BackupImportSummary {
+  targets_added: number;
+  targets_updated: number;
+  targets_skipped: number;
+  pool_overrides_applied: number;
+  settings_applied: number;
+  rules_applied: number;
+  warnings: string[];
+}
+
+export interface BackupImportResponse {
+  status: string;
+  summary: BackupImportSummary;
+  appearance?: {
+    theme_mode?: ThemeMode;
+    language?: 'az' | 'en' | 'ru';
+  } | null;
+}
+
