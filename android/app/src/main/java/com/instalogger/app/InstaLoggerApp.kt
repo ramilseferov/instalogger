@@ -9,6 +9,9 @@ import android.os.SystemClock
 import androidx.annotation.StringRes
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import java.io.File
 import com.instalogger.app.data.local.AppDatabase
 import com.instalogger.app.data.repository.NotificationRepository
 import com.instalogger.app.engine.InstagramEngine
@@ -113,10 +116,23 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
 
         return ImageLoader.Builder(this)
             .okHttpClient(coilClient)
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(File(cacheDir, "coil_image_cache"))
+                    .maxSizeBytes(128L * 1024L * 1024L)
+                    .build()
+            }
+            .respectCacheHeaders(false)
+            .allowHardware(true)
             .components {
                 add(VaultMediaFetcher.Factory(this@InstaLoggerApp))
             }
-            .crossfade(true)
+            .crossfade(120)
             .build()
     }
 
@@ -213,7 +229,7 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
                     isReady = false
                 )
                 val elapsed = SystemClock.elapsedRealtime() - startedAt
-                val minCalmDisplayMs = 820L
+                val minCalmDisplayMs = 340L
                 if (elapsed < minCalmDisplayMs) {
                     delay(minCalmDisplayMs - elapsed)
                 }
@@ -223,7 +239,7 @@ class InstaLoggerApp : Application(), ImageLoaderFactory {
                     stageResId = R.string.splash_stage_ready,
                     isReady = false
                 )
-                delay(260L)
+                delay(120L)
             } finally {
                 _startupProgress.value = StartupProgressState(
                     progress = 1.0f,

@@ -6,10 +6,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,18 +22,20 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
@@ -49,7 +52,9 @@ import com.instalogger.app.ui.theme.InstaLoggerTheme
 import com.instalogger.app.util.LanguageManager
 import kotlinx.coroutines.launch
 
+@Immutable
 sealed class Screen(val route: String, @StringRes val titleRes: Int, val icon: ImageVector) {
+    object MainTabs : Screen("main_tabs", R.string.nav_dashboard, Icons.Default.Dashboard)
     object Dashboard : Screen("dashboard", R.string.nav_dashboard, Icons.Default.Dashboard)
     object Notifications : Screen("notifications", R.string.nav_notifications, Icons.Default.Notifications)
     object Session : Screen("session", R.string.nav_session, Icons.Default.AccountCircle)
@@ -74,9 +79,41 @@ class MainActivity : FragmentActivity() {
         super.attachBaseContext(LanguageManager.wrapBaseContext(newBase))
     }
 
+    private fun requestHighestRefreshRate() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val activeDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    display ?: @Suppress("DEPRECATION") windowManager?.defaultDisplay
+                } else {
+                    @Suppress("DEPRECATION")
+                    windowManager?.defaultDisplay
+                }
+                if (activeDisplay != null) {
+                    val currentMode = activeDisplay.mode
+                    val bestMode = activeDisplay.supportedModes
+                        .filter {
+                            it.physicalWidth == currentMode.physicalWidth &&
+                                it.physicalHeight == currentMode.physicalHeight
+                        }
+                        .maxByOrNull { it.refreshRate }
+                        ?: activeDisplay.supportedModes.maxByOrNull { it.refreshRate }
+                    if (bestMode != null && bestMode.refreshRate >= 60f) {
+                        val lp = window.attributes
+                        lp.preferredDisplayModeId = bestMode.modeId
+                        lp.preferredRefreshRate = bestMode.refreshRate
+                        window.attributes = lp
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+            // Best-effort high refresh rate hint
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        requestHighestRefreshRate()
         LanguageManager.init(this)
         val app = application as InstaLoggerApp
 
@@ -150,8 +187,20 @@ class MainActivity : FragmentActivity() {
                         } else {
                             val navController = rememberNavController()
                             val navBackStackEntry by navController.currentBackStackEntryAsState()
-                            val currentDestination = navBackStackEntry?.destination
-                            val currentRoute = currentDestination?.route
+                            val currentNavRoute = navBackStackEntry?.destination?.route
+
+                            val bottomNavItems = remember {
+                                listOf(
+                                    Screen.Dashboard,
+                                    Screen.Notifications,
+                                    Screen.Session,
+                                    Screen.Settings
+                                )
+                            }
+                            var selectedTabRoute by rememberSaveable { mutableStateOf(Screen.Dashboard.route) }
+                            val selectedMainTab = remember(selectedTabRoute) {
+                                bottomNavItems.firstOrNull { it.route == selectedTabRoute } ?: Screen.Dashboard
+                            }
 
                             val isLanguageTransitioning by LanguageManager.isTransitioning.collectAsState()
                             val isThemeTransitioning by app.settingsManager.isTransitioning.collectAsState()
@@ -174,157 +223,114 @@ class MainActivity : FragmentActivity() {
                                 }
                             }
 
-                        val bottomNavItems = listOf(
-                            Screen.Dashboard,
-                            Screen.Notifications,
-                            Screen.Session,
-                            Screen.Settings
-                        )
+                            val isOnMainTabs = currentNavRoute == null || currentNavRoute == Screen.MainTabs.route
 
-                        val showBottomBar = currentRoute in bottomNavItems.map { it.route }
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .languageTransitionBlur(isSettingsTransitionActive)
-                        ) {
-                            Scaffold(
-                                modifier = Modifier.fillMaxSize(),
-                                bottomBar = {
-                                    if (showBottomBar) {
-                                        AnimatedBottomBar(
-                                            items = bottomNavItems,
-                                            currentRoute = currentRoute,
-                                            unreadCount = unreadCount,
-                                            onItemSelected = { screen ->
-                                                if (currentRoute != screen.route) {
-                                                    navController.navigate(screen.route) {
-                                                        popUpTo(navController.graph.findStartDestination().id) {
-                                                            saveState = true
-                                                        }
-                                                        launchSingleTop = true
-                                                        restoreState = true
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                            ) { innerPadding ->
-                                NavHost(
-                                    navController = navController,
-                                    startDestination = Screen.Dashboard.route,
-                                    modifier = Modifier.padding(innerPadding),
-                                    enterTransition = {
-                                        val fromRoute = initialState.destination.route
-                                        val toRoute = targetState.destination.route
-                                        val fromIdx = getTabRouteIndex(fromRoute)
-                                        val toIdx = getTabRouteIndex(toRoute)
-
-                                        when {
-                                            toRoute?.startsWith("target/") == true -> MotionSpecs.PushEnter
-                                            fromIdx != -1 && toIdx != -1 -> {
-                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
-                                            }
-                                            else -> MotionSpecs.NavEnterTransition
-                                        }
-                                    },
-                                    exitTransition = {
-                                        val fromRoute = initialState.destination.route
-                                        val toRoute = targetState.destination.route
-                                        val fromIdx = getTabRouteIndex(fromRoute)
-                                        val toIdx = getTabRouteIndex(toRoute)
-
-                                        when {
-                                            toRoute?.startsWith("target/") == true -> MotionSpecs.PushExit
-                                            fromIdx != -1 && toIdx != -1 -> {
-                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
-                                            }
-                                            else -> MotionSpecs.NavExitTransition
-                                        }
-                                    },
-                                    popEnterTransition = {
-                                        val fromRoute = initialState.destination.route
-                                        val toRoute = targetState.destination.route
-                                        val fromIdx = getTabRouteIndex(fromRoute)
-                                        val toIdx = getTabRouteIndex(toRoute)
-
-                                        when {
-                                            fromRoute?.startsWith("target/") == true -> MotionSpecs.PopEnter
-                                            fromIdx != -1 && toIdx != -1 -> {
-                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightEnter else MotionSpecs.TabFlowLeftEnter
-                                            }
-                                            else -> MotionSpecs.NavPopEnterTransition
-                                        }
-                                    },
-                                    popExitTransition = {
-                                        val fromRoute = initialState.destination.route
-                                        val toRoute = targetState.destination.route
-                                        val fromIdx = getTabRouteIndex(fromRoute)
-                                        val toIdx = getTabRouteIndex(toRoute)
-
-                                        when {
-                                            fromRoute?.startsWith("target/") == true -> MotionSpecs.PopExit
-                                            fromIdx != -1 && toIdx != -1 -> {
-                                                if (toIdx > fromIdx) MotionSpecs.TabFlowRightExit else MotionSpecs.TabFlowLeftExit
-                                            }
-                                            else -> MotionSpecs.NavPopExitTransition
-                                        }
-                                    }
-                                ) {
-                                    composable(Screen.Dashboard.route) {
-                                        DashboardScreen(
-                                            onNavigateToDetail = { username ->
-                                                navController.navigate(Screen.TargetDetail.createRoute(username))
-                                            }
-                                        )
-                                    }
-                                    composable(Screen.Notifications.route) {
-                                        NotificationCenterScreen(
-                                            onNavigateToDetail = { username ->
-                                                navController.navigate(Screen.TargetDetail.createRoute(username))
-                                            }
-                                        )
-                                    }
-                                    composable(Screen.Session.route) {
-                                        InstagramSessionScreen()
-                                    }
-                                    composable(Screen.Settings.route) {
-                                        SettingsScreen(
-                                            onOpenDeveloperLogs = {
-                                                navController.navigate(Screen.DeveloperLogs.route)
-                                            }
-                                        )
-                                    }
-                                    composable(Screen.DeveloperLogs.route) {
-                                        DeveloperLogsScreen(
-                                            onBack = { navController.popBackStack() }
-                                        )
-                                    }
-                                    composable(
-                                        route = Screen.TargetDetail.route,
-                                        arguments = listOf(navArgument("username") { type = NavType.StringType })
-                                    ) { backStackEntry ->
-                                        val username = backStackEntry.arguments?.getString("username") ?: ""
-                                        ProfileDetailScreen(
-                                            username = username,
-                                            onBack = { navController.popBackStack() },
-                                            onNavigateToSession = { navController.navigate(Screen.Session.route) }
-                                        )
-                                    }
-                                }
+                            // Hardware Back returns from non-home main tabs smoothly to Dashboard
+                            BackHandler(enabled = isOnMainTabs && selectedMainTab != Screen.Dashboard) {
+                                selectedTabRoute = Screen.Dashboard.route
                             }
 
-                            LanguageBlurOverlay(isBlurActive = isSettingsTransitionActive)
-                            UpdateBottomSheet(updateManager = app.updateManager)
-                        }
-                    }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .languageTransitionBlur(isSettingsTransitionActive)
+                            ) {
+                                Scaffold(
+                                    modifier = Modifier.fillMaxSize(),
+                                    bottomBar = {
+                                        if (isOnMainTabs) {
+                                            AnimatedBottomBar(
+                                                items = bottomNavItems,
+                                                currentRoute = selectedMainTab.route,
+                                                unreadCount = unreadCount,
+                                                onItemSelected = { screen ->
+                                                    if (selectedTabRoute != screen.route) {
+                                                        selectedTabRoute = screen.route
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                ) { innerPadding ->
+                                    NavHost(
+                                        navController = navController,
+                                        startDestination = Screen.MainTabs.route,
+                                        modifier = Modifier.padding(innerPadding),
+                                        enterTransition = { MotionSpecs.PushEnter },
+                                        exitTransition = { MotionSpecs.PushExit },
+                                        popEnterTransition = { MotionSpecs.PopEnter },
+                                        popExitTransition = { MotionSpecs.PopExit }
+                                    ) {
+                                        composable(Screen.MainTabs.route) {
+                                            SmoothMainTabHost(
+                                                tabs = bottomNavItems,
+                                                selectedTab = selectedMainTab,
+                                                modifier = Modifier.fillMaxSize()
+                                            ) { tab, isSelected ->
+                                                when (tab) {
+                                                    Screen.Dashboard -> {
+                                                        DashboardScreen(
+                                                            onNavigateToDetail = { username ->
+                                                                navController.navigate(Screen.TargetDetail.createRoute(username))
+                                                            }
+                                                        )
+                                                    }
+                                                    Screen.Notifications -> {
+                                                        NotificationCenterScreen(
+                                                            onNavigateToDetail = { username ->
+                                                                navController.navigate(Screen.TargetDetail.createRoute(username))
+                                                            }
+                                                        )
+                                                    }
+                                                    Screen.Session -> {
+                                                        InstagramSessionScreen(
+                                                            isActiveTab = isSelected && isOnMainTabs
+                                                        )
+                                                    }
+                                                    Screen.Settings -> {
+                                                        SettingsScreen(
+                                                            isActiveTab = isSelected && isOnMainTabs,
+                                                            onOpenDeveloperLogs = {
+                                                                navController.navigate(Screen.DeveloperLogs.route)
+                                                            }
+                                                        )
+                                                    }
+                                                    else -> Unit
+                                                }
+                                            }
+                                        }
+                                        composable(Screen.DeveloperLogs.route) {
+                                            DeveloperLogsScreen(
+                                                onBack = { navController.popBackStack() }
+                                            )
+                                        }
+                                        composable(
+                                            route = Screen.TargetDetail.route,
+                                            arguments = listOf(navArgument("username") { type = NavType.StringType })
+                                        ) { backStackEntry ->
+                                            val username = backStackEntry.arguments?.getString("username") ?: ""
+                                            ProfileDetailScreen(
+                                                username = username,
+                                                onBack = { navController.popBackStack() },
+                                                onNavigateToSession = {
+                                                    selectedTabRoute = Screen.Session.route
+                                                    navController.popBackStack(Screen.MainTabs.route, inclusive = false)
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
 
-                    SplashOverlay(state = startupState)
+                                LanguageBlurOverlay(isBlurActive = isSettingsTransitionActive)
+                                UpdateBottomSheet(updateManager = app.updateManager)
+                            }
+                        }
+
+                        SplashOverlay(state = startupState)
+                    }
                 }
             }
         }
-    }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -360,21 +366,120 @@ class MainActivity : FragmentActivity() {
         const val EXTRA_OPEN_UPDATE_SHEET = "extra_open_update_sheet"
     }
 
-    private fun getTabRouteIndex(route: String?): Int {
-        return when (route) {
-            Screen.Dashboard.route -> 0
-            Screen.Notifications.route -> 1
-            Screen.Session.route -> 2
-            Screen.Settings.route -> 3
-            else -> -1
-        }
-    }
-
     private fun startLoggerService() {
         try {
             InstaLoggerForegroundService.start(this)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+}
+
+/**
+ * Hardware-accelerated (RenderNode / GPU) 120 FPS directional tab host.
+ * - Retains visited main tabs in composition so scroll positions and Room subscriptions never reset.
+ * - Skips measure/layout/draw/touch completely for hidden tabs (0 background UI cost).
+ * - Animates directional horizontal glide + crossfade strictly in the Draw phase via graphicsLayer.
+ */
+@Composable
+private fun SmoothMainTabHost(
+    tabs: List<Screen>,
+    selectedTab: Screen,
+    modifier: Modifier = Modifier,
+    content: @Composable (tab: Screen, isSelected: Boolean) -> Unit
+) {
+    var currentActiveTab by remember { mutableStateOf(selectedTab) }
+    var outgoingTab by remember { mutableStateOf<Screen?>(null) }
+    var transitionDirection by remember { mutableFloatStateOf(1f) }
+    var transitionProgress by remember { mutableFloatStateOf(1f) }
+
+    val retainedTabs = remember { mutableStateListOf<Screen>() }
+    if (selectedTab !in retainedTabs) {
+        retainedTabs.add(selectedTab)
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != currentActiveTab) {
+            val prevTab = currentActiveTab
+            val oldIdx = tabs.indexOf(prevTab)
+            val newIdx = tabs.indexOf(selectedTab)
+            transitionDirection = if (newIdx >= oldIdx) 1f else -1f
+            outgoingTab = prevTab
+            currentActiveTab = selectedTab
+            transitionProgress = 0f
+
+            val durationSec = 0.16f
+            var elapsed = 0f
+            var lastFrameNanos = 0L
+
+            while (elapsed < durationSec) {
+                withFrameNanos { frameNanos ->
+                    val rawDt = if (lastFrameNanos == 0L) 0.016f else (frameNanos - lastFrameNanos) / 1_000_000_000f
+                    lastFrameNanos = frameNanos
+                    elapsed += rawDt.coerceIn(0.001f, 0.055f)
+                    val linear = (elapsed / durationSec).coerceIn(0f, 1f)
+                    transitionProgress = FastOutSlowInEasing.transform(linear)
+                }
+            }
+            transitionProgress = 1f
+            outgoingTab = null
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        for (tab in tabs) {
+            val isCurrent = (tab == currentActiveTab)
+            val isOutgoing = (tab == outgoingTab)
+            val isVisible = isCurrent || isOutgoing
+            val isRetained = tab in retainedTabs
+
+            if (isVisible || isRetained) {
+                key(tab.route) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(
+                                when {
+                                    isCurrent -> 1f
+                                    isOutgoing -> 0f
+                                    else -> -1f
+                                }
+                            )
+                            .layout { measurable, constraints ->
+                                if (isVisible) {
+                                    val placeable = measurable.measure(constraints)
+                                    layout(placeable.width, placeable.height) {
+                                        placeable.placeRelative(0, 0)
+                                    }
+                                } else {
+                                    // Zero measure/layout/draw/touch cost for hidden tabs while retaining state
+                                    val w = if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth
+                                    val h = if (constraints.hasBoundedHeight) constraints.maxHeight else constraints.minHeight
+                                    layout(w, h) {}
+                                }
+                            }
+                            .graphicsLayer {
+                                val p = transitionProgress
+                                val w = size.width
+                                when {
+                                    isCurrent -> {
+                                        alpha = (p * 1.15f).coerceIn(0f, 1f)
+                                        translationX = (1f - p) * transitionDirection * w * 0.045f
+                                    }
+                                    isOutgoing -> {
+                                        alpha = (1f - p * 1.15f).coerceIn(0f, 1f)
+                                        translationX = -p * transitionDirection * w * 0.03f
+                                    }
+                                    else -> {
+                                        alpha = 0f
+                                    }
+                                }
+                            }
+                    ) {
+                        content(tab, isCurrent)
+                    }
+                }
+            }
         }
     }
 }

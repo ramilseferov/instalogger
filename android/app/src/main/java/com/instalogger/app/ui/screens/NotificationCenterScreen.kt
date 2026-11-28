@@ -13,6 +13,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -50,6 +51,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -74,8 +76,12 @@ fun NotificationCenterScreen(
     val haptic = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val notifications by app.database.notificationDao().getAllNotifications().collectAsStateWithLifecycle(initialValue = emptyList())
-    val unreadCount by app.database.notificationDao().getUnreadCount().collectAsStateWithLifecycle(initialValue = 0)
+    val notificationsFlow = remember(app) { app.database.notificationDao().getAllNotifications().distinctUntilChanged() }
+    val unreadCountFlow = remember(app) { app.database.notificationDao().getUnreadCount().distinctUntilChanged() }
+    val notifications by notificationsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val unreadCount by unreadCountFlow.collectAsStateWithLifecycle(initialValue = 0)
+    val notifListState = rememberLazyListState()
+    val chipShape = remember { RoundedCornerShape(12.dp) }
 
     var selectedFilter by remember { mutableStateOf(NotificationFilter.ALL) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -230,7 +236,6 @@ fun NotificationCenterScreen(
                         animationSpec = tween(200),
                         label = "filter_text"
                     )
-                    val chipShape = RoundedCornerShape(12.dp)
                     Box(
                         modifier = Modifier
                             .clip(chipShape)
@@ -282,6 +287,7 @@ fun NotificationCenterScreen(
                     }
                 } else {
                     LazyColumn(
+                        state = notifListState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)

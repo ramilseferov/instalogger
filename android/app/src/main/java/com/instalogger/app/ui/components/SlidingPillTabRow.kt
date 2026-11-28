@@ -1,9 +1,9 @@
 package com.instalogger.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -12,19 +12,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,15 +39,22 @@ import androidx.compose.ui.unit.sp
 import com.instalogger.app.ui.theme.AccentBlue
 import com.instalogger.app.ui.theme.ShapeTokens
 
+@Immutable
 data class TabItem(
     val title: String,
     val icon: ImageVector? = null,
     val count: Int? = null
 )
 
+@Immutable
 data class SegmentedOption(
     val title: String,
     val subtitle: String? = null
+)
+
+private val SlidingPillSpring = spring<Float>(
+    dampingRatio = 0.86f,
+    stiffness = Spring.StiffnessMediumLow
 )
 
 @Composable
@@ -74,20 +86,24 @@ fun SlidingPillTabRow(
         ) {
             val count = tabs.size
             val slotWidth = maxWidth / count
-            val indicatorOffset by animateDpAsState(
-                targetValue = slotWidth * safeIndex,
-                animationSpec = spring(
-                    dampingRatio = 0.86f,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
-                label = "sliding_tab_pill_x"
-            )
+            val slotWidthPx = with(LocalDensity.current) { slotWidth.toPx() }.coerceAtLeast(1f)
+            val indicatorAnim = remember { Animatable(safeIndex.toFloat()) }
 
+            LaunchedEffect(safeIndex) {
+                indicatorAnim.animateTo(
+                    targetValue = safeIndex.toFloat(),
+                    animationSpec = SlidingPillSpring
+                )
+            }
+
+            // Draw-phase GPU sliding indicator: ZERO layout/recomposition passes per frame
             Box(
                 modifier = Modifier
-                    .offset(x = indicatorOffset)
                     .width(slotWidth)
                     .fillMaxHeight()
+                    .graphicsLayer {
+                        translationX = indicatorAnim.value * slotWidthPx
+                    }
                     .clip(pillShape)
                     .background(MaterialTheme.colorScheme.surface)
                     .border(
@@ -97,15 +113,21 @@ fun SlidingPillTabRow(
                     )
             )
 
+            val baseLabelStyle = MaterialTheme.typography.labelMedium
             Row(modifier = Modifier.fillMaxSize()) {
                 tabs.forEachIndexed { index, tab ->
                     val isSelected = safeIndex == index
-                    val contentColor by animateColorAsState(
+                    val contentColorState = animateColorAsState(
                         targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         animationSpec = tween(200, easing = FastOutSlowInEasing),
                         label = "tab_content_color_$index"
                     )
                     val interactionSource = remember { MutableInteractionSource() }
+                    val labelStyle = remember(baseLabelStyle, isSelected) {
+                        baseLabelStyle.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
 
                     Box(
                         modifier = Modifier
@@ -129,20 +151,26 @@ fun SlidingPillTabRow(
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             if (tab.icon != null) {
-                                Icon(
-                                    imageVector = tab.icon,
-                                    contentDescription = null,
-                                    tint = contentColor,
-                                    modifier = Modifier.size(16.dp)
+                                val painter = rememberVectorPainter(tab.icon)
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .drawBehind {
+                                            with(painter) {
+                                                draw(
+                                                    size = size,
+                                                    colorFilter = ColorFilter.tint(contentColorState.value)
+                                                )
+                                            }
+                                        }
                                 )
                             }
 
                             val titleText = if (tab.count != null) "${tab.title} (${tab.count})" else tab.title
-                            Text(
+                            BasicText(
                                 text = titleText,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = contentColor,
+                                style = labelStyle,
+                                color = { contentColorState.value },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -166,8 +194,8 @@ fun AnimatedSegmentedSelector(
     if (options.isEmpty()) return
     val haptic = LocalHapticFeedback.current
     val safeIndex = selectedIndex.coerceIn(0, options.lastIndex)
-    val trackShape = RoundedCornerShape(14.dp)
-    val thumbShape = RoundedCornerShape(10.dp)
+    val trackShape = remember { RoundedCornerShape(14.dp) }
+    val thumbShape = remember { RoundedCornerShape(10.dp) }
 
     Surface(
         modifier = modifier
@@ -184,39 +212,55 @@ fun AnimatedSegmentedSelector(
                 .height(height)
         ) {
             val slotWidth = maxWidth / options.size
-            val indicatorOffset by animateDpAsState(
-                targetValue = slotWidth * safeIndex,
-                animationSpec = spring(
-                    dampingRatio = 0.86f,
-                    stiffness = Spring.StiffnessMediumLow
-                ),
-                label = "segmented_pill_x"
-            )
+            val slotWidthPx = with(LocalDensity.current) { slotWidth.toPx() }.coerceAtLeast(1f)
+            val indicatorAnim = remember { Animatable(safeIndex.toFloat()) }
+
+            LaunchedEffect(safeIndex) {
+                indicatorAnim.animateTo(
+                    targetValue = safeIndex.toFloat(),
+                    animationSpec = SlidingPillSpring
+                )
+            }
 
             Box(
                 modifier = Modifier
-                    .offset(x = indicatorOffset)
                     .width(slotWidth)
                     .fillMaxHeight()
+                    .graphicsLayer {
+                        translationX = indicatorAnim.value * slotWidthPx
+                    }
                     .clip(thumbShape)
                     .background(accentColor.copy(alpha = 0.16f))
                     .border(1.dp, accentColor.copy(alpha = 0.65f), thumbShape)
             )
 
+            val baseTextStyle = MaterialTheme.typography.labelMedium
             Row(modifier = Modifier.fillMaxSize()) {
                 options.forEachIndexed { index, opt ->
                     val isSelected = safeIndex == index
-                    val textColor by animateColorAsState(
+                    val textColorState = animateColorAsState(
                         targetValue = if (isSelected) accentColor else MaterialTheme.colorScheme.onSurface,
                         animationSpec = tween(200, easing = FastOutSlowInEasing),
                         label = "seg_txt_$index"
                     )
-                    val subColor by animateColorAsState(
+                    val subColorState = animateColorAsState(
                         targetValue = if (isSelected) accentColor.copy(alpha = 0.88f) else MaterialTheme.colorScheme.onSurfaceVariant,
                         animationSpec = tween(200, easing = FastOutSlowInEasing),
                         label = "seg_sub_$index"
                     )
                     val interactionSource = remember { MutableInteractionSource() }
+                    val titleStyle = remember(baseTextStyle, opt.subtitle != null, isSelected) {
+                        baseTextStyle.copy(
+                            fontSize = if (opt.subtitle != null) 11.5.sp else 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                    val subStyle = remember(baseTextStyle) {
+                        baseTextStyle.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
 
                     Box(
                         modifier = Modifier
@@ -236,20 +280,18 @@ fun AnimatedSegmentedSelector(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
+                            BasicText(
                                 text = opt.title,
-                                fontSize = if (opt.subtitle != null) 11.5.sp else 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = textColor,
+                                style = titleStyle,
+                                color = { textColorState.value },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             if (!opt.subtitle.isNullOrBlank()) {
-                                Text(
+                                BasicText(
                                     text = opt.subtitle,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = subColor,
+                                    style = subStyle,
+                                    color = { subColorState.value },
                                     maxLines = 1
                                 )
                             }

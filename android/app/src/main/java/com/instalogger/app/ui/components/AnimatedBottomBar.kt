@@ -9,26 +9,33 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.instalogger.app.Screen
 import com.instalogger.app.ui.animation.MotionSpecs
 import com.instalogger.app.ui.animation.bouncyClickable
 import com.instalogger.app.ui.theme.ShapeTokens
-import kotlin.math.roundToInt
 
-// Navigation dock with sliding active indicator.
+private val DockPillSpring = spring<Float>(
+    dampingRatio = 0.82f,
+    stiffness = 420f
+)
+
+// GPU-accelerated 120 FPS Navigation dock with Draw-phase sliding indicator & color morphing.
 @Composable
 fun AnimatedBottomBar(
     items: List<Screen>,
@@ -38,6 +45,7 @@ fun AnimatedBottomBar(
     modifier: Modifier = Modifier
 ) {
     val dockShape = ShapeTokens.DockShape
+    val pillShape = remember { RoundedCornerShape(20.dp) }
 
     Box(
         modifier = modifier
@@ -66,35 +74,22 @@ fun AnimatedBottomBar(
                 val tabWidthPx = with(LocalDensity.current) { tabWidth.toPx() }.coerceAtLeast(1f)
 
                 val selectedIndex = items.indexOfFirst { it.route == currentRoute }.coerceIn(0, itemCount - 1)
-
-                val slideSpring = remember {
-                    spring<Float>(
-                        dampingRatio = 0.82f,
-                        stiffness = 420f
-                    )
-                }
-
                 val pillOffsetAnim = remember { Animatable(selectedIndex.toFloat()) }
 
                 LaunchedEffect(selectedIndex) {
                     pillOffsetAnim.animateTo(
                         targetValue = selectedIndex.toFloat(),
-                        animationSpec = slideSpring
+                        animationSpec = DockPillSpring
                     )
                 }
 
-                val pillShape = RoundedCornerShape(20.dp)
-
-                // 1. Sliding Active Capsule Pill Indicator
+                // 1. Sliding Active Capsule Pill Indicator (Draw-phase GPU translation only!)
                 Box(
                     modifier = Modifier
                         .width(tabWidth)
                         .fillMaxHeight()
-                        .offset {
-                            IntOffset(
-                                x = (pillOffsetAnim.value * tabWidthPx).roundToInt(),
-                                y = 0
-                            )
+                        .graphicsLayer {
+                            translationX = pillOffsetAnim.value * tabWidthPx
                         }
                         .padding(horizontal = 3.dp, vertical = 3.dp)
                         .clip(pillShape)
@@ -106,26 +101,35 @@ fun AnimatedBottomBar(
                         )
                 )
 
-                // 2. Interactive Navigation Items
+                val baseLabelStyle = MaterialTheme.typography.labelSmall
+
+                // 2. Interactive Navigation Items (Draw-phase icon scale, icon tint & text color)
                 Row(
                     modifier = Modifier.fillMaxSize(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items.forEachIndexed { index, screen ->
+                    items.forEach { screen ->
                         val isSelected = currentRoute == screen.route
                         val labelText = stringResource(screen.titleRes)
+                        val iconPainter = rememberVectorPainter(screen.icon)
 
-                        val iconScale by animateFloatAsState(
+                        val iconScaleState = animateFloatAsState(
                             targetValue = if (isSelected) 1.12f else 1.0f,
                             animationSpec = MotionSpecs.SpringBouncy,
                             label = "nav_icon_scale"
                         )
 
-                        val contentColor by animateColorAsState(
+                        val contentColorState = animateColorAsState(
                             targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             animationSpec = tween(200),
                             label = "nav_content_color"
                         )
+
+                        val labelStyle = remember(baseLabelStyle, isSelected) {
+                            baseLabelStyle.copy(
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
 
                         Box(
                             modifier = Modifier
@@ -145,8 +149,9 @@ fun AnimatedBottomBar(
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier.graphicsLayer {
-                                        scaleX = iconScale
-                                        scaleY = iconScale
+                                        val s = iconScaleState.value
+                                        scaleX = s
+                                        scaleY = s
                                     }
                                 ) {
                                     if (screen == Screen.Notifications && unreadCount > 0) {
@@ -164,31 +169,43 @@ fun AnimatedBottomBar(
                                                 }
                                             }
                                         ) {
-                                            Icon(
-                                                imageVector = screen.icon,
-                                                contentDescription = labelText,
-                                                tint = contentColor,
-                                                modifier = Modifier.size(21.dp)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(21.dp)
+                                                    .drawBehind {
+                                                        with(iconPainter) {
+                                                            draw(
+                                                                size = size,
+                                                                colorFilter = ColorFilter.tint(contentColorState.value)
+                                                            )
+                                                        }
+                                                    }
                                             )
                                         }
                                     } else {
-                                        Icon(
-                                            imageVector = screen.icon,
-                                            contentDescription = labelText,
-                                            tint = contentColor,
-                                            modifier = Modifier.size(21.dp)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(21.dp)
+                                                .drawBehind {
+                                                    with(iconPainter) {
+                                                        draw(
+                                                            size = size,
+                                                            colorFilter = ColorFilter.tint(contentColorState.value)
+                                                        )
+                                                    }
+                                                }
                                         )
                                     }
                                 }
 
                                 Spacer(modifier = Modifier.height(3.dp))
 
-                                Text(
+                                BasicText(
                                     text = labelText,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = contentColor,
-                                    maxLines = 1
+                                    style = labelStyle,
+                                    color = { contentColorState.value },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +52,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -85,11 +89,16 @@ fun DashboardScreen(
     val turboEnabledMsg = stringResource(R.string.msg_turbo_enabled)
     val turboDisabledMsg = stringResource(R.string.msg_turbo_disabled)
 
-    // Instant real-time Flow observation from Room Database
+    // Instant real-time Flow observation from Room Database (deduplicated on IO dispatcher)
+    val listState = rememberLazyListState()
     LaunchedEffect(Unit) {
-        app.database.targetDao().getAllTargets().collect { list ->
-            targets = list.filter { !app.profileInspector.isTargetDeleted(it.username) }
-        }
+        app.database.targetDao().getAllTargets()
+            .map { list -> list.filter { !app.profileInspector.isTargetDeleted(it.username) } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+            .collect { filtered ->
+                targets = filtered
+            }
     }
 
     // Auto-inspect and sync daemon on initial launch
@@ -230,6 +239,7 @@ fun DashboardScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)

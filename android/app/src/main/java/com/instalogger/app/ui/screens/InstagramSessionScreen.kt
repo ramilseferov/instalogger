@@ -63,7 +63,9 @@ import kotlinx.coroutines.launch
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun InstagramSessionScreen() {
+fun InstagramSessionScreen(
+    isActiveTab: Boolean = true
+) {
     val context = LocalContext.current
     val app = context.applicationContext as InstaLoggerApp
     val scope = rememberCoroutineScope()
@@ -71,6 +73,7 @@ fun InstagramSessionScreen() {
 
     val autoPreviewEnabled by app.settingsManager.sessionWebViewAutoPreview.collectAsStateWithLifecycle()
     var isWebViewOpen by remember(autoPreviewEnabled) { mutableStateOf(autoPreviewEnabled) }
+    var webViewAttachAllowed by remember { mutableStateOf(false) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var hasSession by remember { mutableStateOf(app.sessionManager.hasSession()) }
@@ -79,6 +82,22 @@ fun InstagramSessionScreen() {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var isLoadingWeb by remember { mutableStateOf(true) }
     var webProgress by remember { mutableFloatStateOf(0.1f) }
+
+    // Defer WebView inflation slightly past the 160ms tab glide so switching into Session never stutters
+    LaunchedEffect(isActiveTab, isWebViewOpen) {
+        if (isActiveTab && isWebViewOpen && !webViewAttachAllowed) {
+            kotlinx.coroutines.delay(175L)
+            webViewAttachAllowed = true
+        }
+        val wv = webViewRef ?: return@LaunchedEffect
+        if (isActiveTab && isWebViewOpen) {
+            wv.visibility = android.view.View.VISIBLE
+            runCatching { wv.onResume() }
+        } else {
+            runCatching { wv.onPause() }
+            wv.visibility = android.view.View.GONE
+        }
+    }
 
     fun closeWebView() {
         runCatching {
@@ -112,10 +131,10 @@ fun InstagramSessionScreen() {
         }
     }
 
-    // Periodic automatic cookie detection ONLY while login WebView is actively open
-    LaunchedEffect(selectedTab, hasSession, isWebViewOpen) {
-        if (selectedTab == 0 && isWebViewOpen && !hasSession) {
-            while (!hasSession && isWebViewOpen) {
+    // Periodic automatic cookie detection ONLY while tab is active and login WebView is open
+    LaunchedEffect(isActiveTab, selectedTab, hasSession, isWebViewOpen) {
+        if (isActiveTab && selectedTab == 0 && isWebViewOpen && !hasSession) {
+            while (isActiveTab && !hasSession && isWebViewOpen) {
                 kotlinx.coroutines.delay(1500)
                 try {
                     val cookies = captureMergedInstagramCookies()
@@ -385,6 +404,7 @@ fun InstagramSessionScreen() {
                                 ) {
                                     Box(modifier = Modifier.fillMaxSize()) {
                                         val isDark = isSystemInDarkTheme()
+                                        if (webViewAttachAllowed) {
                                         AndroidView(
                                             factory = { ctx ->
                                                 WebView(ctx).apply {
@@ -455,6 +475,7 @@ fun InstagramSessionScreen() {
                                             },
                                             modifier = Modifier.fillMaxSize()
                                         )
+                                        }
 
                                         if (isLoadingWeb) {
                                             LinearProgressIndicator(

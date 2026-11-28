@@ -108,6 +108,7 @@ import java.util.*
 
 @Composable
 fun SettingsScreen(
+    isActiveTab: Boolean = true,
     onOpenDeveloperLogs: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -2244,17 +2245,22 @@ private fun AnimatedStorageDistributionBar(
         }
     }
 
-    // Subtle shimmer while initial storage analysis is running
-    val infiniteTransition = rememberInfiniteTransition(label = "storage_bar_shimmer")
-    val shimmerPhase by infiniteTransition.animateFloat(
-        initialValue = -0.4f,
-        targetValue = 1.4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1350, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "storage_shimmer_phase"
-    )
+    // Subtle shimmer ONLY while initial storage analysis is running (0 Choreographer frames once loaded!)
+    val showLoadingShimmer = !isLoaded || segments.isEmpty()
+    val shimmerPhaseState = if (showLoadingShimmer) {
+        val infiniteTransition = rememberInfiniteTransition(label = "storage_bar_shimmer")
+        infiniteTransition.animateFloat(
+            initialValue = -0.4f,
+            targetValue = 1.4f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1350, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "storage_shimmer_phase"
+        )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
 
     val rawWeights = remember(segments) {
         if (segments.isEmpty()) {
@@ -2281,10 +2287,10 @@ private fun AnimatedStorageDistributionBar(
             cornerRadius = corner
         )
 
-        if (!isLoaded || segments.isEmpty()) {
-            // Soft non-fatiguing shimmer sweep while computing
+        if (showLoadingShimmer) {
+            // Soft non-fatiguing shimmer sweep while computing (Draw-phase read only)
             val bandWidth = w * 0.42f
-            val startX = w * shimmerPhase
+            val startX = w * shimmerPhaseState.value
             drawRoundRect(
                 brush = Brush.horizontalGradient(
                     colors = listOf(Color.Transparent, shimmerHighlight, Color.Transparent),

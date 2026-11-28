@@ -8,10 +8,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -24,9 +25,9 @@ fun RotatingRefreshIcon(
     iconSize: Dp = 20.dp,
     tint: Color = MaterialTheme.colorScheme.primary
 ) {
-    val angle = if (isRefreshing) {
+    val angleState = if (isRefreshing) {
         val infiniteTransition = rememberInfiniteTransition(label = "refresh_rotation")
-        val animated by infiniteTransition.animateFloat(
+        infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
             animationSpec = infiniteRepeatable(
@@ -35,18 +36,18 @@ fun RotatingRefreshIcon(
             ),
             label = "angle"
         )
-        animated
     } else {
-        0f
+        remember { mutableFloatStateOf(0f) }
     }
 
+    // Draw-phase rotation via graphicsLayer: zero Icon recompositions while spinning
     Icon(
         imageVector = Icons.Default.Refresh,
         contentDescription = stringResource(R.string.btn_refresh),
         tint = if (isRefreshing) tint.copy(alpha = 0.72f) else tint,
         modifier = modifier
             .size(iconSize)
-            .rotate(angle)
+            .graphicsLayer { rotationZ = angleState.value }
     )
 }
 

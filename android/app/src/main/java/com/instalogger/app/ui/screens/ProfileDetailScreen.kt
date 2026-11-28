@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
@@ -83,15 +85,26 @@ fun ProfileDetailScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val target by app.database.targetDao().getTargetFlow(username).collectAsStateWithLifecycle(initialValue = null)
-    val logs by app.database.changeLogDao().getLogsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
-    val avatars by app.database.avatarHistoryDao().getAvatarsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
-    val highlights by app.database.highlightDao().getHighlightsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
-    val archivedStories by app.database.highlightDao().getArchivedStoriesForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
-    val allHighlightMedia by app.database.highlightDao().getAllHighlightMediaForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
-    val posts by app.database.postDao().getPostsForUser(username).collectAsStateWithLifecycle(initialValue = emptyList())
-    val history by app.database.followerHistoryDao().getHistoryForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
-    val audits by app.database.followerAuditDao().getAuditsForTarget(username).collectAsStateWithLifecycle(initialValue = emptyList())
+    val detailListState = rememberLazyListState()
+    val targetFlow = remember(app, username) { app.database.targetDao().getTargetFlow(username).distinctUntilChanged() }
+    val logsFlow = remember(app, username) { app.database.changeLogDao().getLogsForTarget(username).distinctUntilChanged() }
+    val avatarsFlow = remember(app, username) { app.database.avatarHistoryDao().getAvatarsForTarget(username).distinctUntilChanged() }
+    val highlightsFlow = remember(app, username) { app.database.highlightDao().getHighlightsForUser(username).distinctUntilChanged() }
+    val archivedStoriesFlow = remember(app, username) { app.database.highlightDao().getArchivedStoriesForUser(username).distinctUntilChanged() }
+    val allHighlightMediaFlow = remember(app, username) { app.database.highlightDao().getAllHighlightMediaForUser(username).distinctUntilChanged() }
+    val postsFlow = remember(app, username) { app.database.postDao().getPostsForUser(username).distinctUntilChanged() }
+    val historyFlow = remember(app, username) { app.database.followerHistoryDao().getHistoryForTarget(username).distinctUntilChanged() }
+    val auditsFlow = remember(app, username) { app.database.followerAuditDao().getAuditsForTarget(username).distinctUntilChanged() }
+
+    val target by targetFlow.collectAsStateWithLifecycle(initialValue = null)
+    val logs by logsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val avatars by avatarsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val highlights by highlightsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val archivedStories by archivedStoriesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allHighlightMedia by allHighlightMediaFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val posts by postsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val history by historyFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val audits by auditsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val syncStateMap by app.profileInspector.postSyncState.collectAsStateWithLifecycle()
     val backfillProgressMap by app.profileInspector.postBackfillProgress.collectAsStateWithLifecycle()
     val downloadStates by app.mediaDownloadOrchestrator.downloadStates.collectAsStateWithLifecycle()
@@ -231,6 +244,7 @@ fun ProfileDetailScreen(
         ) {
             // UNIFIED SEAMLESS SCROLLABLE CONTAINER
             LazyColumn(
+                state = detailListState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 108.dp)
             ) {

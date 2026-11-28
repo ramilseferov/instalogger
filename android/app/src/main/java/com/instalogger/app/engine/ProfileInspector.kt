@@ -1182,19 +1182,30 @@ class ProfileInspector(
         }
     }
 
+    @Volatile
+    private var cachedDeletedUsernames: Set<String>? = null
+
+    private fun getDeletedUsernamesSnapshot(): Set<String> {
+        cachedDeletedUsernames?.let { return it }
+        val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
+        val loaded = prefs.getStringSet("deleted_usernames", emptySet())?.toSet() ?: emptySet()
+        cachedDeletedUsernames = loaded
+        return loaded
+    }
+
     fun unmarkDeleted(username: String) {
         val cleanUser = username.trim().trimStart('@').lowercase()
         val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
-        val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val current = getDeletedUsernamesSnapshot().toMutableSet()
         if (current.remove(cleanUser)) {
-            prefs.edit().putStringSet("deleted_usernames", current).commit()
+            cachedDeletedUsernames = current.toSet()
+            prefs.edit().putStringSet("deleted_usernames", current).apply()
         }
     }
 
     fun isTargetDeleted(usernameOrId: String): Boolean {
         val clean = usernameOrId.trim().trimStart('@').lowercase()
-        val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
-        return prefs.getStringSet("deleted_usernames", emptySet())?.contains(clean) == true
+        return clean in getDeletedUsernamesSnapshot()
     }
 
     suspend fun deleteTarget(username: String, instagramId: String? = null): Boolean = withContext(Dispatchers.IO) {
@@ -1204,10 +1215,11 @@ class ProfileInspector(
 
         // Record in persistent tombstones immediately to prevent resurrection under race conditions
         val prefs = context.getSharedPreferences("instalogger_tombstones", Context.MODE_PRIVATE)
-        val current = prefs.getStringSet("deleted_usernames", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val current = getDeletedUsernamesSnapshot().toMutableSet()
         current.add(cleanUser)
         if (!idToDelete.isNullOrBlank()) current.add(idToDelete.lowercase())
-        prefs.edit().putStringSet("deleted_usernames", current).commit()
+        cachedDeletedUsernames = current.toSet()
+        prefs.edit().putStringSet("deleted_usernames", current).apply()
 
         // 2. Comprehensive Room database clean up FIRST for 0ms UI reactivity
         try {

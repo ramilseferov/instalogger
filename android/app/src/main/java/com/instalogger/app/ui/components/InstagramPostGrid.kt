@@ -38,6 +38,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.instalogger.app.InstaLoggerApp
 import com.instalogger.app.R
 import com.instalogger.app.data.local.MediaAssetEntity
@@ -51,7 +52,9 @@ import com.instalogger.app.ui.theme.StatusRed
 import com.instalogger.app.util.ArchiveDirectoryManager
 import com.instalogger.app.util.VaultPlaybackBridge
 import com.instalogger.app.util.cleanDisplayText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -98,19 +101,40 @@ fun PostGridItem(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val thumbFile = post.localThumbPath?.let { File(it) }
-    val localFile = post.localPath?.let { File(it) }
-    val localImageFile = localFile?.takeIf { !it.name.contains(".mp4", ignoreCase = true) && !it.name.contains(".webm", ignoreCase = true) }
-    val extArchive = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${post.username}/posts/${post.id}.jpg")
-    val resolvedModel: Any = when {
-        thumbFile != null && thumbFile.exists() && thumbFile.length() > 0L -> thumbFile
-        localImageFile != null && localImageFile.exists() && localImageFile.length() > 0L -> localImageFile
-        extArchive.exists() && extArchive.length() > 0L -> extArchive
-        post.displayUrl.isNotBlank() -> post.displayUrl
-        else -> ""
+    val resolvedPair by produceState<Pair<Any, Boolean>>(
+        initialValue = (post.displayUrl.ifBlank { "" }) to (!post.localPath.isNullOrBlank()),
+        key1 = post.id,
+        key2 = post.localThumbPath,
+        key3 = post.localPath
+    ) {
+        value = withContext(Dispatchers.IO) {
+            val thumbFile = post.localThumbPath?.let { File(it) }
+            val localFile = post.localPath?.let { File(it) }
+            val localImageFile = localFile?.takeIf {
+                !it.name.contains(".mp4", ignoreCase = true) && !it.name.contains(".webm", ignoreCase = true)
+            }
+            val extArchive = File(ArchiveDirectoryManager.getArchiveDirectory(context), "${post.username}/posts/${post.id}.jpg")
+            val model: Any = when {
+                thumbFile != null && thumbFile.exists() && thumbFile.length() > 0L -> thumbFile
+                localImageFile != null && localImageFile.exists() && localImageFile.length() > 0L -> localImageFile
+                extArchive.exists() && extArchive.length() > 0L -> extArchive
+                post.displayUrl.isNotBlank() -> post.displayUrl
+                else -> ""
+            }
+            val archived = localFile != null && localFile.exists()
+            model to archived
+        }
     }
+    val resolvedModel = resolvedPair.first
+    val isArchivedOffline = resolvedPair.second
 
-    val isArchivedOffline = !post.localPath.isNullOrBlank() && File(post.localPath).exists()
+    val tileImageRequest = remember(context, resolvedModel) {
+        ImageRequest.Builder(context)
+            .data(resolvedModel)
+            .size(360)
+            .crossfade(false)
+            .build()
+    }
 
     Box(
         modifier = modifier
@@ -121,7 +145,7 @@ fun PostGridItem(
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
-            model = resolvedModel,
+            model = tileImageRequest,
             contentDescription = post.caption,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()

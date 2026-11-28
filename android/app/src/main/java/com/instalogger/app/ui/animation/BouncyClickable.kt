@@ -9,49 +9,50 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 
+private val BouncyPressSpring = spring<Float>(
+    dampingRatio = Spring.DampingRatioNoBouncy,
+    stiffness = Spring.StiffnessMedium
+)
+
+@Composable
 fun Modifier.bouncyClickable(
     enabled: Boolean = true,
     pressScale: Float = 0.96f,
     onClick: () -> Unit
-): Modifier = composed {
-    if (!enabled) return@composed this
+): Modifier {
+    if (!enabled) return this
 
     val haptic = LocalHapticFeedback.current
     val currentOnClick by rememberUpdatedState(onClick)
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    val scale by animateFloatAsState(
+    val scaleState = animateFloatAsState(
         targetValue = if (isPressed) pressScale else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
+        animationSpec = BouncyPressSpring,
         label = "bouncy_scale"
     )
 
-    this
+    return this
         .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
+            val s = scaleState.value
+            scaleX = s
+            scaleY = s
         }
         .clickable(
             interactionSource = interactionSource,
@@ -64,29 +65,32 @@ fun Modifier.bouncyClickable(
         )
 }
 
+@Composable
 fun Modifier.bouncyScale(
     isPressed: Boolean,
     pressScale: Float = 0.95f
-): Modifier = composed {
-    val scale by animateFloatAsState(
+): Modifier {
+    val scaleState = animateFloatAsState(
         targetValue = if (isPressed) pressScale else 1f,
         animationSpec = MotionSpecs.SpringBouncy,
         label = "bouncy_scale_direct"
     )
-    this.graphicsLayer {
-        scaleX = scale
-        scaleY = scale
+    return this.graphicsLayer {
+        val s = scaleState.value
+        scaleX = s
+        scaleY = s
     }
 }
 
+@Composable
 fun Modifier.shimmerLoading(
     isLoading: Boolean,
     durationMillis: Int = 1100
-): Modifier = composed {
-    if (!isLoading) return@composed this
+): Modifier {
+    if (!isLoading) return this
 
     val transition = rememberInfiniteTransition(label = "shimmer_transition")
-    val translateAnim by transition.animateFloat(
+    val translateAnimState = transition.animateFloat(
         initialValue = -500f,
         targetValue = 1500f,
         animationSpec = infiniteRepeatable(
@@ -98,12 +102,19 @@ fun Modifier.shimmerLoading(
 
     val baseColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
     val highlightColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f)
+    val shimmerColors = remember(baseColor, highlightColor) {
+        listOf(baseColor, highlightColor, baseColor)
+    }
 
-    this.background(
-        brush = Brush.linearGradient(
-            colors = listOf(baseColor, highlightColor, baseColor),
-            start = Offset(translateAnim, 0f),
-            end = Offset(translateAnim + 400f, 400f)
+    // Draw-phase only shimmer sweep: ZERO recompositions per frame!
+    return this.drawBehind {
+        val offset = translateAnimState.value
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = shimmerColors,
+                start = Offset(offset, 0f),
+                end = Offset(offset + 400f, 400f)
+            )
         )
-    )
+    }
 }

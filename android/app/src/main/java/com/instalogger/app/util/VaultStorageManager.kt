@@ -26,6 +26,9 @@ class VaultStorageManager private constructor(context: Context) {
     private val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
     private val secureRandom = SecureRandom()
 
+    @Volatile
+    private var cachedSecretKey: SecretKey? = null
+
     val vaultRoot: File = File(appContext.filesDir, "vault").apply {
         mkdirs()
         ensureNoMedia(this)
@@ -57,8 +60,14 @@ class VaultStorageManager private constructor(context: Context) {
     }
 
     private fun getSecretKey(): SecretKey {
-        return (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
-            ?: throw IllegalStateException("Vault MasterKey not available in KeyStore")
+        cachedSecretKey?.let { return it }
+        return synchronized(this) {
+            cachedSecretKey?.let { return@synchronized it }
+            val key = (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+                ?: throw IllegalStateException("Vault MasterKey not available in KeyStore")
+            cachedSecretKey = key
+            key
+        }
     }
 
     fun encryptBytes(plaintext: ByteArray): ByteArray {

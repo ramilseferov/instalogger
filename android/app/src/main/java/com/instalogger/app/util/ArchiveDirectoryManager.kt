@@ -20,11 +20,20 @@ object ArchiveDirectoryManager {
     private val _displayPathFlow = MutableStateFlow("")
     val displayPathFlow: StateFlow<String> = _displayPathFlow.asStateFlow()
 
+    @Volatile
+    private var cachedDisplayPath: String? = null
+
+    @Volatile
+    private var cachedArchiveDir: File? = null
+
     fun init(context: Context) {
+        cachedDisplayPath = null
+        cachedArchiveDir = null
         _displayPathFlow.value = getDisplayPath(context)
     }
 
     fun getDisplayPath(context: Context): String {
+        cachedDisplayPath?.let { return it }
         val prefs = getPrefs(context)
         val uriStr = prefs.getString(KEY_ARCHIVE_TREE_URI, null)
         if (!uriStr.isNullOrBlank()) {
@@ -32,33 +41,46 @@ object ArchiveDirectoryManager {
                 val uri = Uri.parse(uriStr)
                 val docId = DocumentsContract.getTreeDocumentId(uri)
                 if (docId != null) {
-                    if (docId.startsWith("primary:")) {
+                    val resolved = if (docId.startsWith("primary:")) {
                         val sub = docId.substringAfter("primary:")
-                        return "/storage/emulated/0/" + sub.trimStart('/')
+                        "/storage/emulated/0/" + sub.trimStart('/')
                     } else if (docId.contains(":")) {
-                        return "/storage/" + docId.replace(":", "/")
+                        "/storage/" + docId.replace(":", "/")
+                    } else {
+                        null
+                    }
+                    if (resolved != null) {
+                        cachedDisplayPath = resolved
+                        return resolved
                     }
                 }
-                return uri.path ?: uriStr
+                val fallback = uri.path ?: uriStr
+                cachedDisplayPath = fallback
+                return fallback
             } catch (e: Exception) {
             }
         }
 
         val customPath = prefs.getString(KEY_ARCHIVE_PATH, null)
         if (!customPath.isNullOrBlank()) {
+            cachedDisplayPath = customPath
             return customPath
         }
 
         // App-isolated sandbox storage by default
         val appDir = context.getExternalFilesDir("archives") ?: File(context.filesDir, "archives")
-        return appDir.absolutePath
+        val path = appDir.absolutePath
+        cachedDisplayPath = path
+        return path
     }
 
     fun getArchiveDirectory(context: Context): File {
+        cachedArchiveDir?.let { return it }
         val display = getDisplayPath(context)
         val target = File(display)
         if (target.exists() || target.mkdirs()) {
             ensureNoMedia(target)
+            cachedArchiveDir = target
             return target
         }
 
@@ -66,6 +88,7 @@ object ArchiveDirectoryManager {
         val appDir = context.getExternalFilesDir("archives") ?: File(context.filesDir, "archives")
         appDir.mkdirs()
         ensureNoMedia(appDir)
+        cachedArchiveDir = appDir
         return appDir
     }
 
@@ -82,6 +105,8 @@ object ArchiveDirectoryManager {
                 .putString(KEY_ARCHIVE_TREE_URI, uri.toString())
                 .apply()
 
+            cachedDisplayPath = null
+            cachedArchiveDir = null
             val display = getDisplayPath(context)
             _displayPathFlow.value = display
             return true
@@ -95,6 +120,8 @@ object ArchiveDirectoryManager {
             .remove(KEY_ARCHIVE_TREE_URI)
             .remove(KEY_ARCHIVE_PATH)
             .apply()
+        cachedDisplayPath = null
+        cachedArchiveDir = null
         _displayPathFlow.value = getDisplayPath(context)
     }
 

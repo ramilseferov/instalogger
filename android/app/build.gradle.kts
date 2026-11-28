@@ -13,8 +13,8 @@ android {
         applicationId = "com.instalogger.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.0.34"
+        versionCode = 36
+        versionName = "1.0.35"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -27,7 +27,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -59,8 +62,12 @@ android {
     }
 }
 
+composeCompiler {
+    stabilityConfigurationFile.set(layout.projectDirectory.file("compose_compiler_config.conf"))
+}
+
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val composeBom = platform("androidx.compose:compose-bom:2025.05.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
@@ -69,12 +76,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // Jetpack Compose UI & Material 3
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3:1.3.1")
+    implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.8.4")
 

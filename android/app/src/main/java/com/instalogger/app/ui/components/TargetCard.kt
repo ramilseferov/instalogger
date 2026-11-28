@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,7 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.instalogger.app.R
 import com.instalogger.app.data.local.TargetEntity
@@ -45,9 +47,35 @@ import com.instalogger.app.ui.theme.AccentBlueDark
 import com.instalogger.app.ui.theme.ShapeTokens
 import com.instalogger.app.ui.theme.StatusRed
 import com.instalogger.app.util.FormatUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+
+private val ActiveStoryRingBrush = Brush.linearGradient(
+    colors = listOf(
+        Color(0xFFF58529),
+        Color(0xFFFEDA77),
+        Color(0xFFDD2A7B),
+        Color(0xFF8134AF),
+        Color(0xFF515BD4)
+    )
+)
+
+private val AvatarFallbackBrush = Brush.linearGradient(
+    colors = listOf(
+        AccentBlue,
+        AccentBlueDark
+    )
+)
+
+private const val IG_IMAGE_USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+private val TargetTimeFormatThreadLocal = ThreadLocal.withInitial {
+    SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+}
 
 @Composable
 fun TargetCard(
@@ -60,10 +88,14 @@ fun TargetCard(
     modifier: Modifier = Modifier
 ) {
     val cardShape = ShapeTokens.LargeShape
-    val timeFormat = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
-    val lastCheckStr = target.lastCheckedAt?.let {
-        stringResource(R.string.last_checked_format, timeFormat.format(Date(it)))
-    } ?: stringResource(R.string.never_checked)
+    val formattedLastCheck = remember(target.lastCheckedAt) {
+        target.lastCheckedAt?.let { TargetTimeFormatThreadLocal.get()?.format(Date(it)) }
+    }
+    val lastCheckStr = if (formattedLastCheck != null) {
+        stringResource(R.string.last_checked_format, formattedLastCheck)
+    } else {
+        stringResource(R.string.never_checked)
+    }
 
     Surface(
         modifier = modifier
@@ -91,31 +123,45 @@ fun TargetCard(
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     val context = LocalContext.current
-                    val localFile = target.localAvatarPath?.let { File(it) }
-                    val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, target.username)
-                    val archiveDirFile = File(com.instalogger.app.util.ArchiveDirectoryManager.getArchiveDirectory(context), "${target.username}/profile/avatar_current.jpg")
-                    val resolvedAvatarFile = when {
-                        internalFile != null && internalFile.exists() && internalFile.length() > 0 -> internalFile
-                        localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0 -> localFile
-                        archiveDirFile.exists() && archiveDirFile.length() > 0 -> archiveDirFile
-                        else -> null
+                    val imageSource by produceState<Any?>(
+                        initialValue = target.avatarUrl?.takeIf { it.isNotBlank() },
+                        key1 = target.username,
+                        key2 = target.localAvatarPath,
+                        key3 = target.avatarHash ?: target.lastCheckedAt
+                    ) {
+                        val resolvedFile = withContext(Dispatchers.IO) {
+                            val localFile = target.localAvatarPath?.let { File(it) }
+                            val internalFile = com.instalogger.app.util.ArchiveDirectoryManager.getInternalAvatar(context, target.username)
+                            val archiveDirFile = File(
+                                com.instalogger.app.util.ArchiveDirectoryManager.getArchiveDirectory(context),
+                                "${target.username}/profile/avatar_current.jpg"
+                            )
+                            when {
+                                internalFile != null && internalFile.exists() && internalFile.length() > 0L -> internalFile
+                                localFile != null && localFile.exists() && localFile.canRead() && localFile.length() > 0L -> localFile
+                                archiveDirFile.exists() && archiveDirFile.length() > 0L -> archiveDirFile
+                                else -> null
+                            }
+                        }
+                        value = resolvedFile ?: target.avatarUrl?.takeIf { it.isNotBlank() }
                     }
 
-                    val imageSource: Any? = when {
-                        resolvedAvatarFile != null -> resolvedAvatarFile
-                        !target.avatarUrl.isNullOrBlank() -> target.avatarUrl
-                        else -> null
+                    val avatarCacheKey = remember(target.username, target.avatarHash, target.lastCheckedAt) {
+                        "avatar_${target.username.lowercase()}_${target.avatarHash ?: target.lastCheckedAt ?: 0L}"
                     }
-
-                    val activeStoryBrush = Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFFF58529),
-                            Color(0xFFFEDA77),
-                            Color(0xFFDD2A7B),
-                            Color(0xFF8134AF),
-                            Color(0xFF515BD4)
-                        )
-                    )
+                    val avatarImageRequest = remember(context, imageSource, avatarCacheKey) {
+                        if (imageSource == null) {
+                            null
+                        } else {
+                            ImageRequest.Builder(context)
+                                .data(imageSource)
+                                .memoryCacheKey(avatarCacheKey)
+                                .size(192)
+                                .crossfade(false)
+                                .setHeader("User-Agent", IG_IMAGE_USER_AGENT)
+                                .build()
+                        }
+                    }
 
                     // Fixed 60dp avatar container so toggling active story ring NEVER shifts username/badges
                     Box(
@@ -125,7 +171,7 @@ fun TargetCard(
                             .then(
                                 if (target.hasActiveStory) {
                                     Modifier
-                                        .border(2.5.dp, activeStoryBrush, CircleShape)
+                                        .border(2.5.dp, ActiveStoryRingBrush, CircleShape)
                                         .padding(3.dp)
                                 } else {
                                     Modifier.padding(3.dp)
@@ -133,14 +179,7 @@ fun TargetCard(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(imageSource)
-                                .memoryCacheKey("avatar_${target.username.lowercase()}_${target.avatarHash ?: target.lastCheckedAt ?: 0L}")
-                                .crossfade(true)
-                                .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-                                .build(),
-                            contentDescription = target.username,
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(CircleShape)
@@ -151,25 +190,18 @@ fun TargetCard(
                                         Modifier
                                     }
                                 ),
-                            contentScale = ContentScale.Crop,
-                            loading = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = AccentBlue
-                                    )
-                                }
-                            },
-                            error = {
-                                AvatarInitialsFallback(username = target.username)
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AvatarInitialsFallback(username = target.username)
+                            if (avatarImageRequest != null) {
+                                AsyncImage(
+                                    model = avatarImageRequest,
+                                    contentDescription = target.username,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
                             }
-                        )
+                        }
                     }
 
                     Column(modifier = Modifier.weight(1f)) {
@@ -397,17 +429,13 @@ fun TargetCard(
 
 @Composable
 private fun AvatarInitialsFallback(username: String, modifier: Modifier = Modifier) {
-    val initial = username.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    val gradientBrush = Brush.linearGradient(
-        colors = listOf(
-            AccentBlue,
-            AccentBlueDark
-        )
-    )
+    val initial = remember(username) {
+        username.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    }
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(gradientBrush),
+            .background(AvatarFallbackBrush),
         contentAlignment = Alignment.Center
     ) {
         Text(
